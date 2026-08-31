@@ -9,6 +9,9 @@ module.exports = tseslint.config(
     extends: [...angular.configs.tsRecommended],
     processor: angular.processInlineTemplates,
     rules: {
+      // Erno templates inject via constructors; Angular 22's recommended set
+      // prefers inject(). Keep the scaffold until those pages are rewritten.
+      "@angular-eslint/prefer-inject": "off",
       "@angular-eslint/component-class-suffix": [
         "error",
         { suffixes: ["Page", "Component"] },

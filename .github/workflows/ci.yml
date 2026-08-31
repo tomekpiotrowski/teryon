@@ -1,0 +1,143 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+# Mirrors `erno lint` and `erno test` for the conventional Erno layout
+# (`api/`, `app/`, `www/`, `e2e/`). Keep this in step with those commands:
+# a check that only exists here is a check nobody can reproduce locally.
+#
+# App unit tests (`bun run test:ci`) are omitted: Ionic 9's published ESM
+# uses extensionless imports that Vitest/jsdom cannot resolve yet.
+jobs:
+  api:
+    name: API
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: api
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: teryon
+          POSTGRES_PASSWORD: teryon
+          POSTGRES_DB: teryon_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: api
+      - name: Check formatting
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Test
+        run: cargo test
+
+  app:
+    name: App
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - name: Install
+        run: bun install --frozen-lockfile
+      - name: Lint
+        run: bun run lint
+      - name: Build
+        run: bun run build
+
+  www:
+    name: WWW
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: www
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - name: Install
+        run: bun install --frozen-lockfile
+      - name: Build
+        run: bun run build
+
+  e2e:
+    name: E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: teryon
+          POSTGRES_PASSWORD: teryon
+          POSTGRES_DB: teryon_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: api
+      - uses: oven-sh/setup-bun@v2
+      - name: Install app
+        run: bun install --frozen-lockfile
+        working-directory: app
+      - name: Install Playwright
+        run: bun install && bunx playwright install --with-deps chromium
+        working-directory: e2e
+      - name: Start API
+        working-directory: api
+        env:
+          APP_ENVIRONMENT: test
+        run: |
+          nohup cargo run >/tmp/teryon-api.log 2>&1 &
+          for i in $(seq 1 90); do
+            if curl -sf http://127.0.0.1:3001/liveness >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "API did not become ready on http://127.0.0.1:3001"
+          cat /tmp/teryon-api.log
+          exit 1
+      - name: Test
+        working-directory: e2e
+        env:
+          API_URL: http://127.0.0.1:3001
+          APP_URL: http://127.0.0.1:4200
+          CI: true
+        run: bunx playwright test
