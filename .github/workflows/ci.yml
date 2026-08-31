@@ -38,7 +38,7 @@ jobs:
           POSTGRES_DB: teryon_test
         ports: ['5432:5432']
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U teryon"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -93,6 +93,7 @@ jobs:
     name: E2E
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    needs: api
     services:
       postgres:
         image: postgres:16
@@ -102,7 +103,7 @@ jobs:
           POSTGRES_DB: teryon_test
         ports: ['5432:5432']
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U teryon"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -119,15 +120,24 @@ jobs:
       - name: Install Playwright
         run: bun install && bunx playwright install --with-deps chromium
         working-directory: e2e
+      - name: Build API
+        working-directory: api
+        run: cargo build
       - name: Start API
         working-directory: api
         env:
           APP_ENVIRONMENT: test
         run: |
-          nohup cargo run >/tmp/teryon-api.log 2>&1 &
-          for i in $(seq 1 90); do
+          nohup ./target/debug/teryon >/tmp/teryon-api.log 2>&1 &
+          echo $! >/tmp/teryon-api.pid
+          for i in $(seq 1 60); do
             if curl -sf http://127.0.0.1:3001/liveness >/dev/null; then
               exit 0
+            fi
+            if ! kill -0 "$(cat /tmp/teryon-api.pid)" 2>/dev/null; then
+              echo "API process exited before /liveness answered"
+              cat /tmp/teryon-api.log
+              exit 1
             fi
             sleep 1
           done
