@@ -1,0 +1,9 @@
+/api/target
+/app/dist
+/app/node_modules
+/www/dist
+/www/node_modules
+/www/.astro
+.erno/
+config/local.toml
+.env

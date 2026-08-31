@@ -1,0 +1,50 @@
+{
+  "author": "Ionic Framework",
+  "dependencies": {
+    "@angular/common": "22.0.1",
+    "@angular/compiler": "22.0.1",
+    "@angular/core": "22.0.1",
+    "@angular/forms": "22.0.1",
+    "@angular/platform-browser": "22.0.1",
+    "@angular/router": "22.0.1",
+    "@capacitor/app": "^7.0.0",
+    "@capacitor/core": "^7.0.0",
+    "@capacitor/haptics": "^7.0.0",
+    "@capacitor/keyboard": "^7.0.0",
+    "@capacitor/status-bar": "^7.0.0",
+    "@ionic/angular": "^9.0.0",
+    "erno-angular": "https://github.com/tomekpiotrowski/erno/releases/download/v0.1.0/erno-angular-0.1.0.tgz",
+    "ionicons": "^8.1.0",
+    "rxjs": "~7.8.0",
+    "tslib": "^2.3.0"
+  },
+  "description": "An Ionic project",
+  "devDependencies": {
+    "@angular/build": "22.0.1",
+    "@angular/cli": "22.0.1",
+    "@angular/compiler-cli": "22.0.1",
+    "@angular/language-service": "22.0.1",
+    "@capacitor/cli": "^7.0.0",
+    "@ionic/angular-toolkit": "^13.0.0",
+    "@ionic/cli": "^7.2.0",
+    "angular-eslint": "22.0.0",
+    "eslint": "^9.16.0",
+    "jsdom": "^26.0.0",
+    "typescript": "~6.0.0",
+    "typescript-eslint": "^8.61.0",
+    "vitest": "^4.0.8"
+  },
+  "homepage": "https://ionicframework.com/",
+  "name": "teryon-app",
+  "private": true,
+  "scripts": {
+    "build": "ng build",
+    "lint": "ng lint",
+    "ng": "ng",
+    "start": "ng serve",
+    "test": "ng test",
+    "test:ci": "ng test --watch=false",
+    "watch": "ng build --watch --configuration development"
+  },
+  "version": "0.0.1"
+}

@@ -1,0 +1,18 @@
+<ion-content class="ion-padding">
+  <ion-card>
+    <ion-card-header>
+      <ion-card-title>Verify email</ion-card-title>
+    </ion-card-header>
+    <ion-card-content>
+      @if (state() === 'loading') {
+        <p>Verifying…</p>
+      }
+      @if (state() === 'error') {
+        <ion-text color="danger">
+          <p>{{ error() }}</p>
+          <p><a routerLink="/login">Back to sign in</a></p>
+        </ion-text>
+      }
+    </ion-card-content>
+  </ion-card>
+</ion-content>

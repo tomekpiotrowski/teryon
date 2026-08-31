@@ -1,0 +1,72 @@
+api_url = "http://localhost:3000"
+app_url = "http://localhost:4200"
+
+[tracing]
+log_level = "debug"
+
+# Off in development: nothing local receives OTLP, and a configured endpoint
+# with nothing behind it is an exporter retrying a dead port for the life of the
+# process. If the collector's dev stack is running, point this at its OTLP
+# receiver — `endpoint = "http://localhost:3001/api/otlp"` — with the ingest
+# token of a project created by `erno monitoring add`.
+[tracing.otel]
+endpoint = ""
+token = ""
+sample_ratio = 1.0
+log_level = "info"
+
+[database]
+url = "postgres://teryon:teryon@localhost/teryon_development"
+pool_size = 5
+
+[server]
+port = 3000
+
+[email]
+type = "mock"
+
+[auth]
+secret = "PlP0HxSpJySxNfgiTzXVlzNyhxueWwgd9h2tDy7gf5I="
+access_token_minutes = 15
+one_time_token_expiry_hours = 24
+refresh_token_days = 30
+
+[jobs.cleanup]
+interval_seconds = 3600
+completed_retention_seconds = 7200
+failed_retention_seconds = 172800
+batch_size = 1000
+
+[jobs.workers.default]
+jobs = ["send_verification_email", "send_password_reset_email", "send_already_registered_email", "cancel_stripe_subscription", "delete_stripe_customer", "delete_user_files", "delete_record_attachments", "anonymize_collector_events"]
+count = 2
+job_timeout = 300
+max_retries = 4
+base_retry_delay_seconds = 60
+retry_backoff_multiplier = 5
+
+[rate_limiting]
+enabled = true
+default_window_secs = 60
+default_max_requests = 100
+backoff_multiplier = 2.0
+
+[cors]
+allowed_origins = ["http://localhost:4200", "http://localhost:4300"]
+
+[metrics]
+table_counts = ["users", "job", "job_execution", "files", "file_attachments", "stripe_subscriptions", "email_messages", "admin_event"]
+
+# Operator admin API. Dev password: admin
+[admin]
+username = "admin"
+password_hash = "$argon2id$v=19$m=19456,t=2,p=1$5B2ECOLqakkxkiD5EjKyDQ$PBe29N0j5lou/OHFWQuxjKEnL7fv4GE9MhniBui9rYc"
+
+# Report this application's own errors to a monitoring deployment.
+# Inert until `collector_url` is set, so a fresh app never phones home.
+[error_reporting]
+enabled = true
+collector_url = ""          # e.g. "http://localhost:3001" against a local collector
+ingest_token = ""           # trusted server-to-server token; a real secret
+capture_tracing_errors = true
+capture_panics = true
