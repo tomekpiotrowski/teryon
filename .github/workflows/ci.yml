@@ -72,6 +72,18 @@ jobs:
       # resolve. Do not add `bun run test:ci` here until `erno test --app` is
       # green locally.
 
+  admin:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: admin
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - run: bun run test
+
   www:
     runs-on: ubuntu-latest
     defaults:

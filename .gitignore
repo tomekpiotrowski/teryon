@@ -1,6 +1,9 @@
 /api/target
 /app/dist
 /app/node_modules
+/admin/dist
+/admin/node_modules
+/admin/.angular
 /www/dist
 /www/node_modules
 /www/.astro
