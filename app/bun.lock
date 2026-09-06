@@ -17,7 +17,7 @@
         "@capacitor/keyboard": "^7.0.0",
         "@capacitor/status-bar": "^7.0.0",
         "@ionic/angular": "^9.0.0",
-        "erno-angular": "https://github.com/tomekpiotrowski/erno/releases/download/v0.2.0/erno-angular-0.2.0.tgz",
+        "erno-angular": "https://github.com/tomekpiotrowski/erno/releases/download/v0.3.0/erno-angular-0.3.0.tgz",
         "ionicons": "^8.1.0",
         "rxjs": "~7.8.0",
         "tslib": "^2.3.0",
@@ -766,7 +766,7 @@
 
     "environment": ["environment@1.1.0", "", {}, "sha512-xUtoPkMggbz0MPyPiIWr1Kp4aeWJjDZ6SMvURhimjdZgsRuDplF5/s9hcgGhyXMhs+6vpnuoiZ2kFiu3FMnS8Q=="],
 
-    "erno-angular": ["erno-angular@https://github.com/tomekpiotrowski/erno/releases/download/v0.2.0/erno-angular-0.2.0.tgz", { "dependencies": { "dexie": "^4.4.2", "tslib": "^2.3.0" }, "peerDependencies": { "@angular/common": "^22.0.0", "@angular/core": "^22.0.0", "@capacitor/app": ">=6.0.0", "@capacitor/network": ">=6.0.0", "@ionic/angular": ">=9.0.0", "rxjs": "~7.8.0" }, "optionalPeers": ["@capacitor/app", "@capacitor/network"] }, "sha512-vTjpcqLmsnsYukHDp8opYoyAIQ3iny+cUdTRFZjjLY8XZ4DvI3g6NVYIFQq0mFkrR3p3LOF0V7mP4G6uS6ruHQ=="],
+    "erno-angular": ["erno-angular@https://github.com/tomekpiotrowski/erno/releases/download/v0.3.0/erno-angular-0.3.0.tgz", { "dependencies": { "dexie": "^4.4.2", "tslib": "^2.3.0" }, "peerDependencies": { "@angular/common": "^22.0.0", "@angular/core": "^22.0.0", "@capacitor/app": ">=6.0.0", "@capacitor/network": ">=6.0.0", "@ionic/angular": ">=9.0.0", "rxjs": "~7.8.0" }, "optionalPeers": ["@capacitor/app", "@capacitor/network"] }, "sha512-cluDOc91mpkqoU7WAqPi4h6hzqfb07+Ha8f4fLHzKB90pDTWp977fiWODP0o3CNdpE6BjmWYYJiJdb0PEr4RTw=="],
 
     "es-define-property": ["es-define-property@1.0.1", "", {}, "sha512-e3nRfgfUZ4rNGL232gUgX06QNyyez04KdjFrF+LTRoOXmrOgFKDg4BCdsjW8EnT69eqdYGmRpJwiPVYNrCaW3g=="],
 

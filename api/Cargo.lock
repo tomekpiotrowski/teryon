@@ -1592,8 +1592,8 @@ dependencies = [
 
 [[package]]
 name = "erno"
-version = "0.2.0"
-source = "git+https://github.com/tomekpiotrowski/erno?tag=v0.2.0#497490d69052a3391cb5c1b0bc7e748fbf6e485c"
+version = "0.3.0"
+source = "git+https://github.com/tomekpiotrowski/erno?tag=v0.3.0#42b9a6333394ce60b8f1ca819553fbd4712482a8"
 dependencies = [
  "argon2",
  "async-stripe",
@@ -1650,8 +1650,8 @@ dependencies = [
 
 [[package]]
 name = "erno-error-reporting-types"
-version = "0.2.0"
-source = "git+https://github.com/tomekpiotrowski/erno?tag=v0.2.0#497490d69052a3391cb5c1b0bc7e748fbf6e485c"
+version = "0.3.0"
+source = "git+https://github.com/tomekpiotrowski/erno?tag=v0.3.0#42b9a6333394ce60b8f1ca819553fbd4712482a8"
 dependencies = [
  "chrono",
  "serde",
