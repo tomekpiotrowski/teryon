@@ -2,7 +2,8 @@ import { Component, effect, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router } from '@angular/router';
 import { filter, map } from 'rxjs/operators';
-import { IonApp, IonRouterOutlet } from '@ionic/angular';
+import { IonApp } from '@ionic/angular/ion-app';
+import { IonRouterOutlet } from '@ionic/angular/ion-router-outlet';
 import { ErnoAuthService, ErnoDevtoolsComponent } from 'erno-angular';
 
 /** Routes reachable without a session. */

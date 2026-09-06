@@ -9,6 +9,9 @@ export default defineConfig({
   timeout: 30_000,
   use: {
     baseURL: appUrl,
+    ...(process.env.PLAYWRIGHT_CHROMIUM_PATH
+      ? { launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH } }
+      : {}),
   },
   // `erno test --e2e` starts the API on a free port and sets API_URL / APP_URL.
   webServer: process.env.SKIP_APP_SERVER
