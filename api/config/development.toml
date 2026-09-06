@@ -1,6 +1,11 @@
 api_url = "http://localhost:3000"
 app_url = "http://localhost:4200"
 
+# Branded HTML email bodies, resolved relative to the process working
+# directory — the API is always run from api/, same as config/ itself.
+# Erno falls back to a plain unstyled body for any file that is missing.
+email_templates_dir = "emails"
+
 [tracing]
 log_level = "debug"
 
