@@ -83,6 +83,23 @@ impl Scene {
             .await
     }
 
+    /// Asks for something, with the given `name=value` pairs after the address.
+    pub async fn get(&self, path: &str, query: &[(&str, &str)]) -> TestResponse {
+        self.get_as(&self.token, path, query).await
+    }
+
+    pub async fn get_as(&self, token: &str, path: &str, query: &[(&str, &str)]) -> TestResponse {
+        let mut request = self
+            .t
+            .server
+            .get(path)
+            .add_header("Authorization", token.to_string());
+        for (name, value) in query {
+            request = request.add_query_param(name, value);
+        }
+        request.await
+    }
+
     pub async fn delete(&self, path: &str) -> TestResponse {
         self.delete_as(&self.token, path).await
     }

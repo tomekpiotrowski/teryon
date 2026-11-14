@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, ElementRef, inject, OnDestroy, ViewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, HostListener, inject, OnDestroy, ViewChild } from '@angular/core';
 import { AlertController } from '@ionic/angular/alert-controller';
 import { ErnoAlertsService, ErnoAuthService } from 'erno-angular';
 import {
@@ -14,6 +14,7 @@ import {
   tap,
 } from 'rxjs';
 import { ThemeService } from '../theme.service';
+import { askDraft, isFilesShortcut } from './files.model';
 import { WorkspaceApi } from './workspace.api';
 import {
   type AgentName,
@@ -40,6 +41,8 @@ interface WorkspaceView {
   readonly thread: Thread | null;
   readonly lines: readonly EntryLine[];
   readonly running: boolean;
+  /** How many agents are running in the selected project. */
+  readonly liveAgents: number;
 }
 
 /**
@@ -62,6 +65,7 @@ export class WorkspacePage implements OnDestroy {
   private readonly api = inject(WorkspaceApi);
   private readonly alerts = inject(ErnoAlertsService);
   private readonly alertController = inject(AlertController);
+  private readonly host: ElementRef<HTMLElement> = inject(ElementRef);
 
   readonly threadLabel = threadLabel;
   readonly agentLabel = agentLabel;
@@ -74,6 +78,8 @@ export class WorkspacePage implements OnDestroy {
   readonly projectFormOpen$ = new BehaviorSubject(false);
   /** True while a request is on its way, so a second press does not send it twice. */
   readonly sending$ = new BehaviorSubject(false);
+  /** Whether the selected project's files are shown in place of its threads. */
+  readonly filesOpen$ = new BehaviorSubject(false);
 
   readonly view$: Observable<WorkspaceView> = combineLatest([
     combineLatest([this.store.projects$, this.store.threads$]).pipe(
@@ -91,6 +97,7 @@ export class WorkspacePage implements OnDestroy {
           thread,
           lines: entries.map(entryLine),
           running: thread?.status === 'running',
+          liveAgents: liveAgentsIn(groups, project),
         })),
       );
     }),
@@ -113,6 +120,34 @@ export class WorkspacePage implements OnDestroy {
 
   ngOnDestroy(): void {
     this.following.unsubscribe();
+  }
+
+  /** `C` switches between the thread and the files, as the `code C` hint on screen says. */
+  @HostListener('document:keydown', ['$event'])
+  handleShortcut(event: KeyboardEvent): void {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    const press = {
+      key: event.key,
+      ctrlKey: event.ctrlKey,
+      metaKey: event.metaKey,
+      altKey: event.altKey,
+      element: target?.tagName ?? '',
+      editable: target?.isContentEditable ?? false,
+    };
+    if (!isFilesShortcut(press) || this.settingsOpen$.value) return;
+    event.preventDefault();
+    this.filesOpen$.next(!this.filesOpen$.value);
+  }
+
+  /** Goes back to the thread with the file named in the message box, ready to be asked about. */
+  askAbout(path: string): void {
+    this.draft$.next(askDraft(this.draft$.value, path));
+    this.filesOpen$.next(false);
+    requestAnimationFrame(() => {
+      const box = this.host.nativeElement.querySelector('textarea');
+      box?.focus();
+      box?.setSelectionRange(box.value.length, box.value.length);
+    });
   }
 
   selectProject(project: Project): void {
@@ -232,4 +267,9 @@ export class WorkspacePage implements OnDestroy {
         this.alerts.error(error?.status === 403 ? 'Incorrect password.' : 'Could not delete account.'),
     });
   }
+}
+
+function liveAgentsIn(groups: readonly ProjectGroup[], project: Project | null): number {
+  const group = groups.find((candidate) => candidate.project.id === project?.id);
+  return group?.threads.filter((thread) => thread.status === 'running').length ?? 0;
 }

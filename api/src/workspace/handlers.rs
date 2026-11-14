@@ -251,7 +251,7 @@ fn title_from(text: &str) -> String {
     }
 }
 
-async fn owned_project(
+pub(crate) async fn owned_project(
     db: &DatabaseConnection,
     user_id: Uuid,
     project_id: Uuid,

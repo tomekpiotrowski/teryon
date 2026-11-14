@@ -1,0 +1,100 @@
+@if (view$ | async; as view) {
+  <div class="files">
+    <header class="files-bar">
+      <span class="files-mark">TERYON</span>
+      <span class="files-muted files-project">{{ view.projectName }}@if (view.live) { · {{ view.live }} }</span>
+      @if (view.branches.length) {
+        <label class="files-branch">
+          <span class="files-muted">branch</span>
+          <select aria-label="Branch" (change)="chooseBranch($event)">
+            @if (!view.branch) { <option value="" selected>not on a branch</option> }
+            @for (branch of view.branches; track branch) {
+              <option [value]="branch" [selected]="branch === view.branch">{{ branch }}</option>
+            }
+          </select>
+          <span class="files-muted" aria-hidden="true">▾</span>
+        </label>
+      }
+    </header>
+
+    <div class="files-shell">
+      <nav class="files-side" aria-label="Repository files">
+        <div class="files-filter">
+          <label for="files-filter" class="files-key">files · {{ view.repository }}</label>
+          <input id="files-filter" type="text" autocomplete="off" placeholder="Filter files…" [value]="view.filter" (input)="updateFilter($event)" />
+        </div>
+
+        <div class="files-tree">
+          @for (row of view.rows; track row.path) {
+            <button
+              type="button"
+              class="files-row"
+              [class.selected]="row.path === view.selected"
+              [class.deleted]="row.change === 'deleted'"
+              [style.padding-left.px]="rowIndent(row)"
+              [attr.aria-current]="row.path === view.selected ? 'true' : null"
+              [attr.aria-expanded]="row.kind === 'folder' ? row.open : null"
+              (click)="choose(row)"
+            >
+              @if (row.kind === 'folder') { <span class="files-muted" aria-hidden="true">{{ row.open ? '▾' : '▸' }}</span> }
+              <span class="files-name">{{ row.name }}</span>
+              @if (row.changed) { <span class="files-status" aria-label="has changes">●</span> }
+              @if (row.change) { <span class="files-status" [attr.aria-label]="row.change">{{ changeLetter(row.change) }}</span> }
+            </button>
+          }
+          @if (view.filter && !view.rows.length) { <p class="files-muted files-nothing">No file matches.</p> }
+        </div>
+
+        <div class="files-legend files-muted">
+          <span><span class="files-status">M</span> modified</span>
+          <span><span class="files-status">A</span> added</span>
+          <span><span class="files-status">D</span> deleted</span>
+          <span><span class="files-status">●</span> has changes</span>
+        </div>
+      </nav>
+
+      <main class="files-main">
+        @if (view.file; as file) {
+          <div class="files-heading">
+            <span class="files-muted files-folders">{{ file.folders }}</span>
+            <h1>{{ file.name }}</h1>
+            @if (file.tag) { <span class="files-tag">{{ file.tag }}</span> }
+            <span class="files-spacer"></span>
+            <div class="files-modes" role="group" aria-label="How the file is shown">
+              <button type="button" [class.active]="file.mode === 'file'" [attr.aria-pressed]="file.mode === 'file'" [disabled]="!file.fileAvailable" (click)="chooseMode('file')">File</button>
+              <button type="button" [class.active]="file.mode === 'diff'" [attr.aria-pressed]="file.mode === 'diff'" [disabled]="!file.diffAvailable" (click)="chooseMode('diff')">Diff</button>
+            </div>
+            <button type="button" class="files-ask" (click)="asked.emit(file.path)">Ask about this file</button>
+          </div>
+
+          @if (file.lines?.length) {
+            <div class="files-code" role="region" tabindex="0" [attr.aria-label]="'Content of ' + file.path">
+              <div class="files-lines">
+                @for (line of file.lines; track $index) {
+                  <div class="files-line" [class.added]="line.change === 'added'" [class.removed]="line.change === 'removed'">
+                    <span class="files-number">{{ line.number ?? '−' }}</span><span>{{ line.text }}</span>
+                  </div>
+                }
+              </div>
+            </div>
+          } @else {
+            <p class="files-notice files-muted">{{ file.notice }}</p>
+          }
+        } @else {
+          <p class="files-notice files-muted">{{ view.notice }}</p>
+        }
+
+        <footer class="files-foot files-muted">
+          @if (view.file; as file) {
+            @if (file.language) { <span>{{ file.language }}</span><span aria-hidden="true">·</span> }
+            @if (file.lineCount) { <span>{{ file.lineCount }}</span> }
+          }
+          <span class="files-spacer"></span>
+          <span>read-only</span>
+          <span aria-hidden="true">·</span>
+          <button type="button" class="code-link" aria-current="page" aria-keyshortcuts="c" (click)="closed.emit()">code <kbd>C</kbd></button>
+        </footer>
+      </main>
+    </div>
+  </div>
+}

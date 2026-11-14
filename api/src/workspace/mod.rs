@@ -15,6 +15,7 @@ use axum::{Extension, Router};
 use erno::sync::delta::sync_delta;
 
 use crate::agents::runner::Runner;
+use crate::files::handlers::{list_files, show_file};
 use crate::settings::Settings;
 use crate::workspace::handlers::{
     create_project, create_thread, delete_project, send_message, stop_thread,
@@ -42,6 +43,8 @@ pub fn router(app: Teryon) -> Router {
         )
         .route("/projects/{id}", delete(delete_project))
         .route("/projects/{id}/threads", post(create_thread))
+        .route("/projects/{id}/files", get(list_files))
+        .route("/projects/{id}/file", get(show_file))
         .route("/threads/sync", get(sync_delta::<thread::Entity, Settings>))
         .route("/threads/{id}/messages", post(send_message))
         .route("/threads/{id}/stop", post(stop_thread))
