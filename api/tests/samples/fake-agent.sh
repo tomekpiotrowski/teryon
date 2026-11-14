@@ -1,0 +1,44 @@
+#!/bin/sh
+# Stands in for the claude and grok programs in tests.
+#
+# Tests must never reach a real provider, so the test configuration starts
+# this instead. It replays recordings of the real programs and can be told,
+# through words in the message, to misbehave in the ways Teryon has to handle.
+#
+# It appends how it was started, on one line, to `.fake-agent-invocations` in
+# the directory it runs in, which is the project directory, so tests can check
+# that too.
+
+agent="$1"
+shift
+samples="$(dirname "$0")/agents"
+printf '%s\n' "$(printf '%s' "$*" | tr '\n' ' ')" >> .fake-agent-invocations
+
+case "$*" in
+  *"please fail"*)
+    echo "the fake agent was told to fail" >&2
+    exit 3
+    ;;
+  *"end silently"*)
+    exit 4
+    ;;
+  *"be slow"*)
+    head -n 1 "$samples/$agent-first.jsonl"
+    exec sleep 30
+    ;;
+  *"be stubborn"*)
+    trap '' INT
+    head -n 1 "$samples/$agent-first.jsonl"
+    exec sleep 30
+    ;;
+  *"say nonsense"*)
+    echo "this is not a report line"
+    cat "$samples/$agent-first.jsonl"
+    ;;
+  *"use tools"*)
+    cat "$samples/$agent-tools.jsonl"
+    ;;
+  *)
+    cat "$samples/$agent-first.jsonl"
+    ;;
+esac

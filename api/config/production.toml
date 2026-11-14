@@ -60,3 +60,8 @@ enabled = true
 capture_tracing_errors = false
 capture_panics = true
 ignore_targets = []
+
+# Running agents is off until folders are listed: an agent changes files, so
+# the folders a project may live in are opt-in.
+[agents]
+allowed_folders = []

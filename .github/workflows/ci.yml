@@ -135,7 +135,14 @@ jobs:
         working-directory: api
         run: |
           set -euo pipefail
-          APP_ENVIRONMENT=test ./target/debug/teryon >"$RUNNER_TEMP/api.log" 2>&1 &
+          # The same settings `erno test` gives the API: the workspace tests
+          # sign in through the browser, which needs the application's address
+          # allowed as an origin.
+          APP_ENVIRONMENT=test \
+          APP__API_URL=http://127.0.0.1:3001 \
+          APP__APP_URL=http://127.0.0.1:4200 \
+          ERNO_DEV_CORS_ORIGINS=http://127.0.0.1:4200,http://localhost:4200 \
+            ./target/debug/teryon >"$RUNNER_TEMP/api.log" 2>&1 &
           echo $! >"$RUNNER_TEMP/api.pid"
           for i in $(seq 1 60); do
             if ! kill -0 "$(cat "$RUNNER_TEMP/api.pid")" 2>/dev/null; then

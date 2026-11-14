@@ -29,8 +29,6 @@
   --color-accent-700: #416180;
   --color-accent-800: #2c455d;
   --color-accent-900: #1d2d3d;
-  --diff-add: color-mix(in srgb, #3f8a4d 11%, transparent);
-  --diff-delete: color-mix(in srgb, #b04a4a 11%, transparent);
   --font-heading: 'Barlow Condensed', system-ui, sans-serif;
   --font-body: 'Barlow', system-ui, sans-serif;
   --font-code: 'IBM Plex Mono', ui-monospace, monospace;
@@ -63,8 +61,6 @@
   --color-accent-700: #a3c1e0;
   --color-accent-800: #c6daee;
   --color-accent-900: #e4eef8;
-  --diff-add: color-mix(in srgb, #7fbf8a 16%, transparent);
-  --diff-delete: color-mix(in srgb, #c98080 16%, transparent);
 }
 
 * {
@@ -474,13 +470,13 @@ a:hover {
   font-variant-numeric: tabular-nums;
 }
 
-.attention-list {
+.thread-list {
   display: flex;
   flex-direction: column;
   margin: 0 0 10px 19px;
 }
 
-.attention-row {
+.thread-row {
   display: flex;
   min-height: 26px;
   align-items: baseline;
@@ -490,15 +486,68 @@ a:hover {
   text-align: left;
 }
 
-.attention-row:hover { color: var(--color-text) !important; }
-.attention-row span:first-child {
+.thread-row:hover,
+.thread-row.selected { color: var(--color-text) !important; }
+.thread-row span:first-child {
   width: 9px;
   flex: none;
   color: var(--color-accent);
   font: 600 11px/1.4 var(--font-heading);
   text-align: center;
 }
-.attention-row span:last-child { font-size: 12.5px; }
+.thread-row span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-line {
+  display: flex;
+  align-items: center;
+}
+
+.project-line .project-row { min-width: 0; flex: 1; }
+
+/* Removing a project is rare, so its control stays out of the way until the
+   row is pointed at or reached with the keyboard. */
+.remove-project {
+  min-width: 26px;
+  min-height: 26px;
+  color: var(--color-neutral-500) !important;
+  font-size: 15px;
+  opacity: 0;
+}
+
+.project-line:hover .remove-project,
+.remove-project:focus-visible { opacity: 1; }
+.remove-project:hover { color: #9d3838 !important; }
+
+.project-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 0 10px;
+}
+
+.project-form input {
+  min-height: 32px;
+  border: 0;
+  border-bottom: 1px solid var(--color-divider);
+  padding: 4px 0;
+  background: transparent;
+  color: var(--color-text);
+  font-size: 13px;
+}
+
+.project-form input:focus-visible { border-color: var(--color-accent); outline: none; }
+.project-form input::placeholder { color: var(--color-neutral-500); opacity: 1; }
+.project-form > div { display: flex; gap: 14px; }
+.project-form button { min-height: 30px; color: var(--color-neutral-500) !important; font-size: 12px; }
+.project-form button[type='submit'] { color: var(--color-accent-700) !important; }
+.project-form button:hover { color: var(--color-text) !important; }
 
 .new-project {
   margin-top: 6px;
@@ -621,6 +670,8 @@ a:hover {
 
 .message p {
   min-width: 180px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
   flex: 1;
   margin: 0;
   font-size: 15px;
@@ -639,12 +690,6 @@ a:hover {
   font: 400 13px/1.6 var(--font-code);
 }
 
-.message time,
-.attention-card time {
-  color: var(--color-neutral-500);
-  font: 400 11px/1.6 var(--font-code);
-}
-
 .activity-block,
 .live-line {
   color: var(--color-neutral-600);
@@ -659,8 +704,7 @@ a:hover {
 }
 
 .activity-block > div span:first-child,
-.live-line span:first-child,
-.diff-heading span:first-child {
+.live-line span:first-child {
   width: 8px;
   flex: none;
   font-size: 8px;
@@ -671,96 +715,31 @@ a:hover {
 
 .live-line { color: var(--color-accent-700); }
 
-.code-block {
+.notice-line,
+.summary-line,
+.error-line {
   margin: 0;
-  overflow-x: auto;
-  padding: 9px 12px;
-  background: var(--color-neutral-200);
-  color: var(--color-accent-700);
-  font: 400 12.5px/1.7 var(--font-code);
-  -webkit-overflow-scrolling: touch;
+  font: 400 12.5px/1.75 var(--font-code);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
-.diff-block {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 7px;
-}
+.notice-line,
+.summary-line { color: var(--color-neutral-500); }
+.error-line { color: #9d3838; }
 
-.diff-heading {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  flex-wrap: wrap;
-  font: 400 12.5px/1.6 var(--font-code);
-}
-
-.diff-heading span:first-child { color: var(--color-neutral-500); }
-.diff-heading strong { font-weight: 500; }
-.diff-heading span:last-child { color: var(--color-accent-700); overflow-wrap: anywhere; }
-
-.diff-lines {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-}
-
-.diff-lines > div {
-  display: flex;
-  min-width: max-content;
-  gap: 14px;
-  padding: 0 10px 0 18px;
-  font: 400 12.5px/1.7 var(--font-code);
-}
-
-.diff-lines .diff-added { background: var(--diff-add); }
-.diff-lines .diff-deleted { background: var(--diff-delete); }
-.line-number { width: 34px; flex: none; color: var(--color-neutral-500); text-align: right; }
-
-.attention-card {
-  display: flex;
-  align-items: baseline;
-  gap: 11px;
-  padding: 15px 16px;
-  flex-wrap: wrap;
-  background: transparent;
-}
-
-.attention-glyph {
-  color: var(--color-accent);
-  font: 600 12px/1.5 var(--font-heading);
-}
-
-.attention-copy {
-  display: flex;
-  min-width: 180px;
-  flex: 1;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.attention-copy p { margin: 0; font-size: 14px; line-height: 1.55; text-wrap: pretty; }
-.attention-copy > div { display: flex; align-items: center; gap: 20px; }
-.attention-copy button { min-height: 36px; color: var(--color-neutral-500); font: 400 12px/1 var(--font-code); }
-.attention-copy button:first-child { color: var(--color-accent-700); }
-.attention-copy button:hover { color: var(--color-accent); }
-
-.recap {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  border-left: 1px solid var(--color-divider);
-  padding-left: 14px;
-}
-
-.recap strong {
+.empty-workspace {
+  max-width: 420px;
+  margin: 0;
   color: var(--color-neutral-600);
-  font: 600 10px/1 var(--font-heading);
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
+  font-size: 15px;
+  line-height: 1.6;
+  text-align: center;
+  text-wrap: pretty;
 }
 
-.recap p { margin: 0; color: var(--color-neutral-700); font-size: 13.5px; line-height: 1.6; text-wrap: pretty; }
+.composer-meta .send-action:disabled { cursor: default; opacity: 0.45; }
+.composer-meta .stop-action { color: #9d3838; }
 
 .thread-composer {
   flex: none;
@@ -900,7 +879,8 @@ ion-alert {
 
   .project-row,
   .new-project { min-height: 44px; padding: 11px 10px !important; }
-  .attention-row { min-height: 44px; padding: 9px 10px !important; }
+  .thread-row { min-height: 44px; padding: 9px 10px !important; }
+  .remove-project { min-width: 44px; min-height: 44px; opacity: 1; }
 
   .navigation-backdrop {
     position: absolute;
@@ -921,7 +901,6 @@ ion-alert {
   .composer-meta button { min-height: 44px; }
   .thread-meta { gap: 8px; }
   .thread-meta > div { gap: 10px; }
-  .token-count { display: none; }
   .settings-actions { flex-direction: column; }
   .settings-actions .technical-button { width: 100%; }
 }

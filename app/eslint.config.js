@@ -21,6 +21,9 @@ module.exports = tseslint.config(
         "error",
         { type: "attribute", prefix: "app", style: "camelCase" },
       ],
+      // New screens are declared in NgModules, by choice, so a component
+      // that is not standalone is not a mistake here.
+      "@angular-eslint/prefer-standalone": "off",
     },
   },
   {

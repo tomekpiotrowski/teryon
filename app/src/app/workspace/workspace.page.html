@@ -1,0 +1,195 @@
+<ion-content class="workspace-content" [fullscreen]="true" [scrollY]="false">
+  @if (view$ | async; as view) {
+    <div class="workspace-shell">
+      <header class="mobile-header">
+        <button class="icon-button" type="button" aria-label="Open projects" (click)="navigationOpen$.next(true)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"></path></svg>
+        </button>
+        <strong>{{ view.thread ? threadLabel(view.thread) : (view.project?.name ?? 'Teryon') }}</strong>
+        <button class="icon-button theme-icon" type="button" aria-label="Toggle color theme" (click)="theme.toggle()">
+          {{ theme.theme() === 'dark' ? '☀' : '☾' }}
+        </button>
+      </header>
+
+      <div class="workspace-body">
+        <aside class="project-navigation" [class.open]="navigationOpen$ | async" aria-label="Projects">
+          <div class="navigation-brand">
+            <span>TERYON</span>
+            <button class="navigation-close" type="button" aria-label="Close projects" (click)="navigationOpen$.next(false)">×</button>
+          </div>
+
+          <nav class="project-list">
+            @for (group of view.groups; track group.project.id) {
+              <div class="project-group">
+                <div class="project-line">
+                  <button
+                    class="project-row"
+                    type="button"
+                    [class.selected]="group.project.id === view.project?.id && !view.thread"
+                    [attr.aria-expanded]="group.threads.length ? group.project.id === view.project?.id : null"
+                    (click)="selectProject(group.project)"
+                  >
+                    <span class="project-dot" [class.live]="group.running">{{ group.running ? '●' : '○' }}</span>
+                    <span class="project-name">{{ group.project.name }}</span>
+                    @if (group.threads.length) { <span class="project-count">{{ group.threads.length }}</span> }
+                  </button>
+                  <button
+                    class="remove-project"
+                    type="button"
+                    [attr.aria-label]="'Remove ' + group.project.name"
+                    (click)="confirmRemoveProject(group.project)"
+                  >×</button>
+                </div>
+
+                @if (group.project.id === view.project?.id && group.threads.length) {
+                  <div class="thread-list">
+                    @for (thread of group.threads; track thread.id) {
+                      <button
+                        type="button"
+                        class="thread-row"
+                        [class.selected]="thread.id === view.thread?.id"
+                        (click)="selectThread(thread)"
+                      >
+                        <span>{{ thread.status === 'running' ? '●' : '·' }}</span><span>{{ threadLabel(thread) }}</span>
+                      </button>
+                    }
+                  </div>
+                }
+              </div>
+            }
+
+            @if (projectFormOpen$ | async) {
+              <form class="project-form" (submit)="addProject($event, projectName.value, projectDirectory.value)">
+                <input #projectName type="text" aria-label="Project name" placeholder="Name" autocomplete="off" required />
+                <input #projectDirectory type="text" aria-label="Project directory" placeholder="/path/to/directory" autocomplete="off" required />
+                <div>
+                  <button type="submit">Add project</button>
+                  <button type="button" (click)="projectFormOpen$.next(false)">Cancel</button>
+                </div>
+              </form>
+            } @else {
+              <button class="new-project" type="button" (click)="projectFormOpen$.next(true)"><span>+</span><span>New project</span></button>
+            }
+          </nav>
+
+          <footer class="navigation-footer">
+            <button type="button" (click)="theme.toggle()">
+              {{ theme.theme() === 'dark' ? '☀ Light' : '☾ Dark' }}
+            </button>
+            <button type="button" (click)="settingsOpen$.next(true); navigationOpen$.next(false)">Settings</button>
+          </footer>
+        </aside>
+
+        @if (navigationOpen$ | async) {
+          <button class="navigation-backdrop" type="button" aria-label="Close projects" (click)="navigationOpen$.next(false)"></button>
+        }
+
+        <main class="project-view">
+          @if (!view.project) {
+            <section class="empty-project">
+              <p class="empty-workspace">Add a project to get started. A project is a directory on this machine that agents work in.</p>
+            </section>
+          } @else if (!view.thread) {
+            <section class="empty-project">
+              <div class="hero-composer">
+                <textarea
+                  class="hero-input"
+                  rows="1"
+                  aria-label="New thread"
+                  [placeholder]="'What should ' + agentLabel((agent$ | async) ?? 'claude') + ' do in ' + view.project.name + '?'"
+                  [value]="draft$ | async"
+                  (input)="updateDraft($event)"
+                  (keydown)="handleComposerKeydown($event, view)"
+                ></textarea>
+                <div class="composer-meta">
+                  <button type="button" aria-label="Change agent" (click)="toggleAgent()">{{ agentLabel((agent$ | async) ?? 'claude') }}</button>
+                  <span class="spacer"></span>
+                  <span>{{ view.project.directory }}</span>
+                  <button
+                    class="send-action"
+                    type="button"
+                    [class.ready]="(draft$ | async)?.trim()"
+                    [disabled]="sending$ | async"
+                    (click)="send(view)"
+                  >Run ↵</button>
+                </div>
+              </div>
+            </section>
+          } @else {
+            <section #thread class="thread" aria-label="Thread">
+              <div class="thread-inner">
+                @for (line of view.lines; track $index) {
+                  <article class="thread-entry" [class.user-entry]="line.kind === 'user'">
+                    @switch (line.kind) {
+                      @case ('user') {
+                        <div class="message"><span class="prompt-mark">❯</span><p>{{ line.text }}</p></div>
+                      }
+                      @case ('agent') {
+                        <div class="message agent-message"><p>{{ line.text }}</p></div>
+                      }
+                      @case ('activity') {
+                        <div class="activity-block"><div><span>◆</span><span>{{ line.text }}</span></div></div>
+                      }
+                      @case ('notice') { <p class="notice-line">{{ line.text }}</p> }
+                      @case ('error') { <p class="error-line" role="alert">{{ line.text }}</p> }
+                      @case ('summary') { <p class="summary-line">{{ line.text }}</p> }
+                    }
+                  </article>
+                }
+                @if (view.running) {
+                  <div class="live-line" role="status"><span>◆</span><span>{{ agentLabel(view.thread.agent) }} is working…</span></div>
+                }
+              </div>
+            </section>
+
+            <footer class="thread-composer">
+              <div class="composer-inner">
+                <label class="composer-field">
+                  <span>❯</span>
+                  <textarea
+                    rows="1"
+                    aria-label="Reply"
+                    placeholder="Reply"
+                    [value]="draft$ | async"
+                    (input)="updateDraft($event)"
+                    (keydown)="handleComposerKeydown($event, view)"
+                  ></textarea>
+                </label>
+                <div class="composer-meta thread-meta">
+                  <div><span>{{ agentLabel(view.thread.agent) }}</span></div>
+                  <div>
+                    @if (view.running) {
+                      <button class="stop-action" type="button" (click)="stop(view.thread)">stop</button>
+                    } @else {
+                      <button
+                        class="send-action"
+                        type="button"
+                        [class.ready]="(draft$ | async)?.trim()"
+                        [disabled]="sending$ | async"
+                        (click)="send(view)"
+                      >send ↵</button>
+                    }
+                  </div>
+                </div>
+              </div>
+            </footer>
+          }
+        </main>
+      </div>
+    </div>
+  }
+
+  @if (settingsOpen$ | async) {
+    <div class="settings-backdrop" role="presentation" (click)="settingsOpen$.next(false)">
+      <section class="settings-dialog blueprint" role="dialog" aria-modal="true" aria-labelledby="settings-title" (click)="$event.stopPropagation()">
+        <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+        <header><h1 id="settings-title">Account</h1><button type="button" aria-label="Close settings" (click)="settingsOpen$.next(false)">×</button></header>
+        <p>Signed in as <strong>{{ auth.currentUser()?.email }}</strong></p>
+        <div class="settings-actions">
+          <button class="technical-button" type="button" (click)="logout()">Sign out</button>
+          <button class="technical-button danger" type="button" (click)="confirmDeleteAccount()">Delete account</button>
+        </div>
+      </section>
+    </div>
+  }
+</ion-content>

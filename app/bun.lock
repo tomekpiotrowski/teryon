@@ -17,6 +17,7 @@
         "@capacitor/keyboard": "^7.0.0",
         "@capacitor/status-bar": "^7.0.0",
         "@ionic/angular": "^9.0.0",
+        "dexie": "^4.4.2",
         "erno-angular": "https://github.com/tomekpiotrowski/erno/releases/download/v0.3.0/erno-angular-0.3.0.tgz",
         "ionicons": "^8.1.0",
         "rxjs": "~7.8.0",

@@ -12,6 +12,8 @@ export const environment = {
     return ernoApiUrl();
   },
   get wsUrl(): string {
-    return ernoApiUrl().replace(/^http/, 'ws');
+    // The API serves its live connection at `/ws`; erno connects to this
+    // address exactly as given.
+    return `${ernoApiUrl().replace(/^http/, 'ws')}/ws`;
   },
 };

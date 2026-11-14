@@ -2627,6 +2627,7 @@ dependencies = [
  "lets_expect_assertions",
  "lets_expect_core",
  "lets_expect_macro",
+ "tokio",
 ]
 
 [[package]]
@@ -2650,6 +2651,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 1.0.109",
+ "tokio",
  "topological-sort",
 ]
 
@@ -5028,11 +5030,20 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "axum",
+ "axum-test",
+ "chrono",
  "erno",
+ "lets_expect",
+ "nix",
+ "sea-orm",
  "sea-orm-migration",
  "serde",
  "serde_json",
+ "tempfile",
+ "thiserror 2.0.20",
  "tokio",
+ "tracing",
+ "uuid 1.26.0",
 ]
 
 [[package]]

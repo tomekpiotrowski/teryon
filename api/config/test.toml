@@ -57,3 +57,16 @@ password_hash = "$argon2id$v=19$m=19456,t=2,p=1$5B2ECOLqakkxkiD5EjKyDQ$PBe29N0j5
 enabled = false
 capture_tracing_errors = false
 capture_panics = false
+
+# Tests never start a real agent program. Both programs are replaced by a
+# script that replays recordings, and projects may only live under a folder
+# inside the build directory.
+[agents]
+allowed_folders = ["target/test-projects"]
+stop_grace_seconds = 1
+
+[agents.claude]
+program = "tests/samples/fake-claude.sh"
+
+[agents.grok]
+program = "tests/samples/fake-grok.sh"

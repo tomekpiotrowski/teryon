@@ -1,10 +1,26 @@
-import { Component, Injectable, signal } from '@angular/core';
+import { Component, Injectable, InjectionToken, signal } from '@angular/core';
 import { of } from 'rxjs';
+
+export const ERNO_CONFIG = new InjectionToken('ERNO_CONFIG', {
+  factory: () => ({ baseUrl: 'http://localhost:3000', wsUrl: 'ws://localhost:3000' }),
+});
+
+export interface SyncDeltaItem {
+  entity: string;
+  id: string;
+  sync_seq: number;
+  deleted: boolean;
+  data: unknown;
+}
+
+export function registerDevtoolsDatabase(_database: unknown): void {}
 
 @Injectable({ providedIn: 'root' })
 export class ErnoAuthService {
   readonly authState = signal<'authenticated'>('authenticated');
   readonly currentUser = signal({ id: 'test-user', email: 'test@example.com' });
+  readonly authState$ = of('authenticated' as const);
+  readonly currentUser$ = of({ id: 'test-user', email: 'test@example.com' });
 
   login(_email: string, _password: string) { return of(undefined); }
   register(_email: string, _password: string) { return of(undefined); }
@@ -13,6 +29,13 @@ export class ErnoAuthService {
   verifyEmail(_token: string) { return of(undefined); }
   logout() { return of(undefined); }
   deleteAccount() { return of(undefined); }
+}
+
+@Injectable({ providedIn: 'root' })
+export class ErnoSyncService {
+  register(): void {}
+  start() { return Promise.resolve(); }
+  resetCursor() { return Promise.resolve(); }
 }
 
 @Injectable({ providedIn: 'root' })
