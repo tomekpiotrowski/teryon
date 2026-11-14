@@ -101,6 +101,10 @@ test("a project's files show what changed, and follow the disk", async ({ page }
   await expect(page.getByText("8 lines")).toBeVisible();
   await expect(page.getByText("read-only")).toBeVisible();
 
+  // The code is coloured: an added line as the file is, a removed line as it was.
+  await expect(addedLines.first().locator(".code-keyword")).toHaveText("const");
+  await expect(removedLine.locator(".code-keyword")).toHaveText("return");
+
   // As a file, the same content is shown without what was removed.
   await page.getByRole("button", { name: "File", exact: true }).click();
   await expect(removedLine).toHaveCount(0);

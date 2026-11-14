@@ -33,6 +33,16 @@
   --font-body: 'Barlow', system-ui, sans-serif;
   --font-code: 'IBM Plex Mono', ui-monospace, monospace;
 
+  /* The colours of code. Each stands out from the background by at least
+     4.5 to 1, on the tint of an added line too. */
+  --code-comment: #5d5d60;
+  --code-keyword: #416180;
+  --code-string: #3f6b45;
+  --code-constant: #8a5416;
+  --code-name: #8f4660;
+  --code-type: #1f6e73;
+  --code-attribute: #66549a;
+
   --ion-background-color: var(--color-bg);
   --ion-text-color: var(--color-text);
   --ion-font-family: var(--font-body);
@@ -61,6 +71,14 @@
   --color-accent-700: #a3c1e0;
   --color-accent-800: #c6daee;
   --color-accent-900: #e4eef8;
+
+  --code-comment: #98a1a8;
+  --code-keyword: #a3c1e0;
+  --code-string: #a5c79c;
+  --code-constant: #dfb777;
+  --code-name: #e0a3b8;
+  --code-type: #86cdd0;
+  --code-attribute: #bcaee6;
 }
 
 * {
@@ -1194,9 +1212,23 @@ app-files {
 
 .files-line.removed {
   background: color-mix(in srgb, var(--color-text) 8%, transparent);
-  color: color-mix(in srgb, var(--color-text) 70%, transparent);
   text-decoration: line-through;
 }
+
+/* Fades the text itself and not its colour, so that the colours of the code
+   on a removed line fade along with the plain text. */
+.files-line.removed .files-text { opacity: 0.7; }
+
+.code-comment,
+.code-meta { color: var(--code-comment); }
+.code-keyword { color: var(--code-keyword); }
+.code-string { color: var(--code-string); }
+.code-constant { color: var(--code-constant); }
+.code-name { color: var(--code-name); }
+.code-type { color: var(--code-type); }
+.code-attribute { color: var(--code-attribute); }
+.code-emphasis { font-style: italic; }
+.code-strong { font-weight: 500; }
 
 .files-notice {
   display: flex;

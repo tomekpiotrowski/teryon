@@ -24,7 +24,6 @@ import {
   effectiveMode,
   type FileChange,
   type FileContent,
-  type FileLine,
   languageOf,
   lineCountText,
   type Listing,
@@ -39,6 +38,7 @@ import {
   treeRows,
   type ViewMode,
 } from './files.model';
+import { type CodeLine, colouredLines } from './highlight';
 import { WorkspaceApi } from './workspace.api';
 import { type Project, refusalText } from './workspace.model';
 
@@ -53,8 +53,16 @@ interface ListingState {
 
 /** The content of the open file, or why it could not be read. */
 interface ContentState {
+  /** The file the answer is about. Nothing while no file is open. */
+  readonly path: string | null;
   readonly content: FileContent | null;
   readonly problem: string | null;
+}
+
+/** The content of the open file with the colouring of its lines worked out. */
+interface ColouredContent extends ContentState {
+  /** Nothing unless the file is text that has arrived. */
+  readonly lines: readonly CodeLine[] | null;
 }
 
 /** The open file, ready to show. */
@@ -67,7 +75,7 @@ interface OpenFile {
   readonly fileAvailable: boolean;
   readonly diffAvailable: boolean;
   /** Nothing unless the file is text that has arrived. */
-  readonly lines: readonly FileLine[] | null;
+  readonly lines: readonly CodeLine[] | null;
   /** What to say in place of the lines. */
   readonly notice: string;
   readonly language: string;
@@ -90,7 +98,7 @@ interface FilesView {
 }
 
 const WAITING: ListingState = { listing: null, problem: null };
-const NO_CONTENT: ContentState = { content: null, problem: null };
+const NO_CONTENT: ContentState = { path: null, content: null, problem: null };
 
 /**
  * The file browser: a project's files on the side, one of them in the middle.
@@ -170,19 +178,27 @@ export class FilesComponent {
     distinctUntilChanged(),
   );
 
-  private readonly content$: Observable<ContentState> = combineLatest([this.source$, this.selectedPath$]).pipe(
+  /**
+   * The open file, coloured once for each answer that differs from the one before.
+   *
+   * Colouring is the costly part of showing a file, so it sits here, behind
+   * the check for a changed answer, and not in `view$`, which is worked out
+   * again on every key typed into the filter.
+   */
+  private readonly content$: Observable<ColouredContent> = combineLatest([this.source$, this.selectedPath$]).pipe(
     switchMap(([[project, branch], path]): Observable<ContentState> => {
       if (path === null) return of(NO_CONTENT);
       return this.repeated(() =>
         this.api.file(project.id, branch, path).pipe(
-          map((file): ContentState => ({ content: file.content, problem: null })),
+          map((file): ContentState => ({ path, content: file.content, problem: null })),
           catchError((failure: unknown) =>
-            of<ContentState>({ content: null, problem: refusalText(failure, 'The file could not be read.') }),
+            of<ContentState>({ path, content: null, problem: refusalText(failure, 'The file could not be read.') }),
           ),
         ),
       ).pipe(startWith(NO_CONTENT));
     }),
     distinctUntilChanged<ContentState>(sameAnswer),
+    map(coloured),
   );
 
   readonly view$: Observable<FilesView> = combineLatest([
@@ -276,15 +292,24 @@ function listingNotice(state: ListingState, hasFile: boolean): string {
   return state.listing.files.length ? 'Nothing has changed. Choose a file to read it.' : 'There are no files here yet.';
 }
 
+/** Works out the colouring of an answer's lines, by the language its file's name tells. */
+function coloured(state: ContentState): ColouredContent {
+  const lines =
+    state.path !== null && state.content?.kind === 'text'
+      ? colouredLines(state.content.lines, languageOf(state.path))
+      : null;
+  return { ...state, lines };
+}
+
 function openFile(
   path: string,
   change: FileChange | null,
   base: string | null,
-  state: ContentState,
+  state: ColouredContent,
   chosenMode: ViewMode | null,
 ): OpenFile {
   const mode = effectiveMode(chosenMode, change);
-  const lines = state.content?.kind === 'text' ? state.content.lines : null;
+  const lines = state.lines;
   return {
     path,
     ...splitPath(path),

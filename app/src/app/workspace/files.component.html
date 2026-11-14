@@ -72,7 +72,7 @@
               <div class="files-lines">
                 @for (line of file.lines; track $index) {
                   <div class="files-line" [class.added]="line.change === 'added'" [class.removed]="line.change === 'removed'">
-                    <span class="files-number">{{ line.number ?? '−' }}</span><span>{{ line.text }}</span>
+                    <span class="files-number">{{ line.number ?? '−' }}</span><span class="files-text">@for (token of line.tokens; track $index) {<span [class]="token.kind && 'code-' + token.kind">{{ token.text }}</span>}</span>
                   </div>
                 }
               </div>

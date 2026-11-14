@@ -15,6 +15,7 @@
     "@ionic/angular": "^9.0.0",
     "dexie": "^4.4.2",
     "erno-angular": "https://github.com/tomekpiotrowski/erno/releases/download/v0.3.0/erno-angular-0.3.0.tgz",
+    "highlight.js": "^11.12.0",
     "ionicons": "^8.1.0",
     "markdown-it": "^15.0.3",
     "rxjs": "~7.8.0",

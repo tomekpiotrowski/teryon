@@ -41,6 +41,41 @@ export interface FileView {
   readonly content: FileContent;
 }
 
+/**
+ * Every language the file browser can tell by a file's name.
+ *
+ * Spelled out rather than left as any text so that the compiler can check
+ * that each of them has colouring rules in `highlight.ts`.
+ */
+export type LanguageName =
+  | 'C'
+  | 'C++'
+  | 'C#'
+  | 'CSS'
+  | 'Dockerfile'
+  | 'Go'
+  | 'HTML'
+  | 'Java'
+  | 'JavaScript'
+  | 'JSON'
+  | 'Kotlin'
+  | 'Makefile'
+  | 'Markdown'
+  | 'PHP'
+  | 'Plain text'
+  | 'Python'
+  | 'Ruby'
+  | 'Rust'
+  | 'SCSS'
+  | 'Shell'
+  | 'SQL'
+  | 'SVG'
+  | 'Swift'
+  | 'TOML'
+  | 'TypeScript'
+  | 'XML'
+  | 'YAML';
+
 /** The two ways a file is shown: as it is, or with its changes. */
 export type ViewMode = 'file' | 'diff';
 
@@ -71,7 +106,7 @@ const INDENT = 14;
 /** The space before a row at the top level, in pixels. */
 const FIRST_INDENT = 8;
 
-const LANGUAGES: Readonly<Record<string, string>> = {
+const LANGUAGES: Readonly<Record<string, LanguageName>> = {
   c: 'C',
   cc: 'C++',
   cpp: 'C++',
@@ -210,7 +245,7 @@ export function modeAvailable(mode: ViewMode, change: FileChange | null): boolea
 }
 
 /** The lines to show: all of them with their marks, or the file as it is, unmarked. */
-export function shownLines(lines: readonly FileLine[], mode: ViewMode): FileLine[] {
+export function shownLines<Line extends FileLine>(lines: readonly Line[], mode: ViewMode): Line[] {
   if (mode === 'diff') return [...lines];
   return lines.filter((line) => line.change !== 'removed').map((line) => ({ ...line, change: null }));
 }
@@ -222,7 +257,7 @@ export function lineCountText(lines: readonly FileLine[]): string {
 }
 
 /** The language a file is written in, judged by its name. Nothing when the name does not say. */
-export function languageOf(path: string): string {
+export function languageOf(path: string): LanguageName | '' {
   const name = (path.split('/').pop() ?? '').toLowerCase();
   if (name === 'dockerfile') return 'Dockerfile';
   if (name === 'makefile') return 'Makefile';
