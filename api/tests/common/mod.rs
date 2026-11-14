@@ -3,7 +3,9 @@
 //! Each test file compiles this module for itself and uses only part of it.
 #![allow(dead_code)]
 
-use std::fs::{create_dir_all, read_to_string};
+use std::fs::{create_dir_all, read_to_string, write};
+use std::path::Path;
+use std::process::Command;
 use std::time::Duration;
 
 use axum_test::TestResponse;
@@ -31,6 +33,58 @@ pub async fn setup() -> TestUtils {
 pub fn project_folder() -> TempDir {
     create_dir_all(PROJECTS).expect("the folder for test projects");
     tempdir_in(PROJECTS).expect("a project folder")
+}
+
+/// Runs git in a directory and returns what it printed, without the line ending.
+///
+/// The repositories made for tests ignore the settings of whoever runs them.
+pub fn git(directory: &Path, arguments: &[&str]) -> String {
+    run_git(directory, None, arguments)
+}
+
+/// Runs git as if it were the given moment, in seconds since 1970.
+///
+/// A commit made this way carries that moment as the time it was made.
+pub fn git_at(directory: &Path, time: i64, arguments: &[&str]) -> String {
+    run_git(directory, Some(time), arguments)
+}
+
+fn run_git(directory: &Path, time: Option<i64>, arguments: &[&str]) -> String {
+    let mut command = Command::new("git");
+    command
+        .args(arguments)
+        .current_dir(directory)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("GIT_AUTHOR_NAME", "Tester")
+        .env("GIT_AUTHOR_EMAIL", "tester@example.com")
+        .env("GIT_COMMITTER_NAME", "Tester")
+        .env("GIT_COMMITTER_EMAIL", "tester@example.com");
+    if let Some(time) = time {
+        command
+            .env("GIT_AUTHOR_DATE", format!("{time} +0000"))
+            .env("GIT_COMMITTER_DATE", format!("{time} +0000"));
+    }
+    let output = command.output().expect("git runs");
+    assert!(
+        output.status.success(),
+        "git {arguments:?} failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
+/// Writes a file in a directory, making the folders on the way.
+pub fn put(directory: &Path, path: &str, content: impl AsRef<[u8]>) {
+    let file = directory.join(path);
+    create_dir_all(file.parent().expect("a folder")).expect("the folder is made");
+    write(file, content).expect("the file is written");
+}
+
+/// Commits everything in a directory as it is.
+pub fn commit(directory: &Path) {
+    git(directory, &["add", "-A"]);
+    git(directory, &["commit", "-q", "-m", "change"]);
 }
 
 /// How the fake agent program was started in a project folder, one line per run.

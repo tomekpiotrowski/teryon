@@ -39,6 +39,7 @@ import {
   type ViewMode,
 } from './files.model';
 import { type CodeLine, colouredLines } from './highlight';
+import { shortHash } from './history.model';
 import { WorkspaceApi } from './workspace.api';
 import { type Project, refusalText } from './workspace.model';
 
@@ -89,6 +90,8 @@ interface FilesView {
   readonly live: string;
   readonly branches: readonly string[];
   readonly branch: string | null;
+  /** The short name of the commit shown in place of a branch. Nothing when a branch is shown. */
+  readonly commit: string;
   readonly filter: string;
   readonly rows: readonly TreeRow[];
   readonly selected: string | null;
@@ -109,8 +112,9 @@ const NO_CONTENT: ContentState = { path: null, content: null, problem: null };
  * requests are repeated while the screen is open, which keeps everything
  * shown here an observable of the latest answer.
  *
- * What the person picked — branch, file, filter, opened folders, the way of
- * showing — sits in subjects. Handlers only push into those.
+ * What the person picked — file, filter, opened folders, the way of showing —
+ * sits in subjects. Handlers only push into those. The branch or commit
+ * looked at is handed in, because the history screen shares it.
  */
 @Component({
   selector: 'app-files',
@@ -135,16 +139,30 @@ export class FilesComponent {
     this.liveAgents$.next(count);
   }
 
+  /** The branch to show. Nothing means the project's directory as it is. */
+  @Input() set branch(branch: string | null) {
+    this.branch$.next(branch);
+  }
+
+  /** A commit to show in place of a branch, by its full name. */
+  @Input() set commit(commit: string | null) {
+    this.commit$.next(commit);
+  }
+
   /** The person asked to go back to the thread. */
   @Output() readonly closed = new EventEmitter<void>();
+  /** The person asked for the history. */
+  @Output() readonly historyOpened = new EventEmitter<void>();
+  /** The person picked a branch, or what was shown is gone and the directory as it is should be. */
+  @Output() readonly branchChosen = new EventEmitter<string | null>();
   /** The person wants to ask an agent about the file with this path. */
   @Output() readonly asked = new EventEmitter<string>();
 
   readonly rowIndent = rowIndent;
   readonly changeLetter = changeLetter;
 
-  /** The branch asked for. Nothing means the project's directory as it is. */
   private readonly branch$ = new BehaviorSubject<string | null>(null);
+  private readonly commit$ = new BehaviorSubject<string | null>(null);
   private readonly chosenPath$ = new BehaviorSubject<string | null>(null);
   private readonly filter$ = new BehaviorSubject('');
   /** The folders the person opened or closed themselves. */
@@ -153,17 +171,19 @@ export class FilesComponent {
 
   private readonly source$ = combineLatest([
     this.project$.pipe(distinctUntilChanged((a, b) => a.id === b.id)),
-    this.branch$,
+    this.branch$.pipe(distinctUntilChanged()),
+    this.commit$.pipe(distinctUntilChanged()),
   ]).pipe(shareReplay({ bufferSize: 1, refCount: true }));
 
   private readonly listing$: Observable<ListingState> = this.source$.pipe(
-    switchMap(([project, branch]) =>
+    switchMap(([project, branch, commit]) =>
       this.repeated(() =>
-        this.api.files(project.id, branch).pipe(
+        this.api.files(project.id, branch, commit).pipe(
           map((listing): ListingState => ({ listing, problem: null })),
           catchError((failure: unknown) => {
             // A branch can be removed while it is looked at, for example by a merge.
-            if (branch !== null && (failure as { status?: number } | null)?.status === 404) this.branch$.next(null);
+            const named = branch !== null || commit !== null;
+            if (named && (failure as { status?: number } | null)?.status === 404) this.branchChosen.emit(null);
             return of<ListingState>({ listing: null, problem: refusalText(failure, 'The files could not be read.') });
           }),
         ),
@@ -186,10 +206,10 @@ export class FilesComponent {
    * again on every key typed into the filter.
    */
   private readonly content$: Observable<ColouredContent> = combineLatest([this.source$, this.selectedPath$]).pipe(
-    switchMap(([[project, branch], path]): Observable<ContentState> => {
+    switchMap(([[project, branch, commit], path]): Observable<ContentState> => {
       if (path === null) return of(NO_CONTENT);
       return this.repeated(() =>
-        this.api.file(project.id, branch, path).pipe(
+        this.api.file(project.id, branch, commit, path).pipe(
           map((file): ContentState => ({ path, content: file.content, problem: null })),
           catchError((failure: unknown) =>
             of<ContentState>({ path, content: null, problem: refusalText(failure, 'The file could not be read.') }),
@@ -221,6 +241,7 @@ export class FilesComponent {
         live: liveText(liveAgents),
         branches: state.listing?.branches ?? [],
         branch: state.listing?.branch ?? null,
+        commit: shortHash(state.listing?.commit ?? ''),
         filter: filterText,
         rows,
         selected: entry?.path ?? null,
@@ -246,10 +267,6 @@ export class FilesComponent {
           this.host.nativeElement.querySelector('.files-row.selected')?.scrollIntoView({ block: 'nearest' }),
         ),
       );
-  }
-
-  chooseBranch(event: Event): void {
-    this.branch$.next((event.target as HTMLSelectElement).value || null);
   }
 
   updateFilter(event: Event): void {

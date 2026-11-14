@@ -56,6 +56,38 @@ export interface EntryLine {
 
 export const NOTHING_SELECTED: Selection = { projectId: null, threadId: null };
 
+/** What fills the screen: a project's threads, its files or its history. */
+export type Screen = 'thread' | 'files' | 'history';
+
+/** A pressed key, as far as the shortcuts care. */
+export interface KeyPress {
+  readonly key: string;
+  readonly ctrlKey: boolean;
+  readonly metaKey: boolean;
+  readonly altKey: boolean;
+  /** The name of the element the key was pressed in, such as `TEXTAREA`. */
+  readonly element: string;
+  /** Whether that element is one whose text can be edited in place. */
+  readonly editable: boolean;
+}
+
+/**
+ * The part of a project's repository the files and the history show.
+ *
+ * Kept in one place so that both screens stay on the same branch, and so
+ * that the history can send a person to the files as a commit left them.
+ */
+export interface Place {
+  /** The project the choice was made in. A choice does not carry over to another project. */
+  readonly projectId: string | null;
+  /** Nothing means whatever the project's directory is on. */
+  readonly branch: string | null;
+  /** A commit shown in place of a branch, in the file browser only. */
+  readonly commit: string | null;
+}
+
+export const NO_PLACE: Place = { projectId: null, branch: null, commit: null };
+
 /** Projects oldest first, each with its threads newest first. */
 export function groupThreads(projects: readonly Project[], threads: readonly Thread[]): ProjectGroup[] {
   return [...projects]
@@ -84,6 +116,34 @@ export function resolveSelection(
   const projectId = thread?.project_id ?? selection.projectId;
   const group = groups.find((candidate) => candidate.project.id === projectId) ?? groups[0];
   return { project: group?.project ?? null, thread };
+}
+
+/**
+ * Whether a key press is the given letter on its own, meant as a shortcut.
+ *
+ * The shortcuts are bare letters, so they must stay out of the way wherever
+ * a letter is typed as text or picks an entry from a list.
+ */
+export function isBareLetter(press: KeyPress, letter: string): boolean {
+  if (press.key.toLowerCase() !== letter || press.ctrlKey || press.metaKey || press.altKey) return false;
+  return !press.editable && !['INPUT', 'TEXTAREA', 'SELECT'].includes(press.element.toUpperCase());
+}
+
+/** The screen a key press asks for: `C` the files, `H` the history. Nothing for any other key. */
+export function shortcutScreen(press: KeyPress): Exclude<Screen, 'thread'> | null {
+  if (isBareLetter(press, 'c')) return 'files';
+  if (isBareLetter(press, 'h')) return 'history';
+  return null;
+}
+
+/** The screen to show once one is asked for. Asking for the screen already shown goes back to the thread. */
+export function screenAfter(current: Screen, asked: Exclude<Screen, 'thread'>): Screen {
+  return current === asked ? 'thread' : asked;
+}
+
+/** The place chosen in a project, or the project's directory as it is when the choice was made elsewhere. */
+export function placeIn(place: Place, projectId: string): Place {
+  return place.projectId === projectId ? place : { projectId, branch: null, commit: null };
 }
 
 export function threadLabel(thread: Thread): string {

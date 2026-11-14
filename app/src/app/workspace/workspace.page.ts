@@ -14,7 +14,8 @@ import {
   tap,
 } from 'rxjs';
 import { ThemeService } from '../theme.service';
-import { askDraft, isFilesShortcut } from './files.model';
+import { askDraft } from './files.model';
+import { type Commit, revertDraft } from './history.model';
 import { WorkspaceApi } from './workspace.api';
 import {
   type AgentName,
@@ -22,13 +23,19 @@ import {
   type EntryLine,
   entryLine,
   groupThreads,
+  NO_PLACE,
   NOTHING_SELECTED,
   otherAgent,
+  type Place,
+  placeIn,
   type Project,
   type ProjectGroup,
   refusalText,
   resolveSelection,
+  type Screen,
+  screenAfter,
   type Selection,
+  shortcutScreen,
   type Thread,
   threadLabel,
 } from './workspace.model';
@@ -43,6 +50,10 @@ interface WorkspaceView {
   readonly running: boolean;
   /** How many agents are running in the selected project. */
   readonly liveAgents: number;
+  /** The selected project's threads, for the history to name where a commit came from. */
+  readonly projectThreads: readonly Thread[];
+  /** The part of the selected project's repository the files and the history show. */
+  readonly place: Place;
 }
 
 /**
@@ -78,17 +89,21 @@ export class WorkspacePage implements OnDestroy {
   readonly projectFormOpen$ = new BehaviorSubject(false);
   /** True while a request is on its way, so a second press does not send it twice. */
   readonly sending$ = new BehaviorSubject(false);
-  /** Whether the selected project's files are shown in place of its threads. */
-  readonly filesOpen$ = new BehaviorSubject(false);
+  /** Whether the selected project's threads, files or history fill the screen. */
+  readonly screen$ = new BehaviorSubject<Screen>('thread');
+  /** The branch or commit the files and the history were last asked to show. */
+  readonly place$ = new BehaviorSubject<Place>(NO_PLACE);
 
   readonly view$: Observable<WorkspaceView> = combineLatest([
     combineLatest([this.store.projects$, this.store.threads$]).pipe(
       map(([projects, threads]) => groupThreads(projects, threads)),
     ),
     this.selection$,
+    this.place$,
   ]).pipe(
-    switchMap(([groups, selection]) => {
+    switchMap(([groups, selection, place]) => {
       const { project, thread } = resolveSelection(groups, selection);
+      const projectThreads = groups.find((group) => group.project.id === project?.id)?.threads ?? [];
       const entries$ = thread ? this.store.entries$(thread.id) : of([]);
       return entries$.pipe(
         map((entries) => ({
@@ -97,7 +112,9 @@ export class WorkspacePage implements OnDestroy {
           thread,
           lines: entries.map(entryLine),
           running: thread?.status === 'running',
-          liveAgents: liveAgentsIn(groups, project),
+          liveAgents: projectThreads.filter((candidate) => candidate.status === 'running').length,
+          projectThreads,
+          place: project ? placeIn(place, project.id) : NO_PLACE,
         })),
       );
     }),
@@ -122,7 +139,7 @@ export class WorkspacePage implements OnDestroy {
     this.following.unsubscribe();
   }
 
-  /** `C` switches between the thread and the files, as the `code C` hint on screen says. */
+  /** `C` shows the files and `H` the history, as the hints on screen say. Pressed again, each goes back to the thread. */
   @HostListener('document:keydown', ['$event'])
   handleShortcut(event: KeyboardEvent): void {
     const target = event.target instanceof HTMLElement ? event.target : null;
@@ -134,20 +151,42 @@ export class WorkspacePage implements OnDestroy {
       element: target?.tagName ?? '',
       editable: target?.isContentEditable ?? false,
     };
-    if (!isFilesShortcut(press) || this.settingsOpen$.value) return;
+    const asked = shortcutScreen(press);
+    if (!asked || this.settingsOpen$.value) return;
     event.preventDefault();
-    this.filesOpen$.next(!this.filesOpen$.value);
+    this.screen$.next(screenAfter(this.screen$.value, asked));
   }
 
   /** Goes back to the thread with the file named in the message box, ready to be asked about. */
   askAbout(path: string): void {
-    this.draft$.next(askDraft(this.draft$.value, path));
-    this.filesOpen$.next(false);
-    requestAnimationFrame(() => {
-      const box = this.host.nativeElement.querySelector('textarea');
-      box?.focus();
-      box?.setSelectionRange(box.value.length, box.value.length);
-    });
+    this.draftAndReturn(askDraft(this.draft$.value, path));
+  }
+
+  /**
+   * Goes back to the thread with a request to revert a commit in the message box.
+   *
+   * Teryon never changes a repository itself. Reverting is work for an
+   * agent, and the person still decides whether to send the request.
+   */
+  askToRevert(commit: Commit): void {
+    this.draftAndReturn(revertDraft(this.draft$.value, commit));
+  }
+
+  /** Shows a branch of a project in the files and the history. Nothing means the directory as it is. */
+  chooseBranch(project: Project, branch: string | null): void {
+    this.place$.next({ projectId: project.id, branch, commit: null });
+  }
+
+  /** Shows the files of a project as a commit left them. */
+  browseAt(project: Project, commit: string): void {
+    this.place$.next({ ...placeIn(this.place$.value, project.id), commit });
+    this.screen$.next('files');
+  }
+
+  /** Shows the thread a commit came from. */
+  openThread(thread: Thread): void {
+    this.selectThread(thread);
+    this.screen$.next('thread');
   }
 
   selectProject(project: Project): void {
@@ -255,6 +294,17 @@ export class WorkspacePage implements OnDestroy {
     await alert.present();
   }
 
+  /** Goes back to the thread with a text in the message box, ready to be finished and sent. */
+  private draftAndReturn(draft: string): void {
+    this.draft$.next(draft);
+    this.screen$.next('thread');
+    requestAnimationFrame(() => {
+      const box = this.host.nativeElement.querySelector('textarea');
+      box?.focus();
+      box?.setSelectionRange(box.value.length, box.value.length);
+    });
+  }
+
   private removeProject(project: Project): void {
     this.api.removeProject(project.id).subscribe({
       error: (failure: unknown) => this.alerts.error(refusalText(failure, 'The project could not be removed.')),
@@ -269,7 +319,3 @@ export class WorkspacePage implements OnDestroy {
   }
 }
 
-function liveAgentsIn(groups: readonly ProjectGroup[], project: Project | null): number {
-  const group = groups.find((candidate) => candidate.project.id === project?.id);
-  return group?.threads.filter((thread) => thread.status === 'running').length ?? 0;
-}

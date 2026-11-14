@@ -7,8 +7,6 @@ import {
   type FileChange,
   type FileEntry,
   type FileLine,
-  isFilesShortcut,
-  type KeyPress,
   languageOf,
   lineCountText,
   liveText,
@@ -37,10 +35,6 @@ function drawn(rows: readonly TreeRow[]): string[] {
 
 function line(change: FileLine['change'], number: number | null, text: string): FileLine {
   return { change, number, text };
-}
-
-function press(overrides: Partial<KeyPress> = {}): KeyPress {
-  return { key: 'c', ctrlKey: false, metaKey: false, altKey: false, element: 'BODY', editable: false, ...overrides };
 }
 
 const NOTHING_TOGGLED: ReadonlyMap<string, boolean> = new Map();
@@ -336,34 +330,6 @@ describe('askDraft', () => {
 
   it('adds the file after what was already typed', () => {
     expect(askDraft('Why does this fail in ', 'src/app.ts')).toBe('Why does this fail in `src/app.ts` ');
-  });
-});
-
-describe('isFilesShortcut', () => {
-  it('is a bare C, in either case', () => {
-    expect(isFilesShortcut(press())).toBe(true);
-    expect(isFilesShortcut(press({ key: 'C' }))).toBe(true);
-  });
-
-  it('is no other key', () => {
-    expect(isFilesShortcut(press({ key: 'x' }))).toBe(false);
-    expect(isFilesShortcut(press({ key: 'Control' }))).toBe(false);
-  });
-
-  it.each(['ctrlKey', 'metaKey', 'altKey'] as const)('is not C held with %s, which belongs to the browser', (modifier) => {
-    expect(isFilesShortcut(press({ [modifier]: true }))).toBe(false);
-  });
-
-  it.each(['INPUT', 'TEXTAREA', 'SELECT', 'textarea'])('is not a C typed into a %s', (element) => {
-    expect(isFilesShortcut(press({ element }))).toBe(false);
-  });
-
-  it('is not a C typed into text edited in place', () => {
-    expect(isFilesShortcut(press({ element: 'DIV', editable: true }))).toBe(false);
-  });
-
-  it('is a C pressed on a button', () => {
-    expect(isFilesShortcut(press({ element: 'BUTTON' }))).toBe(true);
   });
 });
 

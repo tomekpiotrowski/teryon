@@ -9,6 +9,10 @@
 //! Changes are counted from the point where the branch left the main branch.
 //! For the main branch itself that point is its own last commit, which leaves
 //! exactly the work that is not committed yet.
+//!
+//! A commit can be shown in place of a branch, which is how the history
+//! screen lets a person browse the files as they were. It is read as it was
+//! committed and compared with the main branch the same way.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Component, Path, PathBuf};
@@ -30,8 +34,29 @@ const MAIN_BRANCHES: [&str; 2] = ["main", "master"];
 
 /// A project's repository.
 pub struct Repository {
-    git: Git,
+    pub(crate) git: Git,
     allowed_folders: Vec<PathBuf>,
+}
+
+/// What the file browser is asked to show.
+#[derive(Clone, Copy, Debug)]
+pub enum Place<'a> {
+    /// The project's directory as it is.
+    Directory,
+    Branch(&'a str),
+    /// A commit, by its name in hexadecimal digits, whole or shortened.
+    Commit(&'a str),
+}
+
+impl<'a> Place<'a> {
+    /// The place two optional parts of a request name. A commit wins over a branch.
+    pub fn named(branch: Option<&'a str>, commit: Option<&'a str>) -> Self {
+        match (commit, branch) {
+            (Some(commit), _) => Self::Commit(commit),
+            (None, Some(branch)) => Self::Branch(branch),
+            (None, None) => Self::Directory,
+        }
+    }
 }
 
 /// Where the files of a branch are read from.
@@ -42,10 +67,11 @@ enum Tree {
     Committed(String),
 }
 
-/// A branch chosen for showing, and what it is compared with.
+/// A branch or a commit chosen for showing, and what it is compared with.
 struct View {
     branches: Vec<String>,
     branch: Option<String>,
+    commit: Option<String>,
     tree: Tree,
     /// The commit, or the empty tree, that changes are counted from.
     base: String,
@@ -54,7 +80,7 @@ struct View {
 
 /// A version of a file.
 #[derive(Debug, PartialEq, Eq)]
-enum Stored {
+pub(crate) enum Stored {
     Absent,
     TooLarge,
     Bytes(Vec<u8>),
@@ -73,9 +99,9 @@ impl Repository {
         }
     }
 
-    /// Every file of a branch. Without a branch, the project's directory as it is.
-    pub async fn listing(&self, branch: Option<&str>) -> Result<Listing, FilesError> {
-        let view = self.view(branch).await?;
+    /// Every file of a place.
+    pub async fn listing(&self, place: Place<'_>) -> Result<Listing, FilesError> {
+        let view = self.view(place).await?;
         let files = match &view.tree {
             Tree::Working(git) => {
                 let differing = [
@@ -99,15 +125,15 @@ impl Repository {
                     changes(&changed),
                 )
             }
-            Tree::Committed(branch) => {
-                let listing = ["ls-tree", "-r", "-z", "--name-only", branch];
+            Tree::Committed(revision) => {
+                let listing = ["ls-tree", "-r", "-z", "--name-only", revision];
                 let differing = [
                     "diff",
                     "--name-status",
                     "--no-renames",
                     "-z",
                     &view.base,
-                    branch,
+                    revision,
                     "--",
                 ];
                 let (tracked, changed) =
@@ -124,19 +150,20 @@ impl Repository {
         Ok(Listing {
             branches: view.branches,
             branch: view.branch,
+            commit: view.commit,
             base: view.base_branch,
             files,
         })
     }
 
-    /// One file of a branch, line by line, next to the version it started from.
-    pub async fn file(&self, branch: Option<&str>, path: &str) -> Result<FileView, FilesError> {
+    /// One file of a place, line by line, next to the version it started from.
+    pub async fn file(&self, place: Place<'_>, path: &str) -> Result<FileView, FilesError> {
         let path = clean_path(path).ok_or(FilesError::UnknownFile)?;
-        let view = self.view(branch).await?;
+        let view = self.view(place).await?;
 
         let current = match &view.tree {
             Tree::Working(git) => working_file(git, &path).await?,
-            Tree::Committed(branch) => self.committed_file(branch, &path).await?,
+            Tree::Committed(revision) => self.committed_file(revision, &path).await?,
         };
         let base = self.committed_file(&view.base, &path).await?;
 
@@ -146,7 +173,8 @@ impl Repository {
         })
     }
 
-    async fn view(&self, requested: Option<&str>) -> Result<View, FilesError> {
+    /// The branches there are, and the one the project's directory is on.
+    pub(crate) async fn branches(&self) -> Result<(Vec<String>, Option<String>), FilesError> {
         let mut branches = lines(
             &self
                 .git
@@ -164,34 +192,60 @@ impl Repository {
                 branches.push(current.clone());
             }
         }
+        Ok((branches, current))
+    }
 
-        let (branch, tree) = match requested {
-            None => (current, Tree::Working(self.git.clone())),
-            Some(name) if current.as_deref() == Some(name) => {
-                (current, Tree::Working(self.git.clone()))
+    /// The full name of the commit a person named, or a refusal when there is none.
+    ///
+    /// Only hexadecimal digits are taken for a name, so nothing a person
+    /// sends can be read by git as an option or as some other way of naming
+    /// a commit.
+    pub(crate) async fn named_commit(&self, name: &str) -> Result<String, FilesError> {
+        if !is_commit_name(name) {
+            return Err(FilesError::UnknownCommit);
+        }
+        commit(&self.git, name)
+            .await?
+            .ok_or(FilesError::UnknownCommit)
+    }
+
+    /// The tree without a single file, which a first commit is compared with.
+    pub(crate) async fn empty_tree(&self) -> Result<String, FilesError> {
+        let nothing = self
+            .git
+            .output(&["hash-object", "-t", "tree", "/dev/null"])
+            .await?;
+        Ok(first_line(&nothing))
+    }
+
+    async fn view(&self, place: Place<'_>) -> Result<View, FilesError> {
+        let (branches, current) = self.branches().await?;
+
+        let (branch, shown_commit, tree) = match place {
+            Place::Directory => (current, None, Tree::Working(self.git.clone())),
+            Place::Branch(name) if current.as_deref() == Some(name) => {
+                (current, None, Tree::Working(self.git.clone()))
             }
-            Some(name) if branches.iter().any(|branch| branch == name) => {
+            Place::Branch(name) if branches.iter().any(|branch| branch == name) => {
                 let tree = match self.checkout_of(name).await? {
                     Some(directory) => Tree::Working(Git::at(directory)),
                     None => Tree::Committed(format!("refs/heads/{name}")),
                 };
-                (Some(name.to_string()), tree)
+                (Some(name.to_string()), None, tree)
             }
-            Some(_) => return Err(FilesError::UnknownBranch),
+            Place::Branch(_) => return Err(FilesError::UnknownBranch),
+            Place::Commit(name) => {
+                let commit = self.named_commit(name).await?;
+                (None, Some(commit.clone()), Tree::Committed(commit))
+            }
         };
 
         let tip = match &tree {
             Tree::Working(git) => commit(git, "HEAD").await?,
-            Tree::Committed(branch) => commit(&self.git, branch).await?,
+            Tree::Committed(revision) => commit(&self.git, revision).await?,
         };
         let (base, base_branch) = match tip {
-            None => {
-                let nothing = self
-                    .git
-                    .output(&["hash-object", "-t", "tree", "/dev/null"])
-                    .await?;
-                (first_line(&nothing), None)
-            }
+            None => (self.empty_tree().await?, None),
             Some(tip) => match self.fork_point(&branches, branch.as_deref(), &tip).await? {
                 Some((fork, main)) => (fork, Some(main)),
                 None => (tip, None),
@@ -201,6 +255,7 @@ impl Repository {
         Ok(View {
             branches,
             branch,
+            commit: shown_commit,
             tree,
             base,
             base_branch,
@@ -217,10 +272,7 @@ impl Repository {
         branch: Option<&str>,
         tip: &str,
     ) -> Result<Option<(String, String)>, FilesError> {
-        let Some(main) = MAIN_BRANCHES
-            .into_iter()
-            .find(|main| branches.iter().any(|branch| branch == main))
-        else {
+        let Some(main) = main_branch(branches) else {
             return Ok(None);
         };
         if branch == Some(main) {
@@ -248,7 +300,11 @@ impl Repository {
     }
 
     /// A file as a commit has it. `revision` is a commit, a branch or a tree.
-    async fn committed_file(&self, revision: &str, path: &str) -> Result<Stored, FilesError> {
+    pub(crate) async fn committed_file(
+        &self,
+        revision: &str,
+        path: &str,
+    ) -> Result<Stored, FilesError> {
         let object = format!("{revision}:{path}");
         let Some(size) = self.git.attempt(&["cat-file", "-s", &object]).await? else {
             return Ok(Stored::Absent);
@@ -265,8 +321,20 @@ impl Repository {
     }
 }
 
+/// The name a repository's main branch goes by, or nothing when it has none.
+pub(crate) fn main_branch(branches: &[String]) -> Option<&'static str> {
+    MAIN_BRANCHES
+        .into_iter()
+        .find(|main| branches.iter().any(|branch| branch == main))
+}
+
+/// Whether a text can only be the name of a commit: hexadecimal digits, whole or shortened.
+fn is_commit_name(name: &str) -> bool {
+    (4..=64).contains(&name.len()) && name.bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
 /// The commit a name stands for, or nothing when there is no commit yet.
-async fn commit(git: &Git, name: &str) -> Result<Option<String>, FilesError> {
+pub(crate) async fn commit(git: &Git, name: &str) -> Result<Option<String>, FilesError> {
     Ok(git
         .attempt(&["rev-parse", "--verify", "-q", &format!("{name}^{{commit}}")])
         .await?
@@ -314,7 +382,7 @@ async fn working_file(git: &Git, path: &str) -> Result<Stored, FilesError> {
 ///
 /// Refused are an empty path, one that starts at the top of the machine, one
 /// with `.` or `..` in it, and anything inside the repository's own `.git`.
-fn clean_path(path: &str) -> Option<String> {
+pub(crate) fn clean_path(path: &str) -> Option<String> {
     let mut parts = Vec::new();
     for component in Path::new(path).components() {
         match component {
@@ -363,7 +431,7 @@ fn gather(
 }
 
 /// Lays two versions of a file out as what the screen shows.
-fn present(base: &Stored, current: &Stored) -> Result<Content, FilesError> {
+pub(crate) fn present(base: &Stored, current: &Stored) -> Result<Content, FilesError> {
     match (base, current) {
         (Stored::Absent, Stored::Absent) => Err(FilesError::UnknownFile),
         (Stored::TooLarge, _) | (_, Stored::TooLarge) => Ok(Content::TooLarge),
@@ -425,6 +493,27 @@ mod tests {
     }
 
     lets_expect! {
+        expect(Place::named(branch, commit)) {
+            when(branch = None, commit = None) as nothing_named to be_the_directory { match_pattern!(Place::Directory) }
+            when(branch = Some("main"), commit = None) as a_branch to be_that_branch { match_pattern!(Place::Branch("main")) }
+            when(branch = None, commit = Some("a3f9c21")) as a_commit to be_that_commit { match_pattern!(Place::Commit("a3f9c21")) }
+            when(branch = Some("main"), commit = Some("a3f9c21")) as both to be_the_commit { match_pattern!(Place::Commit("a3f9c21")) }
+        }
+
+        expect(is_commit_name(name)) {
+            when(name = "a3f9c21") as a_shortened_name to be_taken { equal(true) }
+            when(name = "08fb0ad08ebe07fb6fa5f3f750649b2be9b21e31") as a_whole_name to be_taken { equal(true) }
+            when(name = "A3F9C21") as capitals to be_taken { equal(true) }
+            when(name = "a3f") as too_few_digits to be_refused { equal(false) }
+            when(name = "00000000000000000000000000000000000000000000000000000000000000000") as too_many_digits to be_refused { equal(false) }
+            when(name = "") as nothing to be_refused { equal(false) }
+            when(name = "main") as a_branch_name to be_refused { equal(false) }
+            when(name = "--all") as an_option to be_refused { equal(false) }
+            when(name = "a3f9c21^") as a_way_to_a_parent to be_refused { equal(false) }
+            when(name = "a3f9c21..main") as a_range to be_refused { equal(false) }
+            when(name = "a3f9 c21") as a_space to be_refused { equal(false) }
+        }
+
         expect(clean_path(path)) {
             when(path = "README.md") as a_file_at_the_top to be_kept { equal(Some("README.md".to_string())) }
             when(path = "src/ledger/adapter.ts") as a_file_in_folders to be_kept { equal(Some("src/ledger/adapter.ts".to_string())) }

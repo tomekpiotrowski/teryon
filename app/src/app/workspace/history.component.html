@@ -1,0 +1,197 @@
+<ng-template #code let-line>
+  <span class="files-text">@for (token of line.tokens; track $index) {<span [class]="token.kind && 'code-' + token.kind">{{ token.text }}</span>}</span>
+</ng-template>
+
+@if (view$ | async; as view) {
+  <div class="files history">
+    <app-repository-bar
+      [projectName]="view.projectName"
+      [live]="view.live"
+      [branches]="view.branches"
+      [branch]="view.branch"
+      (branchChosen)="branchChosen.emit($event)"
+    ></app-repository-bar>
+
+    <div class="files-shell">
+      <nav class="history-side" aria-label="Commit history">
+        <div class="history-filter">
+          <label for="history-filter" class="files-key">history@if (view.branchText) { · {{ view.branchText }} }</label>
+          <input id="history-filter" type="text" autocomplete="off" placeholder="Filter by message, author, thread or file…" [value]="view.filter" (input)="updateFilter($event)" />
+          <div class="history-makers">
+            <div class="files-modes" role="group" aria-label="Whose commits are listed">
+              @for (maker of makers; track maker.value) {
+                <button type="button" [class.active]="view.maker === maker.value" [attr.aria-pressed]="view.maker === maker.value" (click)="chooseMaker(maker.value)">{{ maker.label }}</button>
+              }
+            </div>
+            <span class="files-spacer"></span>
+            <span class="files-muted history-count">{{ view.count }}</span>
+          </div>
+        </div>
+
+        <div class="history-commits">
+          @for (row of view.commits; track row.hash) {
+            <button
+              type="button"
+              class="history-commit"
+              [class.selected]="row.selected"
+              [class.compared]="row.compared"
+              [attr.aria-current]="row.selected ? 'true' : null"
+              (click)="choose(row.hash, $event, view.detail?.commit?.hash ?? null)"
+            >
+              <span class="history-graph" aria-hidden="true">
+                @if (row.graph.own !== 'none') { <i class="history-lane own {{ row.graph.own }}"></i> }
+                @if (row.graph.base !== 'none') { <i class="history-lane base {{ row.graph.base }}"></i> }
+                @if (row.graph.joint !== 'none') { <i class="history-joint {{ row.graph.joint }}"></i> }
+                <i class="history-dot {{ row.graph.lane }}" [class.marked]="row.selected || row.compared"></i>
+              </span>
+              <span class="history-about">
+                <span class="history-subject" [class.files-muted]="row.merge">{{ row.subject }}</span>
+                <span class="history-facts files-muted">
+                  <span class="history-hash">{{ row.short }}</span>
+                  <span class="history-who">{{ row.who }}</span>
+                  @if (row.tag) { <span class="history-tag" [class.current]="row.tagCurrent">{{ row.tag }}</span> }
+                  <span class="files-spacer"></span>
+                  <span class="history-time">{{ row.time }}</span>
+                </span>
+              </span>
+            </button>
+          }
+        </div>
+
+        <div class="history-keys files-muted">
+          <span><kbd>J</kbd> <kbd>K</kbd> move</span>
+          <span>Shift-click two commits to compare</span>
+        </div>
+      </nav>
+
+      <main class="files-main">
+        @if (view.detail; as detail) {
+          <div class="history-open">
+          <div class="history-head">
+            <div class="history-title">
+              <h1>{{ detail.title }}</h1>
+              <span class="files-spacer"></span>
+              <button type="button" class="history-browse" (click)="browsed.emit(detail.commit.hash)">Browse files at {{ detail.short }}</button>
+              @if (detail.thread; as thread) {
+                <button type="button" class="history-action" (click)="threadOpened.emit(thread)">Open thread</button>
+              }
+              @if (!detail.comparing) {
+                <button type="button" class="history-action" (click)="revertAsked.emit(detail.commit)">Ask to revert</button>
+              }
+            </div>
+            <div class="history-byline files-muted">
+              @if (!detail.comparing) { <span class="history-avatar" aria-hidden="true"></span> }
+              <span class="history-by">@if (detail.name) {<strong>{{ detail.name }}</strong>}{{ detail.byline }}</span>
+              <span class="files-spacer"></span>
+              @if (!detail.comparing) {
+                <span class="history-hash">{{ detail.short }}</span>
+                @if (detail.parent) { <span>parent <span class="history-hash">{{ detail.parent }}</span></span> }
+              }
+            </div>
+            @if (detail.body) { <p class="history-body">{{ detail.body }}</p> }
+          </div>
+
+          <div class="history-changes">
+            <div class="history-files" role="group" aria-label="Changed files">
+              <div class="history-files-head">
+                <span class="files-key">changed files</span>
+                <span class="files-spacer"></span>
+                <span class="files-muted history-count">{{ detail.fileCount }}</span>
+              </div>
+              @for (row of detail.rows; track row.kind + ':' + row.path) {
+                @if (row.kind === 'folder') {
+                  <button type="button" class="history-file folder files-muted" [attr.aria-expanded]="row.open" (click)="toggleFolder(row.path, row.open)">
+                    <span aria-hidden="true">{{ row.open ? '▾' : '▸' }}</span>
+                    <span class="files-name">{{ row.path }}</span>
+                  </button>
+                } @else {
+                  <button
+                    type="button"
+                    class="history-file"
+                    [class.nested]="row.nested"
+                    [class.selected]="row.path === detail.selectedPath"
+                    [class.deleted]="row.change === 'deleted'"
+                    [attr.aria-current]="row.path === detail.selectedPath ? 'true' : null"
+                    (click)="chooseFile(row.path)"
+                  >
+                    <span class="files-name">{{ row.name }}</span>
+                    @if (row.counts) { <span class="files-muted history-counts">{{ row.counts }}</span> }
+                    <span class="files-status" [attr.aria-label]="row.change">{{ changeLetter(row.change) }}</span>
+                  </button>
+                }
+              }
+            </div>
+
+            <div class="history-diff">
+              @if (detail.file; as file) {
+                <div class="history-diff-head">
+                  <span class="files-muted files-folders">{{ file.folders }}</span>
+                  <h2>{{ file.name }}</h2>
+                  <span class="files-spacer"></span>
+                  <div class="files-modes" role="group" aria-label="How the change is laid out">
+                    <button type="button" [class.active]="file.mode === 'unified'" [attr.aria-pressed]="file.mode === 'unified'" (click)="chooseMode('unified')">Unified</button>
+                    <button type="button" [class.active]="file.mode === 'split'" [attr.aria-pressed]="file.mode === 'split'" (click)="chooseMode('split')">Split</button>
+                  </div>
+                </div>
+
+                @if (file.unified?.length) {
+                  <div class="files-code history-code" role="region" tabindex="0" [attr.aria-label]="'Changes to ' + file.path">
+                    <div class="files-lines" [class.history-sides]="file.mode === 'split'">
+                      @if (file.mode === 'unified') {
+                        @for (row of file.unified; track $index) {
+                          @if (row.kind === 'hunk') {
+                            <div class="files-line history-hunk"><span class="files-number">⋯</span><span class="files-text">{{ row.text }}</span></div>
+                          } @else {
+                            <div class="files-line" [class.added]="row.line.change === 'added'" [class.removed]="row.line.change === 'removed'">
+                              <span class="files-number">{{ row.after ?? '−' }}</span><ng-container [ngTemplateOutlet]="code" [ngTemplateOutletContext]="{ $implicit: row.line }"></ng-container>
+                            </div>
+                          }
+                        }
+                      } @else {
+                        @for (row of file.split; track $index) {
+                          @if (row.kind === 'hunk') {
+                            <div class="files-line history-hunk"><span class="files-number">⋯</span><span class="files-text">{{ row.text }}</span></div>
+                          } @else {
+                            <div class="history-pair">
+                              <div class="files-line history-half" [class.removed]="row.before?.line?.change === 'removed'" [class.blank]="!row.before">
+                                @if (row.before; as side) {
+                                  <span class="files-number">{{ side.number }}</span><ng-container [ngTemplateOutlet]="code" [ngTemplateOutletContext]="{ $implicit: side.line }"></ng-container>
+                                }
+                              </div>
+                              <div class="files-line history-half" [class.added]="row.after?.line?.change === 'added'" [class.blank]="!row.after">
+                                @if (row.after; as side) {
+                                  <span class="files-number">{{ side.number }}</span><ng-container [ngTemplateOutlet]="code" [ngTemplateOutletContext]="{ $implicit: side.line }"></ng-container>
+                                }
+                              </div>
+                            </div>
+                          }
+                        }
+                      }
+                    </div>
+                  </div>
+                } @else {
+                  <p class="files-notice files-muted">{{ file.notice }}</p>
+                }
+              } @else {
+                <p class="files-notice files-muted">{{ detail.notice }}</p>
+              }
+            </div>
+          </div>
+          </div>
+        } @else {
+          <p class="files-notice files-muted">{{ view.notice }}</p>
+        }
+
+        <footer class="files-foot files-muted">
+          @if (view.branchText) { <span class="history-where">{{ view.branchText }}</span> }
+          @if (view.branchText && view.ahead) { <span class="history-where" aria-hidden="true">·</span> }
+          @if (view.ahead) { <span>{{ view.ahead }}</span> }
+          <span class="files-spacer"></span>
+          <button type="button" class="code-link" aria-current="page" aria-keyshortcuts="h" (click)="closed.emit()">history <kbd>H</kbd></button>
+          <span aria-hidden="true">·</span>
+          <button type="button" class="code-link" aria-keyshortcuts="c" (click)="filesOpened.emit()">code <kbd>C</kbd></button>
+        </footer>
+      </main>
+    </div>
+  </div>
+}

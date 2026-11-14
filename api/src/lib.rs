@@ -1,5 +1,6 @@
 pub mod agents;
 pub mod files;
+pub mod history;
 mod migrations;
 pub mod settings;
 pub mod workspace;

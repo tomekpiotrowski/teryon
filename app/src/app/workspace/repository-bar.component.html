@@ -1,0 +1,20 @@
+<header class="files-bar">
+  <span class="files-mark">TERYON</span>
+  <span class="files-muted files-project">{{ projectName }}@if (live) { · {{ live }} }</span>
+  @if (branches.length) {
+    <label class="files-branch">
+      <span class="files-muted">{{ commit ? 'commit' : 'branch' }}</span>
+      <select aria-label="Branch" (change)="choose($event)">
+        @if (commit) {
+          <option value="" selected>{{ commit }}</option>
+        } @else if (!branch) {
+          <option value="" selected>not on a branch</option>
+        }
+        @for (name of branches; track name) {
+          <option [value]="name" [selected]="!commit && name === branch">{{ name }}</option>
+        }
+      </select>
+      <span class="files-muted" aria-hidden="true">▾</span>
+    </label>
+  }
+</header>

@@ -5,37 +5,7 @@
 // where the file browser reads from.
 
 import { expect, test } from "@playwright/test";
-import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { addProject, openWorkspace } from "./support";
-
-function git(directory: string, ...parameters: string[]): void {
-  execFileSync("git", parameters, {
-    cwd: directory,
-    stdio: "pipe",
-    env: {
-      ...process.env,
-      // The repositories ignore the settings of whoever runs the tests.
-      GIT_CONFIG_GLOBAL: "/dev/null",
-      GIT_CONFIG_SYSTEM: "/dev/null",
-      GIT_AUTHOR_NAME: "Tester",
-      GIT_AUTHOR_EMAIL: "tester@example.com",
-      GIT_COMMITTER_NAME: "Tester",
-      GIT_COMMITTER_EMAIL: "tester@example.com",
-    },
-  });
-}
-
-function put(directory: string, path: string, content: string): void {
-  mkdirSync(dirname(join(directory, path)), { recursive: true });
-  writeFileSync(join(directory, path), content);
-}
-
-function commit(directory: string): void {
-  git(directory, "add", "-A");
-  git(directory, "commit", "-q", "-m", "change");
-}
+import { addProject, commit, git, openWorkspace, put } from "./support";
 
 const adapterBefore = `import type { LegacyTxn } from "../legacy/types";
 
@@ -200,7 +170,7 @@ test("a project that is not a git repository says so", async ({ page }) => {
 
   await page.getByRole("button", { name: "code C" }).click();
 
-  await expect(page.getByText("The file browser needs a git repository, and this project's directory is not one.")).toBeVisible();
+  await expect(page.getByText("This project's directory is not a git repository, so there are no files or history to show.")).toBeVisible();
   await expect(page.getByLabel("Branch")).toHaveCount(0);
   await page.getByRole("button", { name: "code C" }).click();
   await expect(page.getByLabel("New thread")).toBeVisible();

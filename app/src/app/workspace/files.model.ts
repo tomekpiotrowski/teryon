@@ -14,11 +14,13 @@ export interface FileEntry {
   readonly change: FileChange | null;
 }
 
-/** Every file of a branch, as the server lists them. */
+/** Every file of a branch or a commit, as the server lists them. */
 export interface Listing {
   readonly branches: readonly string[];
-  /** The branch shown. Nothing when the project's directory is not on a branch. */
+  /** The branch shown. Nothing when the project's directory is not on a branch, and when a commit is shown. */
   readonly branch: string | null;
+  /** The commit shown, by its full name. Nothing unless a commit was asked for. */
+  readonly commit: string | null;
   /** The branch changes are counted from. Nothing when only uncommitted work counts. */
   readonly base: string | null;
   readonly files: readonly FileEntry[];
@@ -281,29 +283,6 @@ export function directoryName(directory: string): string {
 export function askDraft(draft: string, path: string): string {
   const typed = draft.trim();
   return typed ? `${typed} \`${path}\` ` : `About \`${path}\`: `;
-}
-
-/** A pressed key, as far as the shortcut for the file browser cares. */
-export interface KeyPress {
-  readonly key: string;
-  readonly ctrlKey: boolean;
-  readonly metaKey: boolean;
-  readonly altKey: boolean;
-  /** The name of the element the key was pressed in, such as `TEXTAREA`. */
-  readonly element: string;
-  /** Whether that element is one whose text can be edited in place. */
-  readonly editable: boolean;
-}
-
-/**
- * Whether a key press asks to switch between the thread and the files.
- *
- * The shortcut is a bare `C`, so it must stay out of the way wherever a `c`
- * is typed as text or picks an entry from a list.
- */
-export function isFilesShortcut(press: KeyPress): boolean {
-  if (press.key.toLowerCase() !== 'c' || press.ctrlKey || press.metaKey || press.altKey) return false;
-  return !press.editable && !['INPUT', 'TEXTAREA', 'SELECT'].includes(press.element.toUpperCase());
 }
 
 /** Whether two answers from the server say the same, so the screen need not redraw. */

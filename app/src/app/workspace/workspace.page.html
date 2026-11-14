@@ -1,12 +1,32 @@
 <ion-content class="workspace-content" [fullscreen]="true" [scrollY]="false">
   @if (view$ | async; as view) {
-    @if (view.project && (filesOpen$ | async)) {
+    @let screen = screen$ | async;
+    @if (view.project && screen === 'files') {
       <app-files
         [project]="view.project"
         [liveAgents]="view.liveAgents"
-        (closed)="filesOpen$.next(false)"
+        [branch]="view.place.branch"
+        [commit]="view.place.commit"
+        (closed)="screen$.next('thread')"
+        (historyOpened)="screen$.next('history')"
+        (branchChosen)="chooseBranch(view.project, $event)"
         (asked)="askAbout($event)"
       ></app-files>
+    } @else if (view.project && screen === 'history') {
+      <app-history
+        [project]="view.project"
+        [liveAgents]="view.liveAgents"
+        [branch]="view.place.branch"
+        [threads]="view.projectThreads"
+        [openThread]="view.thread?.id ?? null"
+        [ownEmail]="(auth.currentUser$ | async)?.email ?? null"
+        (closed)="screen$.next('thread')"
+        (filesOpened)="screen$.next('files')"
+        (branchChosen)="chooseBranch(view.project, $event)"
+        (browsed)="browseAt(view.project, $event)"
+        (threadOpened)="openThread($event)"
+        (revertAsked)="askToRevert($event)"
+      ></app-history>
     } @else {
       <div class="workspace-shell">
         <header class="mobile-header">
@@ -113,7 +133,8 @@
                     <button type="button" aria-label="Change agent" (click)="toggleAgent()">{{ agentLabel((agent$ | async) ?? 'claude') }}</button>
                     <span class="spacer"></span>
                     <span>{{ view.project.directory }}</span>
-                    <button type="button" class="code-link" aria-keyshortcuts="c" (click)="filesOpen$.next(true)">code <kbd>C</kbd></button>
+                    <button type="button" class="code-link" aria-keyshortcuts="h" (click)="screen$.next('history')">history <kbd>H</kbd></button>
+                    <button type="button" class="code-link" aria-keyshortcuts="c" (click)="screen$.next('files')">code <kbd>C</kbd></button>
                     <button
                       class="send-action"
                       type="button"
@@ -167,7 +188,8 @@
                   <div class="composer-meta thread-meta">
                     <div>
                       <span>{{ agentLabel(view.thread.agent) }}</span>
-                      <button type="button" class="code-link" aria-keyshortcuts="c" (click)="filesOpen$.next(true)">code <kbd>C</kbd></button>
+                      <button type="button" class="code-link" aria-keyshortcuts="h" (click)="screen$.next('history')">history <kbd>H</kbd></button>
+                      <button type="button" class="code-link" aria-keyshortcuts="c" (click)="screen$.next('files')">code <kbd>C</kbd></button>
                     </div>
                     <div>
                       @if (view.running) {

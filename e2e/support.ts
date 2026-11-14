@@ -1,11 +1,13 @@
-// What the end-to-end specs share: a signed-in person and a way to add a project.
+// What the end-to-end specs share: a signed-in person, a way to add a project,
+// and a way to make its directory a git repository.
 //
 // The API runs with the test configuration, which replaces the agent programs
 // with a script that replays recordings. Nothing here reaches a model provider.
 
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
-import { mkdirSync, mkdtempSync } from "node:fs";
-import { join } from "node:path";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 const api = process.env.API_URL ?? "http://127.0.0.1:3001";
 
@@ -87,4 +89,50 @@ export async function openWorkspace({ page, request }: { page: Page; request: AP
   }, api);
   await page.setViewportSize({ width: 1280, height: 800 });
   await signIn(page, await registeredPerson(request));
+}
+
+/**
+ * Runs git in a directory and returns what it printed, without the line ending.
+ *
+ * With `time`, in seconds since 1970, git runs as if it were that moment, so
+ * a commit made this way carries it as the time it was made.
+ */
+export function git(directory: string, ...parameters: string[]): string {
+  return runGit(directory, undefined, parameters);
+}
+
+export function gitAt(directory: string, time: number, ...parameters: string[]): string {
+  return runGit(directory, time, parameters);
+}
+
+function runGit(directory: string, time: number | undefined, parameters: string[]): string {
+  const moment = time === undefined ? {} : { GIT_AUTHOR_DATE: `${time} +0000`, GIT_COMMITTER_DATE: `${time} +0000` };
+  return execFileSync("git", parameters, {
+    cwd: directory,
+    stdio: "pipe",
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      // The repositories ignore the settings of whoever runs the tests.
+      GIT_CONFIG_GLOBAL: "/dev/null",
+      GIT_CONFIG_SYSTEM: "/dev/null",
+      GIT_AUTHOR_NAME: "Tester",
+      GIT_AUTHOR_EMAIL: "tester@example.com",
+      GIT_COMMITTER_NAME: "Tester",
+      GIT_COMMITTER_EMAIL: "tester@example.com",
+      ...moment,
+    },
+  }).trim();
+}
+
+/** Writes a file in a directory, making the folders on the way. */
+export function put(directory: string, path: string, content: string): void {
+  mkdirSync(dirname(join(directory, path)), { recursive: true });
+  writeFileSync(join(directory, path), content);
+}
+
+/** Commits everything in a directory as it is. */
+export function commit(directory: string): void {
+  git(directory, "add", "-A");
+  git(directory, "commit", "-q", "-m", "change");
 }

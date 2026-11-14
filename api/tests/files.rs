@@ -6,10 +6,8 @@
 
 mod common;
 
-use std::fs::{create_dir_all, remove_file, write};
+use std::fs::remove_file;
 use std::os::unix::fs::symlink;
-use std::path::Path;
-use std::process::Command;
 
 use axum::http::StatusCode;
 use axum_test::TestResponse;
@@ -17,38 +15,8 @@ use lets_expect::lets_expect;
 use serde_json::Value;
 use tempfile::{tempdir, TempDir};
 
-use common::{project_folder, scene, text_field, Scene};
+use common::{commit, git, project_folder, put, scene, text_field, Scene};
 use teryon::workspace::project;
-
-fn git(directory: &Path, arguments: &[&str]) {
-    let output = Command::new("git")
-        .args(arguments)
-        .current_dir(directory)
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .env("GIT_CONFIG_SYSTEM", "/dev/null")
-        .env("GIT_AUTHOR_NAME", "Tester")
-        .env("GIT_AUTHOR_EMAIL", "tester@example.com")
-        .env("GIT_COMMITTER_NAME", "Tester")
-        .env("GIT_COMMITTER_EMAIL", "tester@example.com")
-        .output()
-        .expect("git runs");
-    assert!(
-        output.status.success(),
-        "git {arguments:?} failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-}
-
-fn put(directory: &Path, path: &str, content: impl AsRef<[u8]>) {
-    let file = directory.join(path);
-    create_dir_all(file.parent().expect("a folder")).expect("the folder is made");
-    write(file, content).expect("the file is written");
-}
-
-fn commit(directory: &Path) {
-    git(directory, &["add", "-A"]);
-    git(directory, &["commit", "-q", "-m", "change"]);
-}
 
 /// A project folder holding a repository with one commit on `main`.
 fn repository() -> TempDir {
@@ -366,6 +334,65 @@ lets_expect! { #tokio_test
         expect(listed(&named)) to equal(names(&["A loose.txt", "A recorded.txt"]))
     }
 
+    // requirement: a commit can be shown in place of a branch, as it was committed and compared with the main branch
+    story a_commit_is_shown_as_it_was_committed {
+        let scene = scene().await;
+        let folder = repository();
+        let project = scene.project(&folder).await;
+        let first = git(folder.path(), &["rev-parse", "HEAD"]);
+        git(folder.path(), &["switch", "-q", "-c", "feature"]);
+        put(folder.path(), "src/app.txt", "one\nTWO\nthree\n");
+        commit(folder.path());
+        let second = git(folder.path(), &["rev-parse", "HEAD"]);
+        put(folder.path(), "src/app.txt", "one\nTWO\nthree\nfour\n");
+        put(folder.path(), "added.txt", "added\n");
+        commit(folder.path());
+        put(folder.path(), "draft.txt", "not committed\n");
+
+        let response = files(&scene, &project, &[("commit", &second)]).await;
+        expect(response.status_code()) to equal(StatusCode::OK)
+        expect(listed(&response)) to equal(names(&["  .gitignore", "  README.md", "M src/app.txt", "  src/old.txt"]))
+        expect(field(&response, "commit")) to equal(second.clone())
+        expect(field(&response, "branch")) to equal("null".to_string())
+        expect(field(&response, "base")) to equal("main".to_string())
+        expect(branches(&response)) to equal(names(&["feature", "main"]))
+
+        let shown_file = file(&scene, &project, &[("commit", &second), ("path", "src/app.txt")]).await;
+        expect(shown(&shown_file)) to equal(names(&["1 one", "- two", "+2 TWO", "3 three"]))
+        let later = file(&scene, &project, &[("commit", &second), ("path", "added.txt")]).await;
+        expect(later.status_code()) to equal(StatusCode::NOT_FOUND)
+
+        let shortened = files(&scene, &project, &[("commit", &second[..7])]).await;
+        expect(field(&shortened, "commit")) to equal(second.clone())
+        let over_a_branch = files(&scene, &project, &[("branch", "main"), ("commit", &second)]).await;
+        expect(field(&over_a_branch, "commit")) to equal(second.clone())
+
+        let on_main = files(&scene, &project, &[("commit", &first)]).await;
+        expect(changed(&on_main)) to equal(names(&[]))
+        expect(field(&on_main, "base")) to equal("main".to_string())
+        let directory = files(&scene, &project, &[]).await;
+        expect(field(&directory, "commit")) to equal("null".to_string())
+    }
+
+    // requirement: a commit that does not exist, or a name that is no commit's, is refused
+    story an_unknown_commit_is_refused {
+        let scene = scene().await;
+        let folder = repository();
+        let project = scene.project(&folder).await;
+
+        let listing = files(&scene, &project, &[("commit", "0123456789abcdef0123456789abcdef01234567")]).await;
+        expect(listing.status_code()) to equal(StatusCode::NOT_FOUND)
+        expect(text_field(&listing, "error")) to equal("There is no such commit.".to_string())
+        expect(files(&scene, &project, &[("commit", "main")]).await.status_code()) to equal(StatusCode::NOT_FOUND)
+        expect(files(&scene, &project, &[("commit", "HEAD")]).await.status_code()) to equal(StatusCode::NOT_FOUND)
+        expect(files(&scene, &project, &[("commit", "--all")]).await.status_code()) to equal(StatusCode::NOT_FOUND)
+        expect(files(&scene, &project, &[("commit", "")]).await.status_code()) to equal(StatusCode::NOT_FOUND)
+
+        let shown_file = file(&scene, &project, &[("commit", "0123456789abcdef"), ("path", "README.md")]).await;
+        expect(shown_file.status_code()) to equal(StatusCode::NOT_FOUND)
+        expect(text_field(&shown_file, "error")) to equal("There is no such commit.".to_string())
+    }
+
     // requirement: a branch that does not exist is refused
     story an_unknown_branch_is_refused {
         let scene = scene().await;
@@ -393,7 +420,7 @@ lets_expect! { #tokio_test
         let folder = project_folder();
         put(folder.path(), "README.md", "# Sample\n");
         let project = scene.project(&folder).await;
-        let refusal = "The file browser needs a git repository, and this project's directory is not one.".to_string();
+        let refusal = "This project's directory is not a git repository, so there are no files or history to show.".to_string();
 
         let listing = files(&scene, &project, &[]).await;
         expect(listing.status_code()) to equal(StatusCode::UNPROCESSABLE_ENTITY)

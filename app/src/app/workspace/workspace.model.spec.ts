@@ -3,10 +3,16 @@ import {
   durationText,
   entryLine,
   groupThreads,
+  isBareLetter,
+  type KeyPress,
+  NO_PLACE,
   NOTHING_SELECTED,
   otherAgent,
+  placeIn,
   refusalText,
   resolveSelection,
+  screenAfter,
+  shortcutScreen,
   summaryText,
   threadLabel,
   type EntryKind,
@@ -21,6 +27,10 @@ function project(id: string, created_at: string): Project {
 
 function thread(id: string, project_id: string, created_at: string, status: Thread['status'] = 'idle'): Thread {
   return { id, project_id, title: '', agent: 'claude', status, created_at };
+}
+
+function press(overrides: Partial<KeyPress> = {}): KeyPress {
+  return { key: 'c', ctrlKey: false, metaKey: false, altKey: false, element: 'BODY', editable: false, ...overrides };
 }
 
 function entry(kind: EntryKind, body: Record<string, unknown>): ThreadEntry {
@@ -199,4 +209,80 @@ describe('refusalText', () => {
       expect(refusalText(failure, 'Fallback')).toBe('Fallback');
     },
   );
+});
+
+describe('isBareLetter', () => {
+  it('is the letter on its own, in either case', () => {
+    expect(isBareLetter(press(), 'c')).toBe(true);
+    expect(isBareLetter(press({ key: 'C' }), 'c')).toBe(true);
+  });
+
+  it('is no other key', () => {
+    expect(isBareLetter(press({ key: 'x' }), 'c')).toBe(false);
+    expect(isBareLetter(press({ key: 'Control' }), 'c')).toBe(false);
+  });
+
+  it.each(['ctrlKey', 'metaKey', 'altKey'] as const)('is not the letter held with %s, which belongs to the browser', (modifier) => {
+    expect(isBareLetter(press({ [modifier]: true }), 'c')).toBe(false);
+  });
+
+  it.each(['INPUT', 'TEXTAREA', 'SELECT', 'textarea'])('is not the letter typed into a %s', (element) => {
+    expect(isBareLetter(press({ element }), 'c')).toBe(false);
+  });
+
+  it('is not the letter typed into text edited in place', () => {
+    expect(isBareLetter(press({ element: 'DIV', editable: true }), 'c')).toBe(false);
+  });
+
+  it('is the letter pressed on a button', () => {
+    expect(isBareLetter(press({ element: 'BUTTON' }), 'c')).toBe(true);
+  });
+});
+
+describe('shortcutScreen', () => {
+  it.each([
+    ['c', 'files'],
+    ['C', 'files'],
+    ['h', 'history'],
+    ['H', 'history'],
+  ])('takes %s for the %s', (key, screen) => {
+    expect(shortcutScreen(press({ key }))).toBe(screen);
+  });
+
+  it.each(['x', 'j', 'Enter', 'Escape'])('takes %s for nothing', (key) => {
+    expect(shortcutScreen(press({ key }))).toBeNull();
+  });
+
+  it.each(['c', 'h'])('takes a %s typed as text for nothing', (key) => {
+    expect(shortcutScreen(press({ key, element: 'TEXTAREA' }))).toBeNull();
+    expect(shortcutScreen(press({ key, ctrlKey: true }))).toBeNull();
+  });
+});
+
+describe('screenAfter', () => {
+  it.each([
+    ['thread', 'files', 'files'],
+    ['thread', 'history', 'history'],
+    ['files', 'history', 'history'],
+    ['history', 'files', 'files'],
+    ['files', 'files', 'thread'],
+    ['history', 'history', 'thread'],
+  ] as const)('from the %s, asking for the %s shows the %s', (current, asked, shown) => {
+    expect(screenAfter(current, asked)).toBe(shown);
+  });
+});
+
+describe('placeIn', () => {
+  it('keeps a choice made in the same project', () => {
+    const place = { projectId: 'a', branch: 'feature', commit: 'a3f9c21' };
+    expect(placeIn(place, 'a')).toEqual(place);
+  });
+
+  it('starts over in another project', () => {
+    expect(placeIn({ projectId: 'a', branch: 'feature', commit: 'a3f9c21' }, 'b')).toEqual({ projectId: 'b', branch: null, commit: null });
+  });
+
+  it('starts from the directory as it is when nothing was chosen', () => {
+    expect(placeIn(NO_PLACE, 'a')).toEqual({ projectId: 'a', branch: null, commit: null });
+  });
 });

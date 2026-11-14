@@ -23,7 +23,7 @@ pub enum WorkspaceError {
     Busy(&'static str),
     #[error("Something went wrong.")]
     Database(#[from] DbErr),
-    /// The file browser could not answer; the text says why.
+    /// The project's repository could not be read; the text says why.
     #[error("{0}")]
     Files(#[from] FilesError),
 }
@@ -39,11 +39,11 @@ impl IntoResponse for WorkspaceError {
                 StatusCode::INTERNAL_SERVER_ERROR
             }
             Self::Files(FilesError::NotARepository) => StatusCode::UNPROCESSABLE_ENTITY,
-            Self::Files(FilesError::UnknownBranch | FilesError::UnknownFile) => {
-                StatusCode::NOT_FOUND
-            }
+            Self::Files(
+                FilesError::UnknownBranch | FilesError::UnknownCommit | FilesError::UnknownFile,
+            ) => StatusCode::NOT_FOUND,
             Self::Files(FilesError::Git(problem)) => {
-                error!("the file browser could not read a repository: {problem}");
+                error!("a repository could not be read: {problem}");
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(json!({ "error": "The repository could not be read." })),

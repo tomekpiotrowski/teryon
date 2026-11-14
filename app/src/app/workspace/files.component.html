@@ -1,21 +1,13 @@
 @if (view$ | async; as view) {
   <div class="files">
-    <header class="files-bar">
-      <span class="files-mark">TERYON</span>
-      <span class="files-muted files-project">{{ view.projectName }}@if (view.live) { · {{ view.live }} }</span>
-      @if (view.branches.length) {
-        <label class="files-branch">
-          <span class="files-muted">branch</span>
-          <select aria-label="Branch" (change)="chooseBranch($event)">
-            @if (!view.branch) { <option value="" selected>not on a branch</option> }
-            @for (branch of view.branches; track branch) {
-              <option [value]="branch" [selected]="branch === view.branch">{{ branch }}</option>
-            }
-          </select>
-          <span class="files-muted" aria-hidden="true">▾</span>
-        </label>
-      }
-    </header>
+    <app-repository-bar
+      [projectName]="view.projectName"
+      [live]="view.live"
+      [branches]="view.branches"
+      [branch]="view.branch"
+      [commit]="view.commit"
+      (branchChosen)="branchChosen.emit($event)"
+    ></app-repository-bar>
 
     <div class="files-shell">
       <nav class="files-side" aria-label="Repository files">
@@ -91,6 +83,8 @@
           }
           <span class="files-spacer"></span>
           <span>read-only</span>
+          <span aria-hidden="true">·</span>
+          <button type="button" class="code-link" aria-keyshortcuts="h" (click)="historyOpened.emit()">history <kbd>H</kbd></button>
           <span aria-hidden="true">·</span>
           <button type="button" class="code-link" aria-current="page" aria-keyshortcuts="c" (click)="closed.emit()">code <kbd>C</kbd></button>
         </footer>
