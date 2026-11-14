@@ -125,7 +125,7 @@
                         <div class="message"><span class="prompt-mark">❯</span><p>{{ line.text }}</p></div>
                       }
                       @case ('agent') {
-                        <div class="message agent-message"><p>{{ line.text }}</p></div>
+                        <div class="markdown" [innerHTML]="line.text | markdown"></div>
                       }
                       @case ('activity') {
                         <div class="activity-block"><div><span>◆</span><span>{{ line.text }}</span></div></div>

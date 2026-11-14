@@ -38,6 +38,12 @@ case "$*" in
   *"use tools"*)
     cat "$samples/$agent-tools.jsonl"
     ;;
+  *"write markdown"*)
+    # Not a recording as such: the first one with the answer replaced by hand
+    # with one that uses every kind of markdown the thread has to show, and
+    # some it must refuse to act on.
+    cat "$samples/$agent-markdown.jsonl"
+    ;;
   *)
     cat "$samples/$agent-first.jsonl"
     ;;
