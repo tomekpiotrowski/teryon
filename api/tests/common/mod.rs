@@ -211,6 +211,11 @@ impl Scene {
             .await
     }
 
+    pub async fn see(&self, thread: &thread::Model) -> TestResponse {
+        self.post(&format!("/api/threads/{}/seen", thread.id), json!({}))
+            .await
+    }
+
     pub async fn thread_now(&self, thread: &thread::Model) -> thread::Model {
         thread::Entity::find_by_id(thread.id)
             .one(&self.t.db)
@@ -237,6 +242,13 @@ impl Scene {
             sleep(Duration::from_millis(50)).await;
         }
         panic!("the agent did not end in time");
+    }
+
+    /// Gives a running agent's first lines time to be read.
+    ///
+    /// For checking that a line changed nothing, where there is no change to wait for.
+    pub async fn let_the_report_be_read(&self) {
+        sleep(Duration::from_millis(400)).await;
     }
 
     /// Waits for the agent of a thread to report its first line.

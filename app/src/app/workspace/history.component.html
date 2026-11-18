@@ -187,6 +187,8 @@
           @if (view.branchText && view.ahead) { <span class="history-where" aria-hidden="true">·</span> }
           @if (view.ahead) { <span>{{ view.ahead }}</span> }
           <span class="files-spacer"></span>
+          <button type="button" class="code-link" aria-keyshortcuts="/" (click)="menuOpened.emit()">menu <kbd>/</kbd></button>
+          <span aria-hidden="true">·</span>
           <button type="button" class="code-link" aria-current="page" aria-keyshortcuts="h" (click)="closed.emit()">history <kbd>H</kbd></button>
           <span aria-hidden="true">·</span>
           <button type="button" class="code-link" aria-keyshortcuts="c" (click)="filesOpened.emit()">code <kbd>C</kbd></button>

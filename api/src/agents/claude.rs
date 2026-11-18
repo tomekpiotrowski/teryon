@@ -8,7 +8,11 @@ use chrono::DateTime;
 use serde_json::Value;
 
 use crate::agents::summary::summarise_input;
-use crate::agents::{typed_report, AgentDriver, EntryDraft, Invocation, NotUnderstood, Turn};
+use tracing::warn;
+
+use crate::agents::{
+    command_names, typed_report, AgentDriver, EntryDraft, Invocation, NotUnderstood, Turn,
+};
 use crate::settings::ClaudeSettings;
 
 /// Variables that make Claude Code bill an API key instead of the subscription.
@@ -17,6 +21,8 @@ const KEY_VARIABLES: [&str; 2] = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"];
 pub struct ClaudeDriver {
     program: String,
     use_subscription: bool,
+    /// The slash commands named by the last line, until they are taken.
+    commands: Option<Vec<String>>,
 }
 
 impl ClaudeDriver {
@@ -24,6 +30,7 @@ impl ClaudeDriver {
         Self {
             program: settings.program.clone(),
             use_subscription: settings.use_subscription,
+            commands: None,
         }
     }
 }
@@ -69,13 +76,42 @@ impl AgentDriver for ClaudeDriver {
         let (kind, report) = typed_report(line)?;
         match kind.as_str() {
             "assistant" => Ok(assistant_entries(&report)),
-            "system" => Ok(system_entries(&report)),
+            "system" => {
+                if report["subtype"].as_str() == Some("init") {
+                    self.commands = offered_commands(&report);
+                }
+                Ok(system_entries(&report))
+            }
             "rate_limit_event" => Ok(limit_entries(&report)),
             "result" => Ok(result_entries(&report)),
             "user" | "stream_event" => Ok(Vec::new()),
             _ => Err(NotUnderstood),
         }
     }
+
+    fn take_commands(&mut self) -> Option<Vec<String>> {
+        self.commands.take()
+    }
+}
+
+/// The slash commands Claude Code names at the start of a turn that can be sent as a message.
+///
+/// It also names the ones that only work in its terminal, which are left
+/// out here, as are its internal ones, whose names begin with two underscores.
+/// A start without a list is logged, because it means the report changed
+/// shape and the menu would silently stop offering the commands.
+fn offered_commands(report: &Value) -> Option<Vec<String>> {
+    let Some(names) = command_names(&report["slash_commands"]) else {
+        warn!("Claude Code started a turn without naming its slash commands");
+        return None;
+    };
+    let terminal_only = command_names(&report["terminal_slash_commands"]).unwrap_or_default();
+    Some(
+        names
+            .into_iter()
+            .filter(|name| !name.starts_with("__") && !terminal_only.contains(name))
+            .collect(),
+    )
 }
 
 /// Text the agent wrote and tools it started.
@@ -151,7 +187,7 @@ fn result_entries(report: &Value) -> Vec<EntryDraft> {
 #[cfg(test)]
 mod tests {
     use lets_expect::lets_expect;
-    use serde_json::json;
+    use serde_json::{from_str, json};
     use uuid::Uuid;
 
     use super::*;
@@ -174,6 +210,34 @@ mod tests {
             conversation: Uuid::nil(),
             first,
         }
+    }
+
+    /// The commands the driver hands over after one report line.
+    fn commands_after(report: Value) -> Option<Vec<String>> {
+        let mut driver = driver(true);
+        driver
+            .interpret(&report.to_string())
+            .expect("the line is understood");
+        driver.take_commands()
+    }
+
+    /// The commands the driver hands over the second time it is asked, after a start that named some.
+    fn commands_taken_twice() -> Option<Vec<String>> {
+        let mut driver = driver(true);
+        driver
+            .interpret(FIRST.lines().next().expect("a first line"))
+            .expect("the line is understood");
+        driver.take_commands();
+        driver.take_commands()
+    }
+
+    /// The first line of a recording of the real program, which starts the report.
+    fn first_line() -> Value {
+        from_str(FIRST.lines().next().expect("a first line")).expect("a JSON line")
+    }
+
+    fn names(names: &[&str]) -> Option<Vec<String>> {
+        Some(names.iter().map(ToString::to_string).collect())
     }
 
     /// Runs a whole recording through the driver.
@@ -293,7 +357,7 @@ mod tests {
             when(report = json!({"type": "assistant", "message": {"content": [{"type": "tool_use", "input": {}}]}})) as name_an_unnamed_tool to hold {
                 equal(Ok(vec![EntryDraft::activity("tool", "")]))
             }
-            when(report = json!({"type": "system", "subtype": "init"})) as skip_the_start_of_the_report to hold {
+            when(report = json!({"type": "system", "subtype": "init", "slash_commands": ["compact"]})) as show_nothing_for_the_start_of_the_report to hold {
                 equal(Ok(Vec::new()))
             }
             when(report = json!({"type": "system", "subtype": "permission_denied"})) as explain_a_denial_without_details to hold {
@@ -328,6 +392,43 @@ mod tests {
             when(report = json!({"type": "something_new"})) as refuse_an_unknown_type to hold {
                 equal(Err(NotUnderstood))
             }
+        }
+    }
+
+    // requirement: the slash commands Claude Code names at the start of a turn are handed over, without the ones that need its terminal
+    lets_expect! {
+        expect(commands_after(report)) {
+            when(report = first_line()) as read_them_from_a_recording to hold {
+                equal(names(&["compact", "review"]))
+            }
+            when(report = json!({"type": "system", "subtype": "init", "slash_commands": ["compact", "review"]})) as keep_them_in_order to hold {
+                equal(names(&["compact", "review"]))
+            }
+            when(report = json!({"type": "system", "subtype": "init", "slash_commands": ["compact", "doctor", "__internal"], "terminal_slash_commands": ["doctor"]})) as leave_out_what_needs_a_terminal_and_what_is_internal to hold {
+                equal(names(&["compact"]))
+            }
+            when(report = json!({"type": "system", "subtype": "init", "slash_commands": []})) as hand_over_an_empty_list to hold {
+                equal(names(&[]))
+            }
+            when(report = json!({"type": "system", "subtype": "init", "slash_commands": ["compact", 5, null, {"name": "x"}]})) as leave_out_what_is_not_a_name to hold {
+                equal(names(&["compact"]))
+            }
+            when(report = json!({"type": "system", "subtype": "init"})) as hand_over_nothing_when_none_are_named to hold {
+                equal(None)
+            }
+            when(report = json!({"type": "system", "subtype": "init", "slash_commands": "compact"})) as hand_over_nothing_for_something_else_than_a_list to hold {
+                equal(None)
+            }
+            when(report = json!({"type": "system", "subtype": "permission_denied", "slash_commands": ["compact"]})) as hand_over_nothing_for_another_remark to hold {
+                equal(None)
+            }
+            when(report = json!({"type": "assistant", "slash_commands": ["compact"]})) as hand_over_nothing_for_another_line to hold {
+                equal(None)
+            }
+        }
+
+        expect(commands_taken_twice()) as hand_them_over_once {
+            to hold { equal(None) }
         }
     }
 }

@@ -29,6 +29,15 @@ pub struct Model {
     /// for continuing one, and refuse the wrong one.
     pub conversation_started: bool,
     pub status: String,
+    /// Whether an agent stopped working here since the person last looked.
+    ///
+    /// Kept on the server so that a thread read on one device is not
+    /// shown as waiting on another.
+    pub unread: bool,
+    /// The names of the slash commands the agent program last said it takes, as a list of texts.
+    ///
+    /// Empty until the program has run once for this thread.
+    pub commands: Json,
     pub created_at: NaiveDateTime,
     pub sync_seq: i64,
     pub deleted_at: Option<NaiveDateTime>,

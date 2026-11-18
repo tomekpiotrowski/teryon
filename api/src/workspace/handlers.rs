@@ -15,6 +15,7 @@ use sea_orm::{
     IntoActiveModel, PaginatorTrait, QueryFilter, Set, Statement,
 };
 use serde::Deserialize;
+use serde_json::json;
 use uuid::Uuid;
 
 use crate::agents::runner::{Runner, TurnRequest};
@@ -137,6 +138,8 @@ pub async fn create_thread(
         conversation_id: Set(Uuid::new_v4()),
         conversation_started: Set(false),
         status: Set(thread::IDLE.to_string()),
+        unread: Set(false),
+        commands: Set(json!([])),
         created_at: Set(Utc::now().naive_utc()),
         ..Default::default()
     }
@@ -209,6 +212,26 @@ pub async fn stop_thread(
 ) -> Result<StatusCode, WorkspaceError> {
     let thread = owned_thread(&app.db, user.id, thread_id).await?;
     runner.stop(thread.id);
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Notes that the person has looked at a thread.
+///
+/// A thread is marked as unread when its agent stops. The application calls
+/// this when the thread is on screen, which clears the mark on every device.
+/// A thread that is not marked is left alone, so that looking at it again
+/// does not send a change to every device.
+pub async fn mark_thread_seen(
+    State(app): State<Teryon>,
+    CurrentUser { user, .. }: CurrentUser,
+    Path(thread_id): Path<Uuid>,
+) -> Result<StatusCode, WorkspaceError> {
+    let thread = owned_thread(&app.db, user.id, thread_id).await?;
+    if thread.unread {
+        let mut thread = thread.into_active_model();
+        thread.unread = Set(false);
+        thread.update(&app.db).await?;
+    }
     Ok(StatusCode::NO_CONTENT)
 }
 

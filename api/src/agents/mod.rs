@@ -151,6 +151,13 @@ pub trait AgentDriver: Send {
     /// a message is complete.
     fn interpret(&mut self, line: &str) -> Result<Vec<EntryDraft>, NotUnderstood>;
 
+    /// Hands over the slash commands the program said it takes, when the last line named them.
+    ///
+    /// Both programs name their commands at the start of a turn. The list
+    /// depends on the project and on what the person has installed, so it
+    /// is read from the program rather than kept in Teryon.
+    fn take_commands(&mut self) -> Option<Vec<String>>;
+
     /// Returns whatever the driver was still holding when the program ended.
     fn finish(&mut self) -> Vec<EntryDraft> {
         Vec::new()
@@ -162,6 +169,18 @@ pub fn driver_for(agent: Agent, settings: &AgentSettings) -> Box<dyn AgentDriver
         Agent::Claude => Box::new(ClaudeDriver::new(&settings.claude)),
         Agent::Grok => Box::new(GrokDriver::new(&settings.grok)),
     }
+}
+
+/// Reads a list of command names. Nothing when it is not a list; entries that are not text are left out.
+fn command_names(list: &Value) -> Option<Vec<String>> {
+    let names = list.as_array()?;
+    Some(
+        names
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_string)
+            .collect(),
+    )
 }
 
 /// Reads a report line as a JSON object and returns it with its `type`.

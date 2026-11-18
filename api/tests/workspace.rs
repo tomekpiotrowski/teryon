@@ -476,7 +476,157 @@ lets_expect! { #tokio_test
         let released = release_interrupted_threads(&scene.t.db).await;
         expect(released) to equal(Ok(1))
         expect(scene.thread_now(&interrupted).await.status) to equal("idle".to_string())
+        expect(scene.thread_now(&interrupted).await.unread) to be_true
+        expect(scene.thread_now(&untouched).await.unread) to be_false
         expect(scene.text_at(&interrupted, 1).await) to equal("Interrupted by a restart.".to_string())
         expect(scene.kinds(&untouched).await.len()) to equal(0)
+    }
+
+    // requirement: a thread is unread once its agent stops, however it stops, until the person has looked at it
+    story a_thread_is_unread_once_its_agent_ends {
+        let scene = scene().await;
+        let folder = project_folder();
+        let project = scene.project(&folder).await;
+        let thread = scene.thread(&project, "claude").await;
+        expect(scene.thread_now(&thread).await.unread) to be_false
+
+        scene.say(&thread, "hello").await;
+        expect(scene.thread_now(&thread).await.unread) to be_false
+        scene.wait_until_idle(&thread).await;
+        expect(scene.thread_now(&thread).await.unread) to be_true
+
+        let seen = scene.see(&thread).await;
+        expect(seen.status_code()) to equal(StatusCode::NO_CONTENT)
+        expect(scene.thread_now(&thread).await.unread) to be_false
+
+        let synchronised = scene.synchronised(&scene.token, "threads").await;
+        expect(synchronised[0]["unread"].as_bool()) to equal(Some(false))
+    }
+
+    story a_thread_whose_agent_failed_is_unread {
+        let scene = scene().await;
+        let folder = project_folder();
+        let project = scene.project(&folder).await;
+        let thread = scene.thread(&project, "claude").await;
+
+        scene.say(&thread, "please fail").await;
+        scene.wait_until_idle(&thread).await;
+        expect(scene.thread_now(&thread).await.unread) to be_true
+    }
+
+    story a_thread_whose_agent_was_stopped_is_unread {
+        let scene = scene().await;
+        let folder = project_folder();
+        let project = scene.project(&folder).await;
+        let thread = scene.thread(&project, "claude").await;
+        scene.say(&thread, "be slow").await;
+        scene.wait_until_reporting(&thread).await;
+
+        scene.stop(&thread).await;
+        scene.wait_until_idle(&thread).await;
+        expect(scene.thread_now(&thread).await.unread) to be_true
+    }
+
+    // requirement: looking at a thread while its agent works does not hide what the agent does afterwards
+    story a_thread_seen_while_its_agent_works_is_unread_when_it_ends {
+        let scene = scene().await;
+        let folder = project_folder();
+        let project = scene.project(&folder).await;
+        let thread = scene.thread(&project, "claude").await;
+        scene.say(&thread, "be slow").await;
+        scene.wait_until_reporting(&thread).await;
+
+        let seen = scene.see(&thread).await;
+        expect(seen.status_code()) to equal(StatusCode::NO_CONTENT)
+        expect(scene.thread_now(&thread).await.status) to equal("running".to_string())
+        scene.stop(&thread).await;
+        scene.wait_until_idle(&thread).await;
+        expect(scene.thread_now(&thread).await.unread) to be_true
+    }
+
+    // requirement: looking at a thread that is not unread changes nothing, so no device is told of a change
+    story seeing_a_thread_that_is_not_unread_changes_nothing {
+        let scene = scene().await;
+        let folder = project_folder();
+        let project = scene.project(&folder).await;
+        let thread = scene.thread(&project, "claude").await;
+        let before = scene.thread_now(&thread).await.sync_seq;
+
+        let seen = scene.see(&thread).await;
+        expect(seen.status_code()) to equal(StatusCode::NO_CONTENT)
+        expect(scene.thread_now(&thread).await.sync_seq) to equal(before)
+    }
+
+    story someone_else_cannot_mark_a_thread_as_seen {
+        let scene = scene().await;
+        let folder = project_folder();
+        let project = scene.project(&folder).await;
+        let thread = scene.thread(&project, "claude").await;
+        scene.say(&thread, "hello").await;
+        scene.wait_until_idle(&thread).await;
+        let stranger = scene.someone_else().await;
+
+        let seen = scene.post_as(&stranger, &format!("/api/threads/{}/seen", thread.id), json!({})).await;
+        expect(seen.status_code()) to equal(StatusCode::NOT_FOUND)
+        expect(scene.thread_now(&thread).await.unread) to be_true
+        let unknown = scene.post(&format!("/api/threads/{}/seen", Uuid::new_v4()), json!({})).await;
+        expect(unknown.status_code()) to equal(StatusCode::NOT_FOUND)
+        let signed_out = scene.post_as("", &format!("/api/threads/{}/seen", thread.id), json!({})).await;
+        expect(signed_out.status_code()) to equal(StatusCode::UNAUTHORIZED)
+    }
+
+    // requirement: the slash commands an agent program names are kept with the thread and reach the application
+    story a_thread_keeps_the_commands_its_agent_takes {
+        let scene = scene().await;
+        let folder = project_folder();
+        let project = scene.project(&folder).await;
+        let claude = scene.thread(&project, "claude").await;
+        let grok = scene.thread(&project, "grok").await;
+        expect(scene.thread_now(&claude).await.commands) to equal(json!([]))
+
+        scene.say(&claude, "hello").await;
+        scene.say(&grok, "hello").await;
+        scene.wait_until_idle(&claude).await;
+        scene.wait_until_idle(&grok).await;
+        expect(scene.thread_now(&claude).await.commands) to equal(json!(["compact", "review"]))
+        expect(scene.thread_now(&grok).await.commands) to equal(json!(["compact", "review"]))
+
+        let synchronised = scene.synchronised(&scene.token, "threads").await;
+        expect(synchronised.iter().all(|thread| thread["commands"] == json!(["compact", "review"]))) to be_true
+    }
+
+    // requirement: a list that did not change is not stored again, so no device is told of a change
+    story the_same_commands_are_stored_once {
+        let scene = scene().await;
+        let folder = project_folder();
+        let project = scene.project(&folder).await;
+        let thread = scene.thread(&project, "grok").await;
+        scene.say(&thread, "hello").await;
+        scene.wait_until_idle(&thread).await;
+
+        scene.say(&thread, "be slow").await;
+        scene.let_the_report_be_read().await;
+        let running = scene.thread_now(&thread).await;
+        expect(running.commands.clone()) to equal(json!(["compact", "review"]))
+        // Every change takes the next number of one clock. The thread last changed when
+        // it was claimed, before the message was stored: naming the same commands again changed nothing.
+        let message = scene.entries(thread.id).await.pop().expect("the message");
+        expect(running.sync_seq < message.sync_seq) to be_true
+        scene.stop(&thread).await;
+        scene.wait_until_idle(&thread).await;
+    }
+
+    // requirement: a program that ends before naming its commands leaves the list as it was
+    story a_failing_agent_leaves_the_commands_as_they_were {
+        let scene = scene().await;
+        let folder = project_folder();
+        let project = scene.project(&folder).await;
+        let thread = scene.thread(&project, "claude").await;
+        scene.say(&thread, "hello").await;
+        scene.wait_until_idle(&thread).await;
+
+        scene.say(&thread, "please fail").await;
+        scene.wait_until_idle(&thread).await;
+        expect(scene.thread_now(&thread).await.commands) to equal(json!(["compact", "review"]))
     }
 }

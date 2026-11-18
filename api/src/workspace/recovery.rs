@@ -14,7 +14,7 @@ use crate::agents::EntryDraft;
 use crate::workspace::journal::Journal;
 use crate::workspace::thread;
 
-/// Marks every thread left as running as idle and says why in the thread.
+/// Marks every thread left as running as idle and unread, and says why in the thread.
 pub async fn release_interrupted_threads(db: &DatabaseConnection) -> Result<usize, DbErr> {
     let threads = thread::Entity::find()
         .filter(thread::Column::Status.eq(thread::RUNNING))
@@ -29,6 +29,7 @@ pub async fn release_interrupted_threads(db: &DatabaseConnection) -> Result<usiz
             .await?;
         let mut thread = thread.into_active_model();
         thread.status = Set(thread::IDLE.to_string());
+        thread.unread = Set(true);
         thread.update(db).await?;
     }
     Ok(released)

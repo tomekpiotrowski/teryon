@@ -1,5 +1,5 @@
-{"type": "available_commands"}
-{"type": "available_commands"}
+{"type": "available_commands", "commands": ["compact", "review"]}
+{"type": "available_commands", "commands": ["compact", "review"]}
 {"type": "thought", "data": "I need to create note.txt"}
 {"type": "thought", "data": " with the word hello."}
 {"type": "thought", "data": "\n\nI'll run wc -c on "}
@@ -46,7 +46,7 @@
 {"type": "text", "data": " is"}
 {"type": "text", "data": " readable"}
 {"type": "text", "data": "."}
-{"type": "available_commands"}
+{"type": "available_commands", "commands": ["compact", "review"]}
 {"type": "usage", "usage": {"input_tokens": 8774, "output_tokens": 966, "cache_read_input_tokens": 10112, "cache_creation_input_tokens": 0, "reasoning_tokens": 817}, "signature": "omitted"}
 {"type": "tool_call", "toolCallId": "call-d4cded69-c03c-4d35-9c68-6e8ee1055c92-0", "title": "write", "kind": "write", "status": "pending", "toolName": "write", "rawInput": {"file_path": "/work/sample-project/note.txt", "content": "hello"}, "content": [], "locations": []}
 {"type": "tool_call_update", "toolCallId": "call-d4cded69-c03c-4d35-9c68-6e8ee1055c92-0", "status": null, "content": [{"type": "diff", "path": "/work/sample-project/note.txt", "oldText": "", "newText": "hello"}], "rawOutput": null, "locations": [{"path": "/work/sample-project/note.txt"}]}
@@ -57,7 +57,7 @@
 {"type": "thought", "data": "The /etc/shadow read"}
 {"type": "thought", "data": " was blocked. I will"}
 {"type": "thought", "data": " run wc -c separately."}
-{"type": "available_commands"}
+{"type": "available_commands", "commands": ["compact", "review"]}
 {"type": "usage", "usage": {"input_tokens": 1191, "output_tokens": 125, "cache_read_input_tokens": 18816, "cache_creation_input_tokens": 0, "reasoning_tokens": 100}, "signature": "omitted"}
 {"type": "tool_call", "toolCallId": "call-7e2a0990-3fae-44f2-9765-fd3f781e25d0-2", "title": "run_terminal_command", "kind": "execute", "status": "pending", "toolName": "run_terminal_command", "rawInput": {"command": "wc -c note.txt", "description": "Count bytes in note.txt"}, "content": [], "locations": []}
 {"type": "tool_call_update", "toolCallId": "call-7e2a0990-3fae-44f2-9765-fd3f781e25d0-2", "status": null, "content": [{"type": "content", "content": {"type": "text", "text": "Count bytes in note.txt"}}], "rawOutput": null, "locations": []}
@@ -91,6 +91,6 @@
 {"type": "text", "data": " was"}
 {"type": "text", "data": " ready"}
 {"type": "text", "data": "."}
-{"type": "available_commands"}
+{"type": "available_commands", "commands": ["compact", "review"]}
 {"type": "usage", "usage": {"input_tokens": 181, "output_tokens": 118, "cache_read_input_tokens": 19968, "cache_creation_input_tokens": 0, "reasoning_tokens": 93}, "signature": "omitted"}
 {"type": "end", "stopReason": "end_turn", "sessionId": "9da215a9-ae45-46d5-9c87-8f5220bd7207", "requestId": "27c15eb1-85fb-4251-a8ca-0ccd298228d8", "cwd": "/work/sample-project", "usage": {"input_tokens": 10146, "cache_read_input_tokens": 48896, "cache_creation_input_tokens": 0, "output_tokens": 1209, "reasoning_tokens": 1010, "total_tokens": 60251}, "num_turns": 3, "total_cost_usd": 0.01767796, "total_cost_usd_ticks": 176779600, "modelUsage": {"grok-4.7-build": {"inputTokens": 10146, "outputTokens": 1209, "cacheReadInputTokens": 48896, "cacheCreationInputTokens": 0, "modelCalls": 3, "costUSD": 0.01767796}}}

@@ -246,6 +246,8 @@ export class HistoryComponent {
 
   /** The person asked to go back to the thread. */
   @Output() readonly closed = new EventEmitter<void>();
+  /** Asked for the menu, which belongs to the page. */
+  @Output() readonly menuOpened = new EventEmitter<void>();
   /** The person asked for the files. */
   @Output() readonly filesOpened = new EventEmitter<void>();
   /** The person picked a branch, or the one shown is gone and the directory's own should be. */

@@ -1,0 +1,58 @@
+<div class="menu-backdrop" role="presentation" (click)="closed.emit()">
+  <section class="menu blueprint" role="dialog" aria-modal="true" aria-label="Menu" (click)="$event.stopPropagation()">
+    <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+    @if (view$ | async; as view) {
+      @if (view.adding) {
+        <form class="menu-form" (submit)="addProject($event, projectName.value, projectDirectory.value)">
+          <h1>New project</h1>
+          <input #projectName type="text" aria-label="Project name" placeholder="Name" autocomplete="off" required />
+          <input #projectDirectory type="text" aria-label="Project directory" placeholder="/path/to/directory" autocomplete="off" required />
+          <div>
+            <button type="button" (click)="closed.emit()">Cancel</button>
+            <button type="submit">Add project</button>
+          </div>
+        </form>
+      } @else {
+        <div class="menu-search">
+          <span aria-hidden="true">/</span>
+          <input
+            type="text"
+            role="combobox"
+            aria-label="Search the menu"
+            aria-expanded="true"
+            aria-controls="menu-list"
+            [attr.aria-activedescendant]="view.rows.length ? 'menu-option-' + view.marked : null"
+            placeholder="Search threads, projects, actions and agent commands"
+            autocomplete="off"
+            spellcheck="false"
+            (input)="search($event)"
+            (keydown)="handleKey($event)"
+          />
+        </div>
+        <div id="menu-list" class="menu-list" role="listbox" aria-label="Commands">
+          @for (row of view.rows; track row.command.id) {
+            @if (row.heading) { <div class="menu-heading" role="presentation">{{ row.heading }}</div> }
+            <button
+              type="button"
+              class="menu-row"
+              role="option"
+              [id]="'menu-option-' + $index"
+              [class.marked]="$index === view.marked"
+              [attr.aria-selected]="$index === view.marked"
+              (pointermove)="mark($index)"
+              (click)="choose(row.command)"
+            >
+              <span class="menu-dot" [class.live]="row.command.live" aria-hidden="true">{{ row.command.live ? '●' : '·' }}</span>
+              <span class="menu-title">{{ row.command.title }}</span>
+              @if (row.command.detail) { <span class="menu-detail">{{ row.command.detail }}</span> }
+              @if (row.command.live) { <span class="menu-detail">running</span> }
+              @if (row.command.key; as key) { <kbd>{{ key.toUpperCase() }}</kbd> }
+            </button>
+          } @empty {
+            <p class="menu-nothing">Nothing matches.</p>
+          }
+        </div>
+      }
+    }
+  </section>
+</div>

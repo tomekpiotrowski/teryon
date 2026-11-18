@@ -11,13 +11,19 @@ use std::mem::take;
 use serde_json::Value;
 
 use crate::agents::summary::summarise_input;
-use crate::agents::{typed_report, AgentDriver, EntryDraft, Invocation, NotUnderstood, Turn};
+use tracing::warn;
+
+use crate::agents::{
+    command_names, typed_report, AgentDriver, EntryDraft, Invocation, NotUnderstood, Turn,
+};
 use crate::settings::GrokSettings;
 
 pub struct GrokDriver {
     program: String,
     /// Pieces of the message the agent is writing.
     text: String,
+    /// The slash commands named by the last line, until they are taken.
+    commands: Option<Vec<String>>,
 }
 
 impl GrokDriver {
@@ -25,6 +31,7 @@ impl GrokDriver {
         Self {
             program: settings.program.clone(),
             text: String::new(),
+            commands: None,
         }
     }
 
@@ -89,9 +96,23 @@ impl AgentDriver for GrokDriver {
                 entries.extend(end_entries(&report));
                 Ok(entries)
             }
-            "thought" | "available_commands" => Ok(Vec::new()),
+            "available_commands" => {
+                // Grok names its commands several times a turn. A line without
+                // them is logged, because it means the report changed shape and
+                // the menu would silently stop offering the commands.
+                self.commands = command_names(&report["commands"]);
+                if self.commands.is_none() {
+                    warn!("Grok listed its commands without naming them");
+                }
+                Ok(Vec::new())
+            }
+            "thought" => Ok(Vec::new()),
             _ => Err(NotUnderstood),
         }
+    }
+
+    fn take_commands(&mut self) -> Option<Vec<String>> {
+        self.commands.take()
     }
 
     fn finish(&mut self) -> Vec<EntryDraft> {
@@ -132,7 +153,7 @@ fn end_entries(report: &Value) -> Vec<EntryDraft> {
 #[cfg(test)]
 mod tests {
     use lets_expect::lets_expect;
-    use serde_json::json;
+    use serde_json::{from_str, json};
     use uuid::Uuid;
 
     use super::*;
@@ -153,6 +174,33 @@ mod tests {
             conversation: Uuid::nil(),
             first,
         }
+    }
+
+    /// The commands the driver hands over after each of some report lines.
+    fn commands_after(lines: Vec<Value>) -> Vec<Option<Vec<String>>> {
+        let mut driver = driver();
+        lines
+            .iter()
+            .map(|line| {
+                driver
+                    .interpret(&line.to_string())
+                    .expect("the line is understood");
+                driver.take_commands()
+            })
+            .collect()
+    }
+
+    /// The first lines of a recording of the real program.
+    fn recorded(count: usize) -> Vec<Value> {
+        FIRST
+            .lines()
+            .take(count)
+            .map(|line| from_str(line).expect("a JSON line"))
+            .collect()
+    }
+
+    fn names(names: &[&str]) -> Option<Vec<String>> {
+        Some(names.iter().map(ToString::to_string).collect())
     }
 
     /// Runs report lines through one driver, then asks for what it still holds.
@@ -288,6 +336,36 @@ mod tests {
         expect(driver().interpret(line)) {
             when(line = r#"{"type":"something_new"}"#) as refuse_an_unknown_type to hold { equal(Err(NotUnderstood)) }
             when(line = "plain text") as refuse_text to hold { equal(Err(NotUnderstood)) }
+        }
+    }
+
+    // requirement: the slash commands Grok names during a turn are handed over
+    lets_expect! {
+        expect(commands_after(lines)) {
+            when(lines = recorded(3)) as read_them_from_a_recording to hold {
+                equal(vec![names(&["compact", "review"]), names(&["compact", "review"]), None])
+            }
+            when(lines = vec![json!({"type": "available_commands", "tools": ["grep"], "commands": ["compact", "user:plan"]})]) as keep_them_in_order to hold {
+                equal(vec![names(&["compact", "user:plan"])])
+            }
+            when(lines = vec![json!({"type": "available_commands", "commands": []})]) as hand_over_an_empty_list to hold {
+                equal(vec![names(&[])])
+            }
+            when(lines = vec![json!({"type": "available_commands", "commands": ["compact", 5, null]})]) as leave_out_what_is_not_a_name to hold {
+                equal(vec![names(&["compact"])])
+            }
+            when(lines = vec![json!({"type": "available_commands"})]) as hand_over_nothing_when_none_are_named to hold {
+                equal(vec![None])
+            }
+            when(lines = vec![json!({"type": "available_commands", "commands": "compact"})]) as hand_over_nothing_for_something_else_than_a_list to hold {
+                equal(vec![None])
+            }
+            when(lines = vec![json!({"type": "thought", "commands": ["compact"]}), json!({"type": "text", "data": "hi", "commands": ["compact"]})]) as hand_over_nothing_for_other_lines to hold {
+                equal(vec![None, None])
+            }
+            when(lines = vec![json!({"type": "available_commands", "commands": ["compact"]}), json!({"type": "thought"})]) as hand_them_over_once to hold {
+                equal(vec![names(&["compact"]), None])
+            }
         }
     }
 }

@@ -19,7 +19,7 @@ use crate::files::handlers::{list_files, show_file};
 use crate::history::handlers::{list_history, show_change, show_changes};
 use crate::settings::Settings;
 use crate::workspace::handlers::{
-    create_project, create_thread, delete_project, send_message, stop_thread,
+    create_project, create_thread, delete_project, mark_thread_seen, send_message, stop_thread,
 };
 use crate::Teryon;
 
@@ -52,6 +52,7 @@ pub fn router(app: Teryon) -> Router {
         .route("/threads/sync", get(sync_delta::<thread::Entity, Settings>))
         .route("/threads/{id}/messages", post(send_message))
         .route("/threads/{id}/stop", post(stop_thread))
+        .route("/threads/{id}/seen", post(mark_thread_seen))
         .route(
             "/thread-entries/sync",
             get(sync_delta::<thread_entry::Entity, Settings>),

@@ -389,7 +389,9 @@ a:hover {
 }
 
 .workspace-shell {
+  display: flex;
   height: 100%;
+  flex-direction: column;
   overflow: hidden;
   background: var(--color-bg);
   color: var(--color-text);
@@ -407,189 +409,199 @@ a:hover {
 .workspace-body {
   position: relative;
   display: flex;
-  height: 100%;
   min-height: 0;
-}
-
-.mobile-header { display: none; }
-
-.project-navigation {
-  display: flex;
-  width: 246px;
-  min-height: 0;
-  flex: none;
-  flex-direction: column;
-  padding-top: calc(22px + env(safe-area-inset-top));
-  background: var(--color-bg);
-}
-
-.navigation-brand {
-  display: flex;
-  align-items: center;
-  padding: 0 22px 22px;
-  color: var(--color-neutral-600);
-  font: 700 12px/1 var(--font-heading);
-  letter-spacing: 0.22em;
-}
-
-.navigation-brand > span { flex: 1; }
-.navigation-close { display: none; }
-
-.project-list {
   flex: 1;
-  overflow-x: hidden;
+}
+
+/* The bar at the top of a thread. It shares the frame of the bar above the
+   files and the history, so the three screens line up. */
+.workspace-bar { gap: 12px; }
+
+.menu-button {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  place-items: center;
+  margin-left: -6px;
+  color: var(--color-neutral-600) !important;
+}
+
+.menu-button:hover { color: var(--color-text) !important; }
+.menu-button svg { width: 18px; fill: none; stroke: currentColor; stroke-linecap: square; stroke-width: 1.5; }
+
+.bar-running,
+.bar-waiting {
+  flex: none;
+  color: var(--color-accent-700);
+  font: 400 11.5px/1 var(--font-code);
+}
+
+.bar-waiting {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  color: var(--color-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The menu: every command in one list. A box in the middle of a wide
+   screen; further down, a sheet from the bottom of a narrow one. */
+.menu-backdrop {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 14vh 24px 24px;
+  background: color-mix(in srgb, var(--color-text) 32%, transparent);
+}
+
+.menu {
+  display: flex;
+  width: min(100%, 560px);
+  max-height: min(100%, 520px);
+  flex-direction: column;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 13.5px;
+}
+
+.menu button {
+  border: 0;
+  cursor: pointer;
+  background: transparent;
+  color: inherit;
+}
+
+.menu-search {
+  display: flex;
+  flex: none;
+  align-items: baseline;
+  gap: 12px;
+  border-bottom: 1px solid var(--color-divider);
+  padding: 14px 18px;
+}
+
+.menu-search > span { color: var(--color-accent); font: 400 13px/1.6 var(--font-code); }
+
+.menu-search input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  caret-color: var(--color-accent);
+  color: var(--color-text);
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.menu-search input:focus-visible { outline: none; }
+.menu-search input::placeholder,
+.menu-form input::placeholder { color: var(--color-neutral-500); opacity: 1; }
+
+.menu-list {
+  min-height: 0;
+  flex: 1;
   overflow-y: auto;
-  padding: 0 12px;
+  padding: 6px 8px 10px;
   -webkit-overflow-scrolling: touch;
 }
 
-.project-group { margin-bottom: 3px; }
+.menu-heading {
+  padding: 12px 10px 5px;
+  color: var(--color-neutral-500);
+  font: 600 10.5px/1 var(--font-heading);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
 
-.project-row,
-.new-project {
+.menu-row {
   display: flex;
   width: 100%;
-  min-height: 30px;
-  align-items: center;
-  gap: 9px;
-  padding: 6px 10px !important;
-  color: var(--color-neutral-600) !important;
+  min-height: 32px;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 10px;
   text-align: left;
 }
 
-.project-row:hover,
-.project-row.selected,
-.new-project:hover { color: var(--color-text) !important; }
+.menu-row.marked { background: color-mix(in srgb, var(--color-accent) 15%, transparent); }
 
-.project-dot {
+.menu-dot {
   width: 9px;
   flex: none;
   color: var(--color-neutral-400);
-  font-size: 9px;
-}
-
-.project-dot.live { color: var(--color-accent); }
-
-.project-name {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  font-family: var(--font-heading);
-  font-size: 14.5px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.project-count {
-  color: var(--color-neutral-500);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-}
-
-.thread-list {
-  display: flex;
-  flex-direction: column;
-  margin: 0 0 10px 19px;
-}
-
-.thread-row {
-  display: flex;
-  min-height: 26px;
-  align-items: baseline;
-  gap: 10px;
-  padding: 4px 10px !important;
-  color: var(--color-neutral-600) !important;
-  text-align: left;
-}
-
-.thread-row:hover,
-.thread-row.selected { color: var(--color-text) !important; }
-.thread-row span:first-child {
-  width: 9px;
-  flex: none;
-  color: var(--color-accent);
   font: 600 11px/1.4 var(--font-heading);
   text-align: center;
 }
-.thread-row span:last-child {
+
+.menu-dot.live { color: var(--color-accent); }
+
+.menu-title {
   min-width: 0;
+  flex: 0 1 auto;
   overflow: hidden;
-  font-size: 12.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.project-line {
-  display: flex;
-  align-items: center;
+.menu-detail {
+  min-width: 0;
+  flex: 1 1 0;
+  overflow: hidden;
+  color: var(--color-neutral-500);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.project-line .project-row { min-width: 0; flex: 1; }
+.menu-detail + .menu-detail { flex: none; color: var(--color-accent-700); }
 
-/* Removing a project is rare, so its control stays out of the way until the
-   row is pointed at or reached with the keyboard. */
-.remove-project {
-  min-width: 26px;
-  min-height: 26px;
-  color: var(--color-neutral-500) !important;
-  font-size: 15px;
-  opacity: 0;
+.menu-row kbd,
+.empty-workspace kbd {
+  flex: none;
+  border: 1px solid var(--color-divider);
+  padding: 2px 5px;
+  color: color-mix(in srgb, var(--color-text) 72%, transparent);
+  font: 600 10px/1 var(--font-code);
 }
 
-.project-line:hover .remove-project,
-.remove-project:focus-visible { opacity: 1; }
-.remove-project:hover { color: #9d3838 !important; }
+.menu-row kbd { margin-left: auto; }
 
-.project-form {
+.menu-nothing {
+  margin: 0;
+  padding: 18px 10px;
+  color: var(--color-neutral-500);
+}
+
+.menu-form {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-top: 8px;
-  padding: 0 10px;
+  gap: 14px;
+  padding: 20px 22px;
 }
 
-.project-form input {
-  min-height: 32px;
+.menu-form h1 { margin: 0; font: 600 22px/1 var(--font-heading); }
+
+.menu-form input {
+  min-height: 34px;
   border: 0;
   border-bottom: 1px solid var(--color-divider);
   padding: 4px 0;
   background: transparent;
   color: var(--color-text);
-  font-size: 13px;
+  font-size: 15px;
 }
 
-.project-form input:focus-visible { border-color: var(--color-accent); outline: none; }
-.project-form input::placeholder { color: var(--color-neutral-500); opacity: 1; }
-.project-form > div { display: flex; gap: 14px; }
-.project-form button { min-height: 30px; color: var(--color-neutral-500) !important; font-size: 12px; }
-.project-form button[type='submit'] { color: var(--color-accent-700) !important; }
-.project-form button:hover { color: var(--color-text) !important; }
-
-.new-project {
-  margin-top: 6px;
-  font-size: 13px;
-}
-
-.new-project span:first-child { width: 9px; text-align: center; }
-
-.navigation-footer {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  padding: 12px 22px calc(12px + env(safe-area-inset-bottom));
-}
-
-.navigation-footer button {
-  min-height: 30px;
-  color: var(--color-neutral-500) !important;
-  font-size: 11.5px;
-}
-
-.navigation-footer button:hover { color: var(--color-text) !important; }
-
-.navigation-backdrop { display: none; }
+.menu-form input:focus-visible { border-color: var(--color-accent); outline: none; }
+.menu-form > div { display: flex; justify-content: flex-end; gap: 18px; }
+.menu-form button { min-height: 32px; color: var(--color-neutral-500); font-size: 13px; }
+.menu-form button[type='submit'] { color: var(--color-accent-700); }
+.menu-form button:hover { color: var(--color-text); }
 
 .project-view {
   display: flex;
@@ -632,6 +644,10 @@ a:hover {
   line-height: 1.45;
   field-sizing: content;
 }
+
+/* The message box is the one place to type on its screen and shows a caret, so it needs no ring. */
+.hero-input:focus-visible,
+.composer-field textarea:focus-visible { outline: none; }
 
 .hero-input::placeholder,
 .composer-field textarea::placeholder { color: var(--color-neutral-500); opacity: 1; }
@@ -1656,77 +1672,24 @@ ion-alert {
 }
 
 @media (max-width: 759px) {
-  .workspace-shell { display: flex; flex-direction: column; }
+  .menu-button { width: 44px; height: 44px; margin-left: -12px; }
+  .menu-button svg { width: 20px; }
 
-  .mobile-header {
-    display: flex;
-    min-height: calc(52px + env(safe-area-inset-top));
-    flex: none;
-    align-items: center;
-    gap: 12px;
-    border-bottom: 1px solid var(--color-divider);
-    padding: env(safe-area-inset-top) 6px 0;
-  }
+  /* The menu comes up from the bottom, where a thumb reaches, and its lines
+     are tall enough to tap. The keys are not named where there are none. */
+  .menu-backdrop { align-items: flex-end; padding: 0; }
 
-  .mobile-header strong {
-    min-width: 0;
-    flex: 1;
-    overflow: hidden;
-    font: 600 15px/1 var(--font-heading);
-    letter-spacing: 0.01em;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .icon-button {
-    display: grid;
-    width: 44px;
-    height: 44px;
-    flex: none;
-    place-items: center;
-    color: var(--color-neutral-600) !important;
-  }
-
-  .icon-button svg { width: 20px; fill: none; stroke: currentColor; stroke-linecap: square; stroke-width: 1.5; }
-  .theme-icon { font-size: 14px; }
-  .workspace-body { flex: 1; height: auto; }
-
-  .project-navigation {
-    position: absolute;
-    z-index: 20;
-    inset: 0 auto 0 0;
-    width: min(300px, 86vw);
-    border-right: 1px solid var(--color-divider);
-    padding-top: 18px;
-    transform: translateX(-102%);
-    transition: transform 180ms ease-out;
-  }
-
-  .project-navigation.open { transform: translateX(0); }
-  .navigation-close {
-    display: grid;
-    width: 44px;
-    height: 44px;
-    margin: -14px -12px -14px 0;
-    place-items: center;
-    color: var(--color-neutral-500) !important;
-    font-size: 18px;
-  }
-
-  .project-row,
-  .new-project { min-height: 44px; padding: 11px 10px !important; }
-  .thread-row { min-height: 44px; padding: 9px 10px !important; }
-  .remove-project { min-width: 44px; min-height: 44px; opacity: 1; }
-
-  .navigation-backdrop {
-    position: absolute;
-    z-index: 10;
-    inset: 0;
-    display: block;
+  .menu {
     width: 100%;
-    height: 100%;
-    background: color-mix(in srgb, var(--color-text) 32%, transparent) !important;
+    max-height: 82%;
+    border-width: 1px 0 0;
+    padding-bottom: env(safe-area-inset-bottom);
   }
+
+  .menu > .corner,
+  .menu-row kbd { display: none; }
+  .menu-row { min-height: 44px; align-items: center; padding: 9px 10px; }
+  .menu-form button { min-height: 44px; }
 
   .empty-project { padding: 0 22px; }
   .hero-input { font-size: 17px; }
@@ -1794,8 +1757,4 @@ ion-alert {
   }
   .files-number { width: 40px; padding-right: 10px; }
   .code-link { min-height: 44px; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .project-navigation { transition: none; }
 }

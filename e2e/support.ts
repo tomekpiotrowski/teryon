@@ -1,10 +1,10 @@
-// What the end-to-end specs share: a signed-in person, a way to add a project,
-// and a way to make its directory a git repository.
+// What the end-to-end specs share: a signed-in person, a way to use the menu,
+// a way to add a project, and a way to make its directory a git repository.
 //
 // The API runs with the test configuration, which replaces the agent programs
 // with a script that replays recordings. Nothing here reaches a model provider.
 
-import { expect, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -72,12 +72,23 @@ export async function addProject(page: Page, name: string, prepare?: (directory:
   const directory = mkdtempSync(join(projectsFolder, "e2e-"));
   prepare?.(directory);
 
-  await page.getByRole("button", { name: "New project" }).click();
+  await choose(page, "New project");
   await page.getByLabel("Project name").fill(name);
   await page.getByLabel("Project directory").fill(directory);
   await page.getByRole("button", { name: "Add project" }).click();
   await expect(page.getByPlaceholder(`What should Claude do in ${name}?`)).toBeVisible();
   return directory;
+}
+
+/** The menu, which is how a person gets around the workspace. */
+export function menu(page: Page): Locator {
+  return page.getByRole("dialog", { name: "Menu" });
+}
+
+/** Opens the menu with its key and picks the command whose name starts with the given text. */
+export async function choose(page: Page, command: string): Promise<void> {
+  await page.keyboard.press("Control+k");
+  await menu(page).getByRole("option", { name: new RegExp(`^${command}`) }).click();
 }
 
 /** Signs a new person in and leaves them on the empty workspace. For `test.beforeEach`. */

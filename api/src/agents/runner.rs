@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 use nix::sys::signal::{killpg, Signal};
 use nix::unistd::Pid;
 use sea_orm::{ActiveModelTrait, DatabaseConnection, DbErr, IntoActiveModel, Set};
-use serde_json::json;
+use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::process::{Child, ChildStderr, Command};
 use tokio::sync::watch::{channel, Receiver, Sender};
@@ -192,6 +192,7 @@ async fn follow(
 
     let mut summarised = false;
     let mut conversation_started = thread.conversation_started;
+    let mut known_commands = thread.commands.clone();
     let mut stop = None;
     let mut listening = true;
     let mut kill_at: Option<TokioInstant> = None;
@@ -214,6 +215,17 @@ async fn follow(
                         }
                     }
                     Err(_) => warn!("skipped a line of an agent's report that was not understood: {line}"),
+                }
+                // The programs name their commands every turn, some several
+                // times. Only a list that differs is stored, so that a turn
+                // does not send the same thread to every device again and again.
+                if let Some(commands) = driver.take_commands().map(|names| json!(names)) {
+                    if commands != known_commands {
+                        known_commands = commands.clone();
+                        if let Err(problem) = store_commands(db, thread.clone(), commands).await {
+                            error!("could not store the commands an agent takes: {problem}");
+                        }
+                    }
                 }
             }
             changed = stopped.changed(), if listening => {
@@ -347,9 +359,23 @@ async fn mark_conversation_started(
     thread.update(db).await.map(|_| ())
 }
 
+async fn store_commands(
+    db: &DatabaseConnection,
+    thread: thread::Model,
+    commands: Value,
+) -> Result<(), DbErr> {
+    let mut thread = thread.into_active_model();
+    thread.commands = Set(commands);
+    thread.update(db).await.map(|_| ())
+}
+
+/// Marks a thread as waiting for a message again, and as not yet looked at.
+///
+/// However the agent ended, the person has something new to see.
 async fn mark_idle(db: &DatabaseConnection, thread: thread::Model) -> Result<(), DbErr> {
     let mut thread = thread.into_active_model();
     thread.status = Set(thread::IDLE.to_string());
+    thread.unread = Set(true);
     thread.update(db).await.map(|_| ())
 }
 

@@ -37,6 +37,8 @@ enum Threads {
     ConversationId,
     ConversationStarted,
     Status,
+    Unread,
+    Commands,
     CreatedAt,
 }
 
@@ -102,6 +104,13 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default("idle"),
                     )
+                    .col(
+                        ColumnDef::new(Threads::Unread)
+                            .boolean()
+                            .not_null()
+                            .default(false),
+                    )
+                    .col(ColumnDef::new(Threads::Commands).json_binary().not_null())
                     .col(
                         ColumnDef::new(Threads::CreatedAt)
                             .timestamp()

@@ -34,6 +34,11 @@ export class WorkspaceApi {
     return this.http.post<ThreadEntry>(`${this.api}/threads/${threadId}/messages`, { text });
   }
 
+  /** Tells the server the person has looked at a thread, which clears its unread mark on every device. */
+  markSeen(threadId: string): Observable<void> {
+    return this.http.post<void>(`${this.api}/threads/${threadId}/seen`, {});
+  }
+
   stop(threadId: string): Observable<void> {
     return this.http.post<void>(`${this.api}/threads/${threadId}/stop`, {});
   }

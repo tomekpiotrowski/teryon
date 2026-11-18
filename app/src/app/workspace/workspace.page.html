@@ -11,6 +11,7 @@
         (historyOpened)="screen$.next('history')"
         (branchChosen)="chooseBranch(view.project, $event)"
         (asked)="askAbout($event)"
+        (menuOpened)="openMenu()"
       ></app-files>
     } @else if (view.project && screen === 'history') {
       <app-history
@@ -26,96 +27,26 @@
         (browsed)="browseAt(view.project, $event)"
         (threadOpened)="openThread($event)"
         (revertAsked)="askToRevert($event)"
+        (menuOpened)="openMenu()"
       ></app-history>
     } @else {
       <div class="workspace-shell">
-        <header class="mobile-header">
-          <button class="icon-button" type="button" aria-label="Open projects" (click)="navigationOpen$.next(true)">
+        <header class="files-bar workspace-bar">
+          <button class="menu-button" type="button" aria-label="Open menu" aria-keyshortcuts="/ Control+K" (click)="openMenu()">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"></path></svg>
           </button>
-          <strong>{{ view.thread ? threadLabel(view.thread) : (view.project?.name ?? 'Teryon') }}</strong>
-          <button class="icon-button theme-icon" type="button" aria-label="Toggle color theme" (click)="theme.toggle()">
-            {{ theme.theme() === 'dark' ? '☀' : '☾' }}
-          </button>
+          <span class="files-mark">TERYON</span>
+          <span class="files-muted files-project">{{ barTitle(view.project, view.thread) }}</span>
+          <span class="files-spacer"></span>
+          @if (waitingText(view.groups); as waiting) { <span class="bar-waiting">{{ waiting }}</span> }
+          @if (runningText(view.groups); as running) { <span class="bar-running">● {{ running }}</span> }
         </header>
 
         <div class="workspace-body">
-          <aside class="project-navigation" [class.open]="navigationOpen$ | async" aria-label="Projects">
-            <div class="navigation-brand">
-              <span>TERYON</span>
-              <button class="navigation-close" type="button" aria-label="Close projects" (click)="navigationOpen$.next(false)">×</button>
-            </div>
-
-            <nav class="project-list">
-              @for (group of view.groups; track group.project.id) {
-                <div class="project-group">
-                  <div class="project-line">
-                    <button
-                      class="project-row"
-                      type="button"
-                      [class.selected]="group.project.id === view.project?.id && !view.thread"
-                      [attr.aria-expanded]="group.threads.length ? group.project.id === view.project?.id : null"
-                      (click)="selectProject(group.project)"
-                    >
-                      <span class="project-dot" [class.live]="group.running">{{ group.running ? '●' : '○' }}</span>
-                      <span class="project-name">{{ group.project.name }}</span>
-                      @if (group.threads.length) { <span class="project-count">{{ group.threads.length }}</span> }
-                    </button>
-                    <button
-                      class="remove-project"
-                      type="button"
-                      [attr.aria-label]="'Remove ' + group.project.name"
-                      (click)="confirmRemoveProject(group.project)"
-                    >×</button>
-                  </div>
-
-                  @if (group.project.id === view.project?.id && group.threads.length) {
-                    <div class="thread-list">
-                      @for (thread of group.threads; track thread.id) {
-                        <button
-                          type="button"
-                          class="thread-row"
-                          [class.selected]="thread.id === view.thread?.id"
-                          (click)="selectThread(thread)"
-                        >
-                          <span>{{ thread.status === 'running' ? '●' : '·' }}</span><span>{{ threadLabel(thread) }}</span>
-                        </button>
-                      }
-                    </div>
-                  }
-                </div>
-              }
-
-              @if (projectFormOpen$ | async) {
-                <form class="project-form" (submit)="addProject($event, projectName.value, projectDirectory.value)">
-                  <input #projectName type="text" aria-label="Project name" placeholder="Name" autocomplete="off" required />
-                  <input #projectDirectory type="text" aria-label="Project directory" placeholder="/path/to/directory" autocomplete="off" required />
-                  <div>
-                    <button type="submit">Add project</button>
-                    <button type="button" (click)="projectFormOpen$.next(false)">Cancel</button>
-                  </div>
-                </form>
-              } @else {
-                <button class="new-project" type="button" (click)="projectFormOpen$.next(true)"><span>+</span><span>New project</span></button>
-              }
-            </nav>
-
-            <footer class="navigation-footer">
-              <button type="button" (click)="theme.toggle()">
-                {{ theme.theme() === 'dark' ? '☀ Light' : '☾ Dark' }}
-              </button>
-              <button type="button" (click)="settingsOpen$.next(true); navigationOpen$.next(false)">Settings</button>
-            </footer>
-          </aside>
-
-          @if (navigationOpen$ | async) {
-            <button class="navigation-backdrop" type="button" aria-label="Close projects" (click)="navigationOpen$.next(false)"></button>
-          }
-
           <main class="project-view">
             @if (!view.project) {
               <section class="empty-project">
-                <p class="empty-workspace">Add a project to get started. A project is a directory on this machine that agents work in.</p>
+                <p class="empty-workspace">Add a project to get started. A project is a directory on this machine that agents work in. Press <kbd>/</kbd> or the menu button and choose New project.</p>
               </section>
             } @else if (!view.thread) {
               <section class="empty-project">
@@ -133,6 +64,7 @@
                     <button type="button" aria-label="Change agent" (click)="toggleAgent()">{{ agentLabel((agent$ | async) ?? 'claude') }}</button>
                     <span class="spacer"></span>
                     <span>{{ view.project.directory }}</span>
+                    <button type="button" class="code-link" aria-keyshortcuts="/" (click)="openMenu()">menu <kbd>/</kbd></button>
                     <button type="button" class="code-link" aria-keyshortcuts="h" (click)="screen$.next('history')">history <kbd>H</kbd></button>
                     <button type="button" class="code-link" aria-keyshortcuts="c" (click)="screen$.next('files')">code <kbd>C</kbd></button>
                     <button
@@ -188,7 +120,8 @@
                   <div class="composer-meta thread-meta">
                     <div>
                       <span>{{ agentLabel(view.thread.agent) }}</span>
-                      <button type="button" class="code-link" aria-keyshortcuts="h" (click)="screen$.next('history')">history <kbd>H</kbd></button>
+                      <button type="button" class="code-link" aria-keyshortcuts="/" (click)="openMenu()">menu <kbd>/</kbd></button>
+                    <button type="button" class="code-link" aria-keyshortcuts="h" (click)="screen$.next('history')">history <kbd>H</kbd></button>
                       <button type="button" class="code-link" aria-keyshortcuts="c" (click)="screen$.next('files')">code <kbd>C</kbd></button>
                     </div>
                     <div>
@@ -212,6 +145,15 @@
         </div>
       </div>
     }
+  }
+
+  @if (menuOpen$ | async) {
+    <app-command-menu
+      [commands]="(commands$ | async) ?? []"
+      (chosen)="run($event)"
+      (closed)="closeMenu()"
+      (projectAdded)="addProject($event)"
+    ></app-command-menu>
   }
 
   @if (settingsOpen$ | async) {

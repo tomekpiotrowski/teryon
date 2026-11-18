@@ -20,6 +20,10 @@ export interface Thread {
   readonly title: string;
   readonly agent: AgentName;
   readonly status: 'idle' | 'running';
+  /** Whether an agent stopped working here since the person last looked. */
+  readonly unread: boolean;
+  /** The names of the slash commands the agent program last said it takes. Empty until it has run here. */
+  readonly commands: readonly string[];
   readonly created_at: string;
 }
 
@@ -34,7 +38,7 @@ export interface ThreadEntry {
   readonly created_at: string;
 }
 
-/** A project with its threads, as the side list shows it. */
+/** A project with its threads. */
 export interface ProjectGroup {
   readonly project: Project;
   readonly threads: readonly Thread[];
@@ -42,7 +46,7 @@ export interface ProjectGroup {
   readonly running: boolean;
 }
 
-/** What the person has picked in the side list. */
+/** The project and the thread the person has picked. */
 export interface Selection {
   readonly projectId: string | null;
   readonly threadId: string | null;
@@ -129,13 +133,6 @@ export function isBareLetter(press: KeyPress, letter: string): boolean {
   return !press.editable && !['INPUT', 'TEXTAREA', 'SELECT'].includes(press.element.toUpperCase());
 }
 
-/** The screen a key press asks for: `C` the files, `H` the history. Nothing for any other key. */
-export function shortcutScreen(press: KeyPress): Exclude<Screen, 'thread'> | null {
-  if (isBareLetter(press, 'c')) return 'files';
-  if (isBareLetter(press, 'h')) return 'history';
-  return null;
-}
-
 /** The screen to show once one is asked for. Asking for the screen already shown goes back to the thread. */
 export function screenAfter(current: Screen, asked: Exclude<Screen, 'thread'>): Screen {
   return current === asked ? 'thread' : asked;
@@ -144,6 +141,48 @@ export function screenAfter(current: Screen, asked: Exclude<Screen, 'thread'>): 
 /** The place chosen in a project, or the project's directory as it is when the choice was made elsewhere. */
 export function placeIn(place: Place, projectId: string): Place {
   return place.projectId === projectId ? place : { projectId, branch: null, commit: null };
+}
+
+/** What the bar at the top names: the selected project, and the open thread after it. */
+export function barTitle(project: Project | null, thread: Thread | null): string {
+  if (!project) return '';
+  return thread ? `${project.name} · ${threadLabel(thread)}` : project.name;
+}
+
+/** How many agents are working, across every project. For example `2 running`; nothing when none is. */
+export function runningText(groups: readonly ProjectGroup[]): string {
+  const count = groups.flatMap((group) => group.threads).filter((thread) => thread.status === 'running').length;
+  return count ? `${count} running` : '';
+}
+
+/** The threads an agent stopped working in since the person last looked, newest first. */
+export function waitingThreads(groups: readonly ProjectGroup[]): Thread[] {
+  return groups
+    .flatMap((group) => group.threads)
+    .filter((thread) => thread.unread && thread.status === 'idle')
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
+}
+
+/**
+ * What the bar says about threads waiting to be looked at.
+ *
+ * Up to three are named, for example `waiting: Fix the parser, New thread`,
+ * so that a glance is enough to know which. More are only counted.
+ */
+export function waitingText(groups: readonly ProjectGroup[]): string {
+  const waiting = waitingThreads(groups);
+  if (!waiting.length) return '';
+  return waiting.length > 3 ? `${waiting.length} waiting` : `waiting: ${waiting.map(threadLabel).join(', ')}`;
+}
+
+/**
+ * Whether the person is looking at a thread that is still marked as unread.
+ *
+ * A thread behind the files or the history, or in a browser tab that is
+ * not showing, has not been looked at.
+ */
+export function seenNow(thread: Thread | null, screen: Screen, visible: boolean): boolean {
+  return thread !== null && thread.unread && thread.status === 'idle' && screen === 'thread' && visible;
 }
 
 export function threadLabel(thread: Thread): string {

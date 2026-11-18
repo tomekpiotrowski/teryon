@@ -1,5 +1,6 @@
 import {
   agentLabel,
+  barTitle,
   durationText,
   entryLine,
   groupThreads,
@@ -11,10 +12,13 @@ import {
   placeIn,
   refusalText,
   resolveSelection,
+  runningText,
   screenAfter,
-  shortcutScreen,
+  seenNow,
   summaryText,
   threadLabel,
+  waitingText,
+  waitingThreads,
   type EntryKind,
   type Project,
   type Thread,
@@ -26,7 +30,7 @@ function project(id: string, created_at: string): Project {
 }
 
 function thread(id: string, project_id: string, created_at: string, status: Thread['status'] = 'idle'): Thread {
-  return { id, project_id, title: '', agent: 'claude', status, created_at };
+  return { id, project_id, title: '', agent: 'claude', status, unread: false, commands: [], created_at };
 }
 
 function press(overrides: Partial<KeyPress> = {}): KeyPress {
@@ -239,23 +243,98 @@ describe('isBareLetter', () => {
   });
 });
 
-describe('shortcutScreen', () => {
+describe('barTitle', () => {
+  const selected = project('a', '2026-11-01T10:00:00');
+
+  it('is empty without a project', () => {
+    expect(barTitle(null, null)).toBe('');
+  });
+
+  it('names the project alone when no thread is open', () => {
+    expect(barTitle(selected, null)).toBe('Project a');
+  });
+
+  it('names the open thread after its project', () => {
+    expect(barTitle(selected, { ...thread('t', 'a', '2026-11-03T10:00:00'), title: 'Fix the parser' })).toBe('Project a · Fix the parser');
+    expect(barTitle(selected, thread('t', 'a', '2026-11-03T10:00:00'))).toBe('Project a · New thread');
+  });
+});
+
+describe('runningText', () => {
+  const projects = [project('a', '2026-11-01T10:00:00'), project('b', '2026-11-02T10:00:00')];
+
   it.each([
-    ['c', 'files'],
-    ['C', 'files'],
-    ['h', 'history'],
-    ['H', 'history'],
-  ])('takes %s for the %s', (key, screen) => {
-    expect(shortcutScreen(press({ key }))).toBe(screen);
+    [[], ''],
+    [['idle', 'idle'], ''],
+    [['running', 'idle'], '1 running'],
+    [['running', 'running'], '2 running'],
+  ] as const)('for threads that are %j says %j', (statuses, text) => {
+    const threads = statuses.map((status, index) => thread(`t${index}`, index ? 'b' : 'a', '2026-11-03T10:00:00', status));
+    expect(runningText(groupThreads(projects, threads))).toBe(text);
   });
 
-  it.each(['x', 'j', 'Enter', 'Escape'])('takes %s for nothing', (key) => {
-    expect(shortcutScreen(press({ key }))).toBeNull();
+  it('is empty without projects', () => {
+    expect(runningText([])).toBe('');
+  });
+});
+
+describe('waitingThreads and waitingText', () => {
+  const projects = [project('a', '2026-11-01T10:00:00'), project('b', '2026-11-02T10:00:00')];
+
+  function unread(id: string, created_at: string, title: string, status: Thread['status'] = 'idle'): Thread {
+    return { ...thread(id, id < 't3' ? 'a' : 'b', created_at, status), title, unread: true };
+  }
+
+  const one = unread('t1', '2026-11-03T10:00:00', 'One');
+  const two = unread('t2', '2026-11-04T10:00:00', '');
+  const three = unread('t3', '2026-11-05T10:00:00', 'Three');
+  const four = unread('t4', '2026-11-06T10:00:00', 'Four');
+
+  it('finds nothing without projects, or when every thread has been looked at', () => {
+    expect(waitingThreads([])).toEqual([]);
+    expect(waitingText([])).toBe('');
+    const read = groupThreads(projects, [thread('t1', 'a', '2026-11-03T10:00:00'), thread('t2', 'b', '2026-11-04T10:00:00', 'running')]);
+    expect(waitingThreads(read)).toEqual([]);
+    expect(waitingText(read)).toBe('');
   });
 
-  it.each(['c', 'h'])('takes a %s typed as text for nothing', (key) => {
-    expect(shortcutScreen(press({ key, element: 'TEXTAREA' }))).toBeNull();
-    expect(shortcutScreen(press({ key, ctrlKey: true }))).toBeNull();
+  it('finds the unread threads of every project, newest first', () => {
+    const groups = groupThreads(projects, [one, thread('t0', 'a', '2026-11-07T10:00:00'), three, two]);
+    expect(waitingThreads(groups).map((item) => item.id)).toEqual(['t3', 't2', 't1']);
+  });
+
+  it('leaves out a thread an agent is working in again', () => {
+    const groups = groupThreads(projects, [one, unread('t2', '2026-11-04T10:00:00', 'Two', 'running')]);
+    expect(waitingThreads(groups).map((item) => item.id)).toEqual(['t1']);
+    expect(waitingText(groups)).toBe('waiting: One');
+  });
+
+  it.each([
+    [[one], 'waiting: One'],
+    [[one, two], 'waiting: New thread, One'],
+    [[one, two, three], 'waiting: Three, New thread, One'],
+    [[one, two, three, four], '4 waiting'],
+  ])('names up to three and counts more', (threads, text) => {
+    expect(waitingText(groupThreads(projects, threads))).toBe(text);
+  });
+});
+
+describe('seenNow', () => {
+  const unread: Thread = { ...thread('t', 'a', '2026-11-03T10:00:00'), unread: true };
+
+  it('is a thread marked as unread, on screen, in a tab that is showing', () => {
+    expect(seenNow(unread, 'thread', true)).toBe(true);
+  });
+
+  it.each([
+    ['no thread', null, 'thread', true],
+    ['a thread already looked at', { ...unread, unread: false }, 'thread', true],
+    ['a thread an agent works in', { ...unread, status: 'running' }, 'thread', true],
+    ['a thread behind the files', unread, 'files', true],
+    ['a thread behind the history', unread, 'history', true],
+    ['a thread in a tab that is not showing', unread, 'thread', false],
+  ] as const)('is not %s', (_, open, screen, visible) => {
+    expect(seenNow(open, screen, visible)).toBe(false);
   });
 });
 

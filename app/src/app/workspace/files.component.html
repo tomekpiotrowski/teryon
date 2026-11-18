@@ -84,6 +84,8 @@
           <span class="files-spacer"></span>
           <span>read-only</span>
           <span aria-hidden="true">·</span>
+          <button type="button" class="code-link" aria-keyshortcuts="/" (click)="menuOpened.emit()">menu <kbd>/</kbd></button>
+          <span aria-hidden="true">·</span>
           <button type="button" class="code-link" aria-keyshortcuts="h" (click)="historyOpened.emit()">history <kbd>H</kbd></button>
           <span aria-hidden="true">·</span>
           <button type="button" class="code-link" aria-current="page" aria-keyshortcuts="c" (click)="closed.emit()">code <kbd>C</kbd></button>
