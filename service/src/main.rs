@@ -3,15 +3,14 @@
 use std::env::{current_exe, var};
 use std::path::PathBuf;
 use std::process::ExitCode;
-use std::time::Duration;
 
 use clap::{Parser, Subcommand};
-use tokio::time::sleep;
 
-use teryon::client::{Client, ClientError};
+use teryon::client::Client;
 use teryon::logging;
 use teryon::service::{Service, ServiceError};
 use teryon::service_file::ServiceFile;
+use teryon::stopping::{stop_service, Stopped};
 use teryon_core::paths::Folders;
 use teryon_core::protocol::{Answer, Request};
 use uuid::Uuid;
@@ -113,42 +112,20 @@ async fn serve(folders: Folders, print_address: Option<String>) -> ExitCode {
 }
 
 async fn stop(folders: Folders) -> ExitCode {
-    let file = match ServiceFile::read(&folders.data) {
-        Ok(Some(file)) => file,
-        Ok(None) => {
-            println!("Teryon is not running.");
-            return ExitCode::SUCCESS;
-        }
-        Err(problem) => {
-            eprintln!("{problem}");
-            return ExitCode::FAILURE;
-        }
-    };
-    let mut client = match Client::connect_to(&file).await {
-        Ok(client) => client,
-        Err(ClientError::Unreachable(_) | ClientError::Closed) => {
-            println!("Teryon is not running.");
-            return ExitCode::SUCCESS;
-        }
-        Err(problem) => {
-            eprintln!("{problem}");
-            return ExitCode::FAILURE;
-        }
-    };
-    if let Err(problem) = client.call(Request::Shutdown).await {
-        eprintln!("{problem}");
-        return ExitCode::FAILURE;
-    }
-    // The service removes its file once every agent has stopped.
-    for _ in 0..300 {
-        if !matches!(ServiceFile::read(&folders.data), Ok(Some(current)) if current == file) {
+    match stop_service(&folders.data).await {
+        Ok(Stopped::Stopped) => {
             println!("Teryon has stopped.");
-            return ExitCode::SUCCESS;
+            ExitCode::SUCCESS
         }
-        sleep(Duration::from_millis(100)).await;
+        Ok(Stopped::NotRunning) => {
+            println!("Teryon is not running.");
+            ExitCode::SUCCESS
+        }
+        Err(problem) => {
+            eprintln!("{problem}");
+            ExitCode::FAILURE
+        }
     }
-    eprintln!("Teryon is taking long to stop.");
-    ExitCode::FAILURE
 }
 
 /// Asks the service for a worktree for the thread whose agent runs this, and prints its path.

@@ -2,8 +2,14 @@
 //
 // Tauri ships extra programs named after the platform they were built for,
 // as `binaries/teryon-<target>`, and strips that name again in the bundle.
-// Run from `app/` by the build command in `tauri.conf.json`, with the cargo
-// profile to copy from as its argument: `release` (the default) or `debug`.
+// Run from `app/` by the build and development commands in `tauri.conf.json`,
+// with the cargo profile to copy from as its argument: `release` (the
+// default) or `debug`.
+//
+// Development needs it as much as a release: building the desktop app copies
+// this file next to it as `teryon`, the program it starts the service with.
+// A stale copy starts a service of an older version, which the app cannot
+// talk to.
 
 import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync } from "node:fs";

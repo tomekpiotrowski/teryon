@@ -45,9 +45,15 @@
 
         <div class="workspace-body">
           <main class="project-view">
-            @if ((connection$ | async) !== 'connected') {
+            @let connection = (connection$ | async) ?? connecting;
+            @if (connection.kind !== 'connected') {
               <section class="empty-project">
-                <p class="empty-workspace" role="status">{{ connectionText((connection$ | async) ?? 'connecting') }}</p>
+                <div class="connection-problem">
+                  <p class="empty-workspace" role="status">{{ connectionText(connection) }}</p>
+                  @if (offersRestart(connection)) {
+                    <button class="technical-button" type="button" (click)="restartService()">Restart Teryon</button>
+                  }
+                </div>
               </section>
             } @else if (!view.project) {
               <section class="empty-project">

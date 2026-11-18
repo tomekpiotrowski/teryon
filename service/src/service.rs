@@ -16,6 +16,7 @@ use tokio::sync::watch;
 use tracing::info;
 
 use teryon_core::paths::Folders;
+use teryon_core::protocol::fingerprint;
 use teryon_core::settings::{Settings, SettingsError};
 use teryon_core::workspace::{AgentTools, Setup, Workspace, WorkspaceError};
 
@@ -92,6 +93,7 @@ impl Service {
             port,
             token: new_token(),
             process: id(),
+            protocol: fingerprint().to_string(),
         };
         let state = Arc::new(Listener {
             workspace,

@@ -7,23 +7,28 @@
 
 mod common;
 
-use std::path::PathBuf;
+use std::fs::{create_dir_all, write};
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use lets_expect::lets_expect;
 use tempfile::tempdir;
+use tokio::net::TcpListener;
+use tokio::task::{spawn, JoinHandle};
 use tokio::time::timeout;
+use tokio_tungstenite::accept_async;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::Message;
 
-use common::{program, project_id, scene, thread_id, wait_for, Scene, DEVELOPMENT};
+use common::{free_port, program, project_id, scene, thread_id, wait_for, Scene, DEVELOPMENT};
 use teryon::client::{Client, ClientError};
 use teryon::service::{Service, ServiceError};
 use teryon::service_file::ServiceFile;
-use teryon::starting::running_service;
+use teryon::starting::{restarted_service, running_service, StartError};
+use teryon::stopping::{stop_service, Stopped};
 use teryon_core::paths::Folders;
 use teryon_core::protocol::{Answer, Event, Request};
 use teryon_core::store::Status;
@@ -81,6 +86,87 @@ fn no_entries() -> Answer {
     Answer::Entries {
         entries: Vec::new(),
     }
+}
+
+/// A stand-in for a service of an older version, in `data`.
+///
+/// It accepts its token and then sends a snapshot no current client can
+/// read. It ends, removing its `service.json` the way a real service does,
+/// when asked to stop. The handle says whether it was asked.
+async fn older_service(data: &Path) -> (ServiceFile, JoinHandle<bool>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let file = ServiceFile {
+        port: listener.local_addr().unwrap().port(),
+        token: "older".to_string(),
+        process: 1,
+        protocol: String::new(),
+    };
+    create_dir_all(data).unwrap();
+    write(
+        ServiceFile::path(data),
+        format!(r#"{{"port":{},"token":"older","process":1}}"#, file.port),
+    )
+    .unwrap();
+    let data = data.to_path_buf();
+    let asked = spawn(async move {
+        loop {
+            let (stream, _) = listener.accept().await.unwrap();
+            let Ok(mut socket) = accept_async(stream).await else {
+                continue;
+            };
+            let Some(Ok(Message::Text(hello))) = socket.next().await else {
+                continue;
+            };
+            if !hello.contains("older") {
+                continue;
+            }
+            let snapshot =
+                r#"{"type":"event","event":{"type":"snapshot","shape":"from long ago"}}"#;
+            if socket.send(Message::text(snapshot)).await.is_err() {
+                continue;
+            }
+            if let Ok(Some(Ok(Message::Text(call)))) =
+                timeout(Duration::from_secs(5), socket.next()).await
+            {
+                if call.contains("shutdown") {
+                    let _ = std::fs::remove_file(ServiceFile::path(&data));
+                    return true;
+                }
+            }
+        }
+    });
+    (file, asked)
+}
+
+/// A program standing in for `teryon` that, instead of starting a service, points `service.json` at `file`.
+///
+/// Like an old `teryon` program left next to a newer app.
+fn program_pointing_at(folder: &Path, file: &ServiceFile, data: &Path) -> PathBuf {
+    let program = folder.join("old-teryon");
+    write(
+        &program,
+        format!(
+            "#!/bin/sh\nprintf '{{\"port\":{},\"token\":\"{}\",\"process\":1}}' > '{}'\n",
+            file.port,
+            file.token,
+            ServiceFile::path(data).display()
+        ),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    program
+}
+
+fn is_different_version_running(started: &Result<ServiceFile, StartError>) -> bool {
+    matches!(started, Err(StartError::DifferentVersionRunning))
+}
+
+fn is_different_version_started(started: &Result<ServiceFile, StartError>) -> bool {
+    matches!(started, Err(StartError::DifferentVersionStarted { .. }))
 }
 
 const SHUTDOWN_FIRST: &str = r#"{"type":"call","id":1,"request":{"type":"shutdown"}}"#;
@@ -233,6 +319,13 @@ lets_expect! { #tokio_test
         expect(stopped.is_ok()) to be_true
         expect(ServiceFile::read(&Folders::inside(scene.home.path()).data).unwrap()) to equal(None)
     }
+
+    // requirement: teryon stop waits until the service has stopped every agent and ended
+    story stopping_waits_for_the_service_to_end {
+        let scene = scene().await;
+        expect(stop_service(&scene.data()).await.unwrap()) to equal(Stopped::Stopped)
+        expect(scene.stopped.is_finished()) to be_true
+    }
 }
 
 lets_expect! { #tokio_test
@@ -259,5 +352,76 @@ lets_expect! { #tokio_test
 
         let started = running_service(&missing, &folders.data, &folders.logs, Some(home.path())).await;
         expect(started.map_err(|problem| problem.to_string()).err().unwrap_or_default().starts_with("Could not start Teryon's service")) to be_true
+    }
+    // requirement: a service of another version is reported at once, not waited on, and no second one is started
+    story a_different_version_running_is_reported {
+        let home = tempdir().unwrap();
+        let folders = Folders::inside(home.path());
+        let (older, _asked) = older_service(&folders.data).await;
+
+        let started = timeout(Duration::from_secs(5), running_service(&program(), &folders.data, &folders.logs, Some(home.path()))).await;
+        expect(started.is_ok()) to be_true
+        let started = started.unwrap();
+        expect(is_different_version_running(&started)) to be_true
+        expect(Client::answers(&older).await) to be_true
+        expect(ServiceFile::read(&folders.data).unwrap().map(|file| file.port)) to equal(Some(older.port))
+    }
+
+    // requirement: a client does not try to talk to a service of another version
+    story connecting_to_a_different_version_is_refused {
+        let home = tempdir().unwrap();
+        let (older, _asked) = older_service(&Folders::inside(home.path()).data).await;
+        let check = matches!(Client::connect_to(&older).await, Err(ClientError::DifferentVersion));
+        expect(check) to be_true
+    }
+
+    // requirement: when the started program is itself of another version, the client says so instead of waiting
+    story a_different_version_started_is_reported {
+        let home = tempdir().unwrap();
+        let folders = Folders::inside(home.path());
+        let elsewhere = tempdir().unwrap();
+        let (older, _asked) = older_service(&elsewhere.path().join("data")).await;
+        let old_program = program_pointing_at(elsewhere.path(), &older, &folders.data);
+        create_dir_all(&folders.data).unwrap();
+
+        let started = running_service(&old_program, &folders.data, &folders.logs, Some(home.path())).await;
+        expect(is_different_version_started(&started)) to be_true
+    }
+
+    // requirement: teryon stop stops a service of another version, too
+    story a_different_version_is_stopped {
+        let home = tempdir().unwrap();
+        let folders = Folders::inside(home.path());
+        let (_older, asked) = older_service(&folders.data).await;
+
+        expect(stop_service(&folders.data).await.unwrap()) to equal(Stopped::Stopped)
+        expect(timeout(Duration::from_secs(5), asked).await.unwrap().unwrap()) to be_true
+        expect(ServiceFile::read(&folders.data).unwrap()) to equal(None)
+    }
+
+    // requirement: restarting replaces a service of another version with this version's
+    story a_different_version_is_replaced_on_restart {
+        let home = tempdir().unwrap();
+        let folders = Folders::inside(home.path());
+        let (_older, asked) = older_service(&folders.data).await;
+
+        let restarted = restarted_service(&program(), &folders.data, &folders.logs, Some(home.path())).await.unwrap();
+        expect(timeout(Duration::from_secs(5), asked).await.unwrap().unwrap()) to be_true
+        expect(restarted.speaks_this_version()) to be_true
+        expect(Client::connect_to(&restarted).await.is_ok()) to be_true
+
+        expect(stop_service(&folders.data).await.unwrap()) to equal(Stopped::Stopped)
+    }
+
+    // requirement: teryon stop says so when nothing is running
+    story stopping_when_nothing_runs {
+        let home = tempdir().unwrap();
+        let folders = Folders::inside(home.path());
+        expect(stop_service(&folders.data).await.unwrap()) to equal(Stopped::NotRunning)
+
+        let unused = free_port().await;
+        create_dir_all(&folders.data).unwrap();
+        write(ServiceFile::path(&folders.data), format!(r#"{{"port":{unused},"token":"gone","process":1}}"#)).unwrap();
+        expect(stop_service(&folders.data).await.unwrap()) to equal(Stopped::NotRunning)
     }
 }

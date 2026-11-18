@@ -3,7 +3,7 @@ import { inject, Injectable, InjectionToken } from '@angular/core';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { BehaviorSubject, filter, first, Observable, Subject, switchMap, throwError } from 'rxjs';
 import type { Answer, ClientMessage, Event, Request, ServiceMessage } from './protocol';
-import { type ConnectionState, REFUSAL } from '../workspace/workspace.model';
+import { CONNECTED, CONNECTING, type ConnectionState, NO_ADDRESS, REFUSAL, RESTARTING, unreachable } from '../workspace/workspace.model';
 import { ADDRESS_KEY, addressFromFragment, addressFromStorage, type ServiceAddress } from './service-address';
 
 
@@ -29,7 +29,12 @@ export const SOCKET_FACTORY = new InjectionToken<SocketFactory>('teryon socket f
   factory: () => (address: string) => new WebSocket(address) as unknown as Socket,
 });
 
-/** Finds out where the service is. Nothing when this window cannot know. */
+/**
+ * Finds out where the service is. Nothing when this window cannot know.
+ *
+ * Fails when the service cannot be reached; inside the desktop app with
+ * `{ reason, restartable }`, see `unreachable`.
+ */
 export type AddressFinder = () => Promise<ServiceAddress | null>;
 
 export const ADDRESS_FINDER = new InjectionToken<AddressFinder>('teryon address finder', {
@@ -49,6 +54,21 @@ export const ADDRESS_FINDER = new InjectionToken<AddressFinder>('teryon address 
   },
 });
 
+/**
+ * Stops the running service, of whatever version, starts this version's, and says where it is.
+ *
+ * Only the desktop app can: a browser tab cannot start programs.
+ */
+export type ServiceRestarter = () => Promise<ServiceAddress>;
+
+export const SERVICE_RESTARTER = new InjectionToken<ServiceRestarter>('teryon service restarter', {
+  providedIn: 'root',
+  factory: () => async () => {
+    if (isTauri()) return invoke<ServiceAddress>('restart_service');
+    throw { reason: 'Only the desktop app can restart Teryon. Run `teryon stop`, then start it again.', restartable: false };
+  },
+});
+
 /** The longest wait between two attempts to connect, in milliseconds. */
 const LONGEST_WAIT = 5000;
 
@@ -62,13 +82,17 @@ const LONGEST_WAIT = 5000;
  *
  * A request made while not connected waits until the connection is up.
  * A request whose connection drops before the reply fails.
+ *
+ * When the service cannot be reached the state carries the reason, and it
+ * stays on screen through the next attempts, until one gets further.
  */
 @Injectable({ providedIn: 'root' })
 export class ServiceConnection {
   private readonly openSocket = inject(SOCKET_FACTORY);
   private readonly findAddress = inject(ADDRESS_FINDER);
+  private readonly restartService = inject(SERVICE_RESTARTER);
 
-  readonly state$ = new BehaviorSubject<ConnectionState>('connecting');
+  readonly state$ = new BehaviorSubject<ConnectionState>(CONNECTING);
   private readonly eventsSubject = new Subject<Event>();
   /** Every event from the service, starting with a snapshot each time the connection is made. */
   readonly events$: Observable<Event> = this.eventsSubject.asObservable();
@@ -78,6 +102,9 @@ export class ServiceConnection {
   private readonly waiting = new Map<number, { resolve: (answer: Answer) => void; reject: (problem: Error) => void }>();
   private started = false;
   private wait = 250;
+  /** Counts attempts, so one overtaken by a restart is ignored when it finishes. */
+  private attempt = 0;
+  private retry: ReturnType<typeof setTimeout> | null = null;
 
   /** Connects, unless already connected or connecting. */
   start(): void {
@@ -90,7 +117,7 @@ export class ServiceConnection {
   request(request: Request): Observable<Answer> {
     this.start();
     return this.state$.pipe(
-      filter((state) => state === 'connected'),
+      filter((state) => state.kind === 'connected'),
       first(),
       switchMap(() => {
         const socket = this.socket;
@@ -104,20 +131,57 @@ export class ServiceConnection {
     );
   }
 
-  private async connect(): Promise<void> {
-    this.state$.next('connecting');
-    let address: ServiceAddress | null = null;
+  /**
+   * Stops the running service, of whatever version, and connects to this version's.
+   *
+   * Only when the person asked: it stops the agents that are working.
+   */
+  async restart(): Promise<void> {
+    const attempt = this.nextAttempt();
+    this.state$.next(RESTARTING);
+    let address: ServiceAddress;
     try {
-      address = await this.findAddress();
-    } catch {
-      address = null;
-    }
-    if (!address) {
-      this.state$.next('no_address');
+      address = await this.restartService();
+    } catch (problem) {
+      if (attempt !== this.attempt) return;
+      this.state$.next(unreachable(problem));
       this.retryLater();
       return;
     }
+    if (attempt !== this.attempt) return;
+    this.wait = 250;
+    this.open(address);
+  }
 
+  private async connect(): Promise<void> {
+    const attempt = this.nextAttempt();
+    let address: ServiceAddress | null;
+    try {
+      address = await this.findAddress();
+    } catch (problem) {
+      if (attempt !== this.attempt) return;
+      this.state$.next(unreachable(problem));
+      this.retryLater();
+      return;
+    }
+    if (attempt !== this.attempt) return;
+    if (!address) {
+      this.state$.next(NO_ADDRESS);
+      this.retryLater();
+      return;
+    }
+    this.open(address);
+  }
+
+  /** Starts a new attempt, overtaking any earlier one still on its way. */
+  private nextAttempt(): number {
+    if (this.retry) clearTimeout(this.retry);
+    this.retry = null;
+    return ++this.attempt;
+  }
+
+  private open(address: ServiceAddress): void {
+    this.state$.next(CONNECTING);
     const socket = this.openSocket(`ws://127.0.0.1:${address.port}/`);
     this.socket = socket;
     const token = address.token;
@@ -131,7 +195,7 @@ export class ServiceConnection {
       this.socket = null;
       for (const pending of this.waiting.values()) pending.reject(new ServiceRefusal('Lost the connection to Teryon.'));
       this.waiting.clear();
-      this.state$.next('connecting');
+      this.state$.next(CONNECTING);
       this.retryLater();
     };
   }
@@ -145,9 +209,9 @@ export class ServiceConnection {
       return;
     }
     if (message.type === 'event') {
-      if (message.event.type === 'snapshot' && this.state$.value !== 'connected') {
+      if (message.event.type === 'snapshot' && this.state$.value.kind !== 'connected') {
         this.wait = 250;
-        this.state$.next('connected');
+        this.state$.next(CONNECTED);
       }
       this.eventsSubject.next(message.event);
       return;
@@ -162,6 +226,6 @@ export class ServiceConnection {
   private retryLater(): void {
     const wait = this.wait;
     this.wait = Math.min(this.wait * 2, LONGEST_WAIT);
-    setTimeout(() => void this.connect(), wait);
+    this.retry = setTimeout(() => void this.connect(), wait);
   }
 }

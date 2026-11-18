@@ -385,17 +385,55 @@ function textOf(value: unknown): string {
  * - `connecting`: on the way, or waiting to try again
  * - `connected`: the token was accepted and changes are arriving
  * - `no_address`: this window does not know where the service is
+ * - `unreachable`: the service could not be reached, for a reason meant for
+ *   the person; `restartable` when restarting it would help, as with a
+ *   service of another version left running after Teryon was updated
+ * - `restarting`: the person asked to restart the service
  */
-export type ConnectionState = 'connecting' | 'connected' | 'no_address';
+export type ConnectionState =
+  | { readonly kind: 'connecting' }
+  | { readonly kind: 'connected' }
+  | { readonly kind: 'no_address' }
+  | { readonly kind: 'unreachable'; readonly reason: string; readonly restartable: boolean }
+  | { readonly kind: 'restarting' };
+
+export const CONNECTING: ConnectionState = { kind: 'connecting' };
+export const CONNECTED: ConnectionState = { kind: 'connected' };
+export const NO_ADDRESS: ConnectionState = { kind: 'no_address' };
+export const RESTARTING: ConnectionState = { kind: 'restarting' };
+
+/** What a window says when the service could not be reached and gave no reason. */
+export const NO_REASON = 'Could not reach Teryon. It will keep trying.';
+
+/**
+ * Why the service could not be reached, from whatever the attempt failed with.
+ *
+ * The desktop app fails with `{ reason, restartable }`. Anything else has a
+ * message meant for programmers, so the person gets a plain fallback.
+ */
+export function unreachable(problem: unknown): ConnectionState {
+  const given = problem as { reason?: unknown; restartable?: unknown } | null;
+  const reason = typeof given?.reason === 'string' && given.reason.trim() ? given.reason : NO_REASON;
+  return { kind: 'unreachable', reason, restartable: given?.restartable === true };
+}
 
 /** What the empty screen says while the workspace cannot be shown. */
 export function connectionText(state: ConnectionState): string {
-  switch (state) {
+  switch (state.kind) {
     case 'connecting':
       return 'Connecting to Teryon…';
     case 'no_address':
       return 'This window does not know where Teryon is running. Open Teryon from the desktop app, or from the address `teryon service --print-address` prints.';
+    case 'unreachable':
+      return state.reason;
+    case 'restarting':
+      return 'Restarting Teryon…';
     case 'connected':
       return '';
   }
+}
+
+/** Whether the screen offers to restart the service. */
+export function offersRestart(state: ConnectionState): boolean {
+  return state.kind === 'unreachable' && state.restartable;
 }

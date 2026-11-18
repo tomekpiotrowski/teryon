@@ -7,6 +7,10 @@
 //! `service.json`. The one command here hands those over, starting the
 //! service first when it is not running.
 //!
+//! When the service cannot be reached the window is told why, and whether
+//! restarting it would help: a service of another version keeps running
+//! after Teryon is updated or rebuilt, and this app cannot talk to it.
+//!
 //! The `teryon` program ships next to this one: the bundle places it there,
 //! and in development cargo builds both into the same folder.
 
@@ -18,7 +22,8 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
-use teryon::starting::running_service;
+use teryon::service_file::ServiceFile;
+use teryon::starting::{restarted_service, running_service, StartError};
 use teryon_core::paths::Folders;
 
 /// Where the service listens, and the token it asks for.
@@ -28,26 +33,83 @@ struct ServiceConnection {
     token: String,
 }
 
-/// Where the service is, starting it when it is not running. The error is meant for the person.
-#[tauri::command]
-async fn service_connection() -> Result<ServiceConnection, String> {
+impl From<ServiceFile> for ServiceConnection {
+    fn from(file: ServiceFile) -> Self {
+        Self {
+            port: file.port,
+            token: file.token,
+        }
+    }
+}
+
+/// Why the service cannot be reached, for the window to show.
+///
+/// The window offers to restart the service only when that would help,
+/// because restarting stops the agents that are working.
+#[derive(Serialize)]
+struct Unreachable {
+    /// Meant for the person.
+    reason: String,
+    /// Whether restarting the service would let the window connect.
+    restartable: bool,
+}
+
+impl From<StartError> for Unreachable {
+    fn from(problem: StartError) -> Self {
+        Self {
+            restartable: matches!(problem, StartError::DifferentVersionRunning),
+            reason: problem.to_string(),
+        }
+    }
+}
+
+impl From<String> for Unreachable {
+    fn from(reason: String) -> Self {
+        Self {
+            reason,
+            restartable: false,
+        }
+    }
+}
+
+/// The folders Teryon keeps its things in, and the home folder when it is not the usual one.
+fn folders() -> Result<(Folders, Option<PathBuf>), Unreachable> {
     let home = var_os("TERYON_HOME").map(PathBuf::from);
     let folders = match &home {
         Some(home) => Folders::inside(home),
         None => Folders::usual().map_err(|problem| problem.to_string())?,
     };
+    Ok((folders, home))
+}
+
+/// Where the service is, starting it when it is not running.
+#[tauri::command]
+async fn service_connection() -> Result<ServiceConnection, Unreachable> {
+    let (folders, home) = folders()?;
     let file = running_service(
         &teryon_program()?,
         &folders.data,
         &folders.logs,
         home.as_deref(),
     )
-    .await
-    .map_err(|problem| problem.to_string())?;
-    Ok(ServiceConnection {
-        port: file.port,
-        token: file.token,
-    })
+    .await?;
+    Ok(file.into())
+}
+
+/// Stops the running service, of whatever version, and starts this version's.
+///
+/// Only when the person asked: it stops the agents that are working.
+#[tauri::command]
+async fn restart_service() -> Result<ServiceConnection, Unreachable> {
+    let (folders, home) = folders()?;
+    let file = restarted_service(
+        &teryon_program()?,
+        &folders.data,
+        &folders.logs,
+        home.as_deref(),
+    )
+    .await?;
+    Ok(file.into())
 }
 
 /// The `teryon` program next to this one.
@@ -67,7 +129,10 @@ fn teryon_program() -> Result<PathBuf, String> {
 
 fn main() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![service_connection])
+        .invoke_handler(tauri::generate_handler![
+            service_connection,
+            restart_service
+        ])
         .run(tauri::generate_context!())
         .expect("the desktop app could not start");
 }

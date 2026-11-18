@@ -58,6 +58,11 @@ export class WorkspaceStore {
     this.connection.start();
   }
 
+  /** Restarts a service this window cannot talk to. It stops the agents that are working. */
+  restartService(): void {
+    void this.connection.restart();
+  }
+
   /**
    * A thread's entries, in order, as they arrive.
    *
@@ -69,7 +74,7 @@ export class WorkspaceStore {
     let entries = this.following.get(threadId);
     if (!entries) {
       entries = this.connection.state$.pipe(
-        filter((state) => state === 'connected'),
+        filter((state) => state.kind === 'connected'),
         switchMap(() => this.follow(threadId)),
         finalize(() => {
           this.following.delete(threadId);

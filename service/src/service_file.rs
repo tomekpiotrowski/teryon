@@ -16,6 +16,8 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use teryon_core::protocol::fingerprint;
+
 #[derive(Debug, Error)]
 pub enum ServiceFileError {
     #[error("Could not use {path}: {source}")]
@@ -39,9 +41,20 @@ pub struct ServiceFile {
     pub token: String,
     /// The service's process, so `teryon stop` can wait for it to end.
     pub process: u32,
+    /// The [`fingerprint`] of the messages the service speaks.
+    ///
+    /// A client speaking other messages cannot talk to it. Empty for a
+    /// service from before the fingerprint was written here.
+    #[serde(default)]
+    pub protocol: String,
 }
 
 impl ServiceFile {
+    /// Whether a client built with this program's messages can talk to the service.
+    pub fn speaks_this_version(&self) -> bool {
+        self.protocol == fingerprint()
+    }
+
     pub fn path(data_folder: &Path) -> PathBuf {
         data_folder.join("service.json")
     }
@@ -120,7 +133,19 @@ mod tests {
             port: 7317,
             token: "secret".to_string(),
             process: 42,
+            protocol: fingerprint().to_string(),
         }
+    }
+
+    /// Reads a file written by a service from before the fingerprint was written.
+    fn read_without_protocol() -> ServiceFile {
+        let folder = tempdir().unwrap();
+        write(
+            ServiceFile::path(folder.path()),
+            r#"{"port":7317,"token":"secret","process":42}"#,
+        )
+        .unwrap();
+        ServiceFile::read(folder.path()).unwrap().unwrap()
     }
 
     /// Writes the sample into a fresh folder and reads it back.
@@ -166,6 +191,16 @@ mod tests {
         expect(ServiceFile::read(folder.path()).unwrap()) as reading_without_a_file {
             let folder = tempdir().unwrap();
             to find_nothing { be_none }
+        }
+
+        expect(read_without_protocol().protocol) as a_file_without_a_fingerprint {
+            to read_as_empty { equal(String::new()) }
+        }
+
+        expect(file.speaks_this_version()) as speaking_this_version {
+            when(file = sample()) as with_this_fingerprint to be_true { be_true }
+            when(file = ServiceFile { protocol: "0123456789abcdef".to_string(), ..sample() }) as with_another_fingerprint to be_false { be_false }
+            when(file = read_without_protocol()) as without_a_fingerprint to be_false { be_false }
         }
 
         expect(removed_by(other)) as removing_the_file {

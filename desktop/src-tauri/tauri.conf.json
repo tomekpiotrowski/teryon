@@ -5,7 +5,7 @@
   "build": {
     "frontendDist": "../../app/www",
     "devUrl": "http://localhost:4200",
-    "beforeDevCommand": { "script": "bun run start", "cwd": "../../app" },
+    "beforeDevCommand": { "script": "cargo build -p teryon && node ../desktop/scripts/copy-teryon.mjs debug && bun run start", "cwd": "../../app" },
     "beforeBuildCommand": { "script": "bun run build && cargo build --release -p teryon && node ../desktop/scripts/copy-teryon.mjs", "cwd": "../../app" }
   },
   "app": {

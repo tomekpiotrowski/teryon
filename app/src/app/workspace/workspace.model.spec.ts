@@ -6,7 +6,14 @@ import {
   type ChangeState,
   changeStatus,
   discardWarning,
+  CONNECTED,
+  CONNECTING,
   connectionText,
+  NO_ADDRESS,
+  NO_REASON,
+  offersRestart,
+  RESTARTING,
+  unreachable,
   composerAction,
   type ComposerPress,
   durationText,
@@ -413,15 +420,54 @@ describe('placeIn', () => {
 
 describe('connectionText', () => {
   it('says Teryon is being reached', () => {
-    expect(connectionText('connecting')).toBe('Connecting to Teryon…');
+    expect(connectionText(CONNECTING)).toBe('Connecting to Teryon…');
   });
 
   it('says how to open Teryon when this window cannot know where it is', () => {
-    expect(connectionText('no_address')).toContain('teryon service --print-address');
+    expect(connectionText(NO_ADDRESS)).toContain('teryon service --print-address');
+  });
+
+  it('gives the reason the service could not be reached', () => {
+    expect(connectionText({ kind: 'unreachable', reason: 'A different version of Teryon is running.', restartable: true })).toBe(
+      'A different version of Teryon is running.',
+    );
+  });
+
+  it('says Teryon is restarting', () => {
+    expect(connectionText(RESTARTING)).toBe('Restarting Teryon…');
   });
 
   it('says nothing once connected', () => {
-    expect(connectionText('connected')).toBe('');
+    expect(connectionText(CONNECTED)).toBe('');
+  });
+
+  it('uses no git words', () => {
+    for (const state of [CONNECTING, NO_ADDRESS, RESTARTING, unreachable(null)]) expect(gitWordsIn(connectionText(state))).toEqual([]);
+  });
+});
+
+describe('unreachable', () => {
+  it('keeps the reason and whether restarting helps', () => {
+    expect(unreachable({ reason: 'Older.', restartable: true })).toEqual({ kind: 'unreachable', reason: 'Older.', restartable: true });
+  });
+
+  it('does not offer a restart unless told it helps', () => {
+    expect(unreachable({ reason: 'Too slow.' })).toEqual({ kind: 'unreachable', reason: 'Too slow.', restartable: false });
+    expect(unreachable({ reason: 'Too slow.', restartable: 'yes' })).toEqual({ kind: 'unreachable', reason: 'Too slow.', restartable: false });
+  });
+
+  it('falls back to a plain reason when none meant for the person was given', () => {
+    for (const problem of [new Error('invoke failed'), 'text', null, undefined, { reason: '  ' }, { reason: 3 }]) {
+      expect(unreachable(problem)).toEqual({ kind: 'unreachable', reason: NO_REASON, restartable: false });
+    }
+  });
+});
+
+describe('offersRestart', () => {
+  it('offers a restart only when the service is unreachable and restarting helps', () => {
+    expect(offersRestart({ kind: 'unreachable', reason: 'Older.', restartable: true })).toBe(true);
+    expect(offersRestart({ kind: 'unreachable', reason: 'Too slow.', restartable: false })).toBe(false);
+    for (const state of [CONNECTING, CONNECTED, NO_ADDRESS, RESTARTING]) expect(offersRestart(state)).toBe(false);
   });
 });
 

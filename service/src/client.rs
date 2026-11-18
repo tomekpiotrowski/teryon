@@ -26,6 +26,10 @@ const PATIENCE: Duration = Duration::from_secs(10);
 pub enum ClientError {
     #[error("Teryon is not running.")]
     NotRunning,
+    #[error(
+        "A different version of Teryon is running. Run `teryon stop`, then start Teryon again."
+    )]
+    DifferentVersion,
     #[error("The Teryon service did not answer: {0}")]
     Unreachable(String),
     #[error("The Teryon service closed the connection.")]
@@ -57,7 +61,52 @@ impl Client {
     /// The first event, the snapshot of every project and thread, is how a
     /// client knows the token was accepted: a refused client is disconnected
     /// without one.
+    ///
+    /// A service of another version is refused before connecting: its
+    /// messages may not be understood here, and waiting for them would only
+    /// time out.
     pub async fn connect_to(file: &ServiceFile) -> Result<Self, ClientError> {
+        if !file.speaks_this_version() {
+            return Err(ClientError::DifferentVersion);
+        }
+        let mut client = Self::greet(file).await?;
+        match client.receive().await? {
+            ServiceMessage::Event { event } => client.waiting.push_back(event),
+            ServiceMessage::Reply { .. } => return Err(ClientError::Closed),
+        }
+        Ok(client)
+    }
+
+    /// Whether a service of any version answers at the port in `file`, and accepts its token.
+    ///
+    /// Telling a service that is not there from one this program cannot
+    /// understand needs this: [`Client::connect_to`] fails on both.
+    pub async fn answers(file: &ServiceFile) -> bool {
+        match Self::greet(file).await {
+            Ok(mut client) => client.receive_text().await.is_ok(),
+            Err(_) => false,
+        }
+    }
+
+    /// Asks the service to stop, without waiting for it to.
+    ///
+    /// It works with a service of another version too: only the token and
+    /// the request to stop must be understood, and the reply is not read,
+    /// because a service of another version may answer in a way this
+    /// program cannot read.
+    pub async fn ask_to_stop(file: &ServiceFile) -> Result<(), ClientError> {
+        let mut client = Self::greet(file).await?;
+        client.receive_text().await?;
+        client
+            .send(&ClientMessage::Call {
+                id: client.next_id,
+                request: Request::Shutdown,
+            })
+            .await
+    }
+
+    /// Connects and shows the token, without reading anything back.
+    async fn greet(file: &ServiceFile) -> Result<Self, ClientError> {
         let address = format!("ws://127.0.0.1:{}/", file.port);
         let (socket, _) = timeout(PATIENCE, connect_async(&address))
             .await
@@ -73,10 +122,6 @@ impl Client {
                 token: file.token.clone(),
             })
             .await?;
-        match client.receive().await? {
-            ServiceMessage::Event { event } => client.waiting.push_back(event),
-            ServiceMessage::Reply { .. } => return Err(ClientError::Closed),
-        }
         Ok(client)
     }
 
@@ -123,17 +168,23 @@ impl Client {
             .map_err(|_| ClientError::Closed)
     }
 
+    /// The next message this program understands, skipping any it does not.
     async fn receive(&mut self) -> Result<ServiceMessage, ClientError> {
+        loop {
+            if let Ok(message) = serde_json::from_str(&self.receive_text().await?) {
+                return Ok(message);
+            }
+        }
+    }
+
+    /// The next text message, whether this program understands it or not.
+    async fn receive_text(&mut self) -> Result<String, ClientError> {
         loop {
             let message = timeout(PATIENCE, self.socket.next())
                 .await
                 .map_err(|_| ClientError::Unreachable("it took too long".to_string()))?;
             match message {
-                Some(Ok(Message::Text(text))) => {
-                    if let Ok(message) = serde_json::from_str(&text) {
-                        return Ok(message);
-                    }
-                }
+                Some(Ok(Message::Text(text))) => return Ok(text.to_string()),
                 Some(Ok(Message::Close(_))) | None | Some(Err(_)) => {
                     return Err(ClientError::Closed)
                 }

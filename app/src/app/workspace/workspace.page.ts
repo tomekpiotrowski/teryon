@@ -50,7 +50,9 @@ import {
   type Project,
   type ProjectGroup,
   refusalText,
+  CONNECTING,
   connectionText,
+  offersRestart,
   resolveSelection,
   runningText,
   type Screen,
@@ -111,6 +113,7 @@ export class WorkspacePage implements OnDestroy {
   readonly runningText = runningText;
   readonly waitingText = waitingText;
   readonly connectionText = connectionText;
+  readonly offersRestart = offersRestart;
 
   readonly selection$ = new BehaviorSubject<Selection>(NOTHING_SELECTED);
   readonly draft$ = new BehaviorSubject('');
@@ -234,6 +237,13 @@ export class WorkspacePage implements OnDestroy {
 
   /** How the connection to the local service stands, to explain an empty screen. */
   readonly connection$ = this.store.connection$;
+  /** Shown until the connection says otherwise. */
+  readonly connecting = CONNECTING;
+
+  /** Restarts a service this window cannot talk to, once the person chose to. */
+  restartService(): void {
+    this.store.restartService();
+  }
 
   constructor() {
     this.store.start();

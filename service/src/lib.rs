@@ -12,3 +12,4 @@ pub mod service;
 pub mod service_file;
 pub mod session;
 pub mod starting;
+pub mod stopping;

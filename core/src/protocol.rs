@@ -14,15 +14,19 @@
 //! follows.
 
 use std::path::PathBuf;
+use std::sync::LazyLock;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use ts_rs::TS;
+use sha2::{Digest, Sha256};
+use ts_rs::{Config, TS};
 use uuid::Uuid;
 
-use crate::files::{FileView, Listing};
-use crate::history::{Changes, History};
-use crate::store::{Entry, Project, Thread};
+use crate::changes::{Change, ChangeState, Fit, Review, ReviewState};
+use crate::files::diff::{Line, LineChange};
+use crate::files::{Content, FileChange, FileEntry, FileView, Listing};
+use crate::history::{ChangedFile, Changes, Commit, History};
+use crate::store::{Entry, Project, Status, Thread};
 
 /// A message from a client.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
@@ -299,6 +303,74 @@ pub enum ProjectState {
     InUse,
 }
 
+/// The TypeScript for every type a message can hold, in one file.
+///
+/// The Angular app uses it, and its fingerprint tells two versions of
+/// Teryon apart (see [`fingerprint`]).
+pub fn typescript() -> String {
+    let config = Config::new().with_large_int("number");
+    let declarations = [
+        ClientMessage::decl(&config),
+        Request::decl(&config),
+        ServiceMessage::decl(&config),
+        Outcome::decl(&config),
+        Answer::decl(&config),
+        Event::decl(&config),
+        ProjectView::decl(&config),
+        ProjectState::decl(&config),
+        Thread::decl(&config),
+        Status::decl(&config),
+        Change::decl(&config),
+        ChangeState::decl(&config),
+        Review::decl(&config),
+        ReviewState::decl(&config),
+        Fit::decl(&config),
+        Opener::decl(&config),
+        Opens::decl(&config),
+        Entry::decl(&config),
+        Listing::decl(&config),
+        FileEntry::decl(&config),
+        FileChange::decl(&config),
+        FileView::decl(&config),
+        Content::decl(&config),
+        Line::decl(&config),
+        LineChange::decl(&config),
+        History::decl(&config),
+        Commit::decl(&config),
+        Changes::decl(&config),
+        ChangedFile::decl(&config),
+    ];
+    let mut text = String::from(
+        "// Generated from core/src/protocol.rs by `UPDATE_PROTOCOL=1 cargo test -p teryon-core protocol`.\n\
+         // Do not edit by hand.\n\n\
+         export type JsonValue = number | string | boolean | null | JsonValue[] | { [key: string]: JsonValue };\n",
+    );
+    for declaration in declarations {
+        text.push_str(&format!("\nexport {declaration}\n"));
+    }
+    text
+}
+
+/// A short text that differs whenever the messages here change.
+///
+/// A client compares it with the one the service wrote to `service.json`
+/// before talking to it. Without it, a desktop app built after the running
+/// service would not understand the service's messages and could only wait,
+/// with nothing on screen saying why.
+///
+/// It is the start of the SHA-256 of [`typescript`], which covers every
+/// field of every message, so a change to them changes it, and a change
+/// elsewhere in Teryon does not force a restart that stops running agents.
+pub fn fingerprint() -> &'static str {
+    static FINGERPRINT: LazyLock<String> = LazyLock::new(|| {
+        Sha256::digest(typescript().as_bytes())[..8]
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
+    });
+    &FINGERPRINT
+}
+
 #[cfg(test)]
 mod tests {
     use std::env::var_os;
@@ -307,62 +379,11 @@ mod tests {
 
     use lets_expect::lets_expect;
     use serde_json::{from_str, json, to_value};
-    use ts_rs::Config;
 
     use super::*;
-    use crate::changes::{Change, ChangeState, Fit, Review, ReviewState};
-    use crate::files::diff::{Line, LineChange};
-    use crate::files::{Content, FileChange, FileEntry};
-    use crate::history::{ChangedFile, Commit};
-    use crate::store::Status;
 
     /// Where the Angular app keeps the generated types.
     const TYPESCRIPT: &str = "../app/src/app/service/protocol.ts";
-
-    /// The TypeScript for every type a message can hold, in one file.
-    fn typescript() -> String {
-        let config = Config::new().with_large_int("number");
-        let declarations = [
-            ClientMessage::decl(&config),
-            Request::decl(&config),
-            ServiceMessage::decl(&config),
-            Outcome::decl(&config),
-            Answer::decl(&config),
-            Event::decl(&config),
-            ProjectView::decl(&config),
-            ProjectState::decl(&config),
-            Thread::decl(&config),
-            Status::decl(&config),
-            Change::decl(&config),
-            ChangeState::decl(&config),
-            Review::decl(&config),
-            ReviewState::decl(&config),
-            Fit::decl(&config),
-            Opener::decl(&config),
-            Opens::decl(&config),
-            Entry::decl(&config),
-            Listing::decl(&config),
-            FileEntry::decl(&config),
-            FileChange::decl(&config),
-            FileView::decl(&config),
-            Content::decl(&config),
-            Line::decl(&config),
-            LineChange::decl(&config),
-            History::decl(&config),
-            Commit::decl(&config),
-            Changes::decl(&config),
-            ChangedFile::decl(&config),
-        ];
-        let mut text = String::from(
-            "// Generated from core/src/protocol.rs by `UPDATE_PROTOCOL=1 cargo test -p teryon-core protocol`.\n\
-             // Do not edit by hand.\n\n\
-             export type JsonValue = number | string | boolean | null | JsonValue[] | { [key: string]: JsonValue };\n",
-        );
-        for declaration in declarations {
-            text.push_str(&format!("\nexport {declaration}\n"));
-        }
-        text
-    }
 
     /// Whether the generated TypeScript in the app matches the Rust here.
     ///
@@ -374,6 +395,11 @@ mod tests {
             write(&path, &fresh).expect("the generated TypeScript could not be written");
         }
         read_to_string(&path).is_ok_and(|current| current == fresh)
+    }
+
+    fn lowercase_hexadecimal(text: &str) -> bool {
+        text.chars()
+            .all(|digit| digit.is_ascii_digit() || ('a'..='f').contains(&digit))
     }
 
     fn hello() -> ClientMessage {
@@ -401,6 +427,9 @@ mod tests {
             to be_current { be_true }
         }
 
+        expect(fingerprint().len()) as the_fingerprint_length to equal(16)
+        expect(lowercase_hexadecimal(fingerprint())) as the_fingerprint_digits to be_true
+
         expect(to_value(&message).unwrap()) as the_json_of_a_message {
             when(message = hello()) as a_hello {
                 to name_its_type { equal(json!({ "type": "hello", "token": "abc" })) }
@@ -424,7 +453,4 @@ mod tests {
             when(text = "not json") as text_that_is_not_json to be_refused { be_false }
         }
     }
-
-    #[allow(dead_code)]
-    fn uses(_: Content, _: LineChange, _: Line, _: ChangedFile, _: Commit) {}
 }
