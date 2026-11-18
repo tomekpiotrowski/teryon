@@ -114,7 +114,7 @@ test("the C key and the code link switch between a thread and the files", async 
   await expect(composer).toHaveValue("c");
   await composer.fill("");
 
-  await composer.blur();
+  await composer.press("Escape");
   await page.keyboard.press("c");
   await expect(page.getByLabel("Repository files")).toBeVisible();
   await expect(page.getByText("Nothing has changed. Choose a file to read it.")).toBeVisible();

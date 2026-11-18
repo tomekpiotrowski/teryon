@@ -133,6 +133,30 @@ export function isBareLetter(press: KeyPress, letter: string): boolean {
   return !press.editable && !['INPUT', 'TEXTAREA', 'SELECT'].includes(press.element.toUpperCase());
 }
 
+/** A key pressed in the message box, as far as the message box cares. */
+export interface ComposerPress {
+  readonly key: string;
+  readonly shiftKey: boolean;
+  /** Whether the key is part of a character still being composed, as with an input method for Japanese. */
+  readonly isComposing: boolean;
+}
+
+/**
+ * What a key pressed in the message box does: send the message, leave the box, or type as usual.
+ *
+ * Every letter typed in the box is text, so the keys bound to letters only
+ * work outside it. Escape leaves the box, as it leaves typing in vim, so
+ * the keyboard alone can get from writing a message to those keys. Enter
+ * sends and Shift+Enter starts a new line. While a character is still
+ * being composed both keys belong to the input method.
+ */
+export function composerAction(press: ComposerPress): 'send' | 'leave' | null {
+  if (press.isComposing) return null;
+  if (press.key === 'Escape') return 'leave';
+  if (press.key === 'Enter' && !press.shiftKey) return 'send';
+  return null;
+}
+
 /** The screen to show once one is asked for. Asking for the screen already shown goes back to the thread. */
 export function screenAfter(current: Screen, asked: Exclude<Screen, 'thread'>): Screen {
   return current === asked ? 'thread' : asked;

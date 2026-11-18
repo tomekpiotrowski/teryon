@@ -34,6 +34,7 @@ import {
   type AgentName,
   agentLabel,
   barTitle,
+  composerAction,
   type EntryLine,
   entryLine,
   groupThreads,
@@ -366,9 +367,12 @@ export class WorkspacePage implements OnDestroy {
     this.draft$.next((event.target as HTMLTextAreaElement).value);
   }
 
+  /** Sends the message on Enter and leaves the message box on Escape, so that the keys bound to letters work. */
   handleComposerKeydown(event: KeyboardEvent, view: WorkspaceView): void {
-    if (event.key !== 'Enter' || event.shiftKey) return;
+    const action = composerAction(event);
+    if (!action) return;
     event.preventDefault();
+    if (action === 'leave') return (event.target as HTMLElement).blur();
     this.send(view);
   }
 

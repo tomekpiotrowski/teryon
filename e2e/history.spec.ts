@@ -163,7 +163,7 @@ test("the keys move between the thread, the history and the files, and through t
   await expect(composer).toHaveValue("h");
   await composer.fill("");
 
-  await composer.blur();
+  await composer.press("Escape");
   await page.keyboard.press("h");
   await expect(page.getByLabel("Commit history")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Add the routes" })).toBeVisible();
@@ -293,7 +293,7 @@ test("a commit made while an agent was working leads back to its thread", async 
   expect(git(directory, "rev-parse", "--short=7", "HEAD")).toBe(made);
 
   // From the commit, back to the thread it came from.
-  await page.getByLabel("Reply").blur();
+  await page.getByLabel("Reply").press("Escape");
   await page.getByRole("button", { name: "history H" }).click();
   await page.getByRole("button", { name: "Open thread" }).click();
   await expect(page.getByRole("status")).toHaveText(/Claude is working…/);

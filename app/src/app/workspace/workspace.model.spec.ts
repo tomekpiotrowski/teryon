@@ -1,6 +1,8 @@
 import {
   agentLabel,
   barTitle,
+  composerAction,
+  type ComposerPress,
   durationText,
   entryLine,
   groupThreads,
@@ -213,6 +215,33 @@ describe('refusalText', () => {
       expect(refusalText(failure, 'Fallback')).toBe('Fallback');
     },
   );
+});
+
+describe('composerAction', () => {
+  function composerPress(overrides: Partial<ComposerPress> = {}): ComposerPress {
+    return { key: 'Enter', shiftKey: false, isComposing: false, ...overrides };
+  }
+
+  it('sends on Enter', () => {
+    expect(composerAction(composerPress())).toBe('send');
+  });
+
+  it('starts a new line on Shift+Enter, which the box does itself', () => {
+    expect(composerAction(composerPress({ shiftKey: true }))).toBeNull();
+  });
+
+  it('leaves the box on Escape, with or without Shift', () => {
+    expect(composerAction(composerPress({ key: 'Escape' }))).toBe('leave');
+    expect(composerAction(composerPress({ key: 'Escape', shiftKey: true }))).toBe('leave');
+  });
+
+  it.each(['Enter', 'Escape'])('leaves %s to the input method while a character is composed', (key) => {
+    expect(composerAction(composerPress({ key, isComposing: true }))).toBeNull();
+  });
+
+  it.each(['h', 'c', 'n', '/', 'Tab', 'ArrowUp'])('types %s as usual', (key) => {
+    expect(composerAction(composerPress({ key }))).toBeNull();
+  });
 });
 
 describe('isBareLetter', () => {

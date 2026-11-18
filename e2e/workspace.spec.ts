@@ -157,7 +157,7 @@ test("a slash opens the menu, except where it is typed as text", async ({ page }
   await expect(box).toHaveValue("look at src/main");
 
   // Away from any text it opens the menu, and a click beside the menu closes it.
-  await box.blur();
+  await box.press("Escape");
   await page.keyboard.press("/");
   await expect(menu(page)).toBeVisible();
   await page.mouse.click(5, 5);
@@ -200,6 +200,19 @@ test("the menu lists threads, projects and actions, and typing narrows them", as
   await expect(page.locator(".workspace-bar")).toContainText("Sample · hello");
   await expect(page.getByLabel("Reply")).toBeFocused();
 
+  // Escape leaves the message box, and the letters run their commands again.
+  await page.keyboard.press("h");
+  await expect(page.getByLabel("Reply")).toHaveValue("h");
+  await page.getByLabel("Reply").fill("");
+  await page.keyboard.press("Escape");
+  await expect(page.getByLabel("Reply")).not.toBeFocused();
+  await page.keyboard.press("h");
+  await expect(page.getByRole("button", { name: "history H" })).toHaveAttribute("aria-current", "page");
+  await page.keyboard.press("c");
+  await expect(page.getByRole("button", { name: "code C" })).toHaveAttribute("aria-current", "page");
+  await page.keyboard.press("c");
+  await expect(page.getByLabel("Reply")).toBeVisible();
+
   // A project is opened the same way, with a new thread to start. Enter right
   // behind the last letter chooses from what was typed, not from what was drawn.
   await page.keyboard.press("/");
@@ -231,7 +244,7 @@ test("the keys and the menu start a new thread and show the running agents", asy
   await expect(page.locator(".workspace-bar")).not.toContainText("running");
 
   // N starts a new thread in the same project.
-  await page.getByLabel("Reply").blur();
+  await page.getByLabel("Reply").press("Escape");
   await page.keyboard.press("n");
   await expect(page.getByPlaceholder("What should Claude do in Sample?")).toBeVisible();
 
@@ -247,7 +260,7 @@ test("a thread whose agent stopped while it was out of sight waits to be looked 
   await expect(page.getByRole("status")).toHaveText(/Claude is working…/);
 
   // The agent is stopped while the files are in front of its thread.
-  await page.getByLabel("Reply").blur();
+  await page.getByLabel("Reply").press("Escape");
   await page.keyboard.press("c");
   await expect(page.getByRole("button", { name: "code C" })).toHaveAttribute("aria-current", "page");
   await choose(page, "Stop the agent");
@@ -302,7 +315,7 @@ test("the agent's own slash commands are listed and go to the message box", asyn
   await expect(page.getByLabel("Thread").getByText("/compact keep the plan", { exact: true })).toBeVisible();
 
   // A new thread borrows the commands until its own agent has run.
-  await page.getByLabel("Reply").blur();
+  await page.getByLabel("Reply").press("Escape");
   await page.keyboard.press("n");
   await choose(page, "/review");
   await expect(page.getByLabel("New thread")).toHaveValue("/review ");
