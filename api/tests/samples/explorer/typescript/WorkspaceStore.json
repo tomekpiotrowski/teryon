@@ -1,0 +1,1176 @@
+{
+ "thing": {
+  "file": "src/app/workspace/workspace.store.ts",
+  "name": "WorkspaceStore",
+  "definition": "export class WorkspaceStore"
+ },
+ "position": {
+  "line": 25,
+  "character": 13
+ },
+ "references": {
+  "jsonrpc": "2.0",
+  "id": 12,
+  "result": [
+   {
+    "uri": "file:///project/src/app/workspace/workspace.page.ts",
+    "range": {
+     "start": {
+      "line": 57,
+      "character": 9
+     },
+     "end": {
+      "line": 57,
+      "character": 23
+     }
+    }
+   },
+   {
+    "uri": "file:///project/src/app/workspace/workspace.page.ts",
+    "range": {
+     "start": {
+      "line": 94,
+      "character": 34
+     },
+     "end": {
+      "line": 94,
+      "character": 48
+     }
+    }
+   }
+  ]
+ },
+ "documentSymbol": {
+  "jsonrpc": "2.0",
+  "id": 13,
+  "result": [
+   {
+    "name": "OWNER_KEY",
+    "detail": "",
+    "kind": 13,
+    "range": {
+     "start": {
+      "line": 9,
+      "character": 6
+     },
+     "end": {
+      "line": 9,
+      "character": 42
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 9,
+      "character": 6
+     },
+     "end": {
+      "line": 9,
+      "character": 15
+     }
+    },
+    "children": []
+   },
+   {
+    "name": "TABLES",
+    "detail": "",
+    "kind": 13,
+    "range": {
+     "start": {
+      "line": 12,
+      "character": 6
+     },
+     "end": {
+      "line": 12,
+      "character": 65
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 12,
+      "character": 6
+     },
+     "end": {
+      "line": 12,
+      "character": 12
+     }
+    },
+    "children": []
+   },
+   {
+    "name": "WorkspaceStore",
+    "detail": "",
+    "kind": 5,
+    "range": {
+     "start": {
+      "line": 24,
+      "character": 0
+     },
+     "end": {
+      "line": 96,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 25,
+      "character": 13
+     },
+     "end": {
+      "line": 25,
+      "character": 27
+     }
+    },
+    "children": [
+     {
+      "name": "adopt",
+      "detail": "",
+      "kind": 6,
+      "range": {
+       "start": {
+        "line": 77,
+        "character": 2
+       },
+       "end": {
+        "line": 82,
+        "character": 3
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 77,
+        "character": 16
+       },
+       "end": {
+        "line": 77,
+        "character": 21
+       }
+      },
+      "children": [
+       {
+        "name": "table",
+        "detail": "",
+        "kind": 13,
+        "range": {
+         "start": {
+          "line": 80,
+          "character": 15
+         },
+         "end": {
+          "line": 80,
+          "character": 20
+         }
+        },
+        "selectionRange": {
+         "start": {
+          "line": 80,
+          "character": 15
+         },
+         "end": {
+          "line": 80,
+          "character": 20
+         }
+        },
+        "children": []
+       }
+      ]
+     },
+     {
+      "name": "apply",
+      "detail": "",
+      "kind": 6,
+      "range": {
+       "start": {
+        "line": 84,
+        "character": 2
+       },
+       "end": {
+        "line": 91,
+        "character": 3
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 84,
+        "character": 16
+       },
+       "end": {
+        "line": 84,
+        "character": 21
+       }
+      },
+      "children": [
+       {
+        "name": "row",
+        "detail": "",
+        "kind": 13,
+        "range": {
+         "start": {
+          "line": 85,
+          "character": 10
+         },
+         "end": {
+          "line": 85,
+          "character": 86
+         }
+        },
+        "selectionRange": {
+         "start": {
+          "line": 85,
+          "character": 10
+         },
+         "end": {
+          "line": 85,
+          "character": 13
+         }
+        },
+        "children": [
+         {
+          "name": "deleted_at",
+          "detail": "",
+          "kind": 7,
+          "range": {
+           "start": {
+            "line": 85,
+            "character": 38
+           },
+           "end": {
+            "line": 85,
+            "character": 64
+           }
+          },
+          "selectionRange": {
+           "start": {
+            "line": 85,
+            "character": 38
+           },
+           "end": {
+            "line": 85,
+            "character": 48
+           }
+          },
+          "children": []
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "name": "auth",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 28,
+        "character": 2
+       },
+       "end": {
+        "line": 28,
+        "character": 50
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 28,
+        "character": 19
+       },
+       "end": {
+        "line": 28,
+        "character": 23
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "begin",
+      "detail": "",
+      "kind": 6,
+      "range": {
+       "start": {
+        "line": 57,
+        "character": 2
+       },
+       "end": {
+        "line": 74,
+        "character": 3
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 57,
+        "character": 16
+       },
+       "end": {
+        "line": 57,
+        "character": 21
+       }
+      },
+      "children": [
+       {
+        "name": "auth.authState$.subscribe() callback",
+        "detail": "",
+        "kind": 12,
+        "range": {
+         "start": {
+          "line": 69,
+          "character": 35
+         },
+         "end": {
+          "line": 73,
+          "character": 5
+         }
+        },
+        "selectionRange": {
+         "start": {
+          "line": 69,
+          "character": 35
+         },
+         "end": {
+          "line": 73,
+          "character": 5
+         }
+        },
+        "children": [
+         {
+          "name": "settled.then() callback",
+          "detail": "",
+          "kind": 12,
+          "range": {
+           "start": {
+            "line": 72,
+            "character": 29
+           },
+           "end": {
+            "line": 72,
+            "character": 47
+           }
+          },
+          "selectionRange": {
+           "start": {
+            "line": 72,
+            "character": 29
+           },
+           "end": {
+            "line": 72,
+            "character": 47
+           }
+          },
+          "children": []
+         }
+        ]
+       },
+       {
+        "name": "auth.currentUser$.subscribe() callback",
+        "detail": "",
+        "kind": 12,
+        "range": {
+         "start": {
+          "line": 66,
+          "character": 37
+         },
+         "end": {
+          "line": 68,
+          "character": 5
+         }
+        },
+        "selectionRange": {
+         "start": {
+          "line": 66,
+          "character": 37
+         },
+         "end": {
+          "line": 68,
+          "character": 5
+         }
+        },
+        "children": [
+         {
+          "name": "settled.then() callback",
+          "detail": "",
+          "kind": 12,
+          "range": {
+           "start": {
+            "line": 67,
+            "character": 39
+           },
+           "end": {
+            "line": 67,
+            "character": 64
+           }
+          },
+          "selectionRange": {
+           "start": {
+            "line": 67,
+            "character": 39
+           },
+           "end": {
+            "line": 67,
+            "character": 64
+           }
+          },
+          "children": []
+         }
+        ]
+       },
+       {
+        "name": "settled",
+        "detail": "",
+        "kind": 13,
+        "range": {
+         "start": {
+          "line": 65,
+          "character": 8
+         },
+         "end": {
+          "line": 65,
+          "character": 35
+         }
+        },
+        "selectionRange": {
+         "start": {
+          "line": 65,
+          "character": 8
+         },
+         "end": {
+          "line": 65,
+          "character": 15
+         }
+        },
+        "children": []
+       },
+       {
+        "name": "sync.register('projects', '/api/projects/sync') callback",
+        "detail": "",
+        "kind": 12,
+        "range": {
+         "start": {
+          "line": 58,
+          "character": 57
+         },
+         "end": {
+          "line": 58,
+          "character": 107
+         }
+        },
+        "selectionRange": {
+         "start": {
+          "line": 58,
+          "character": 57
+         },
+         "end": {
+          "line": 58,
+          "character": 107
+         }
+        },
+        "children": []
+       },
+       {
+        "name": "sync.register('thread_entries', '/api/thread-entries/sync') callback",
+        "detail": "",
+        "kind": 12,
+        "range": {
+         "start": {
+          "line": 60,
+          "character": 69
+         },
+         "end": {
+          "line": 60,
+          "character": 118
+         }
+        },
+        "selectionRange": {
+         "start": {
+          "line": 60,
+          "character": 69
+         },
+         "end": {
+          "line": 60,
+          "character": 118
+         }
+        },
+        "children": []
+       },
+       {
+        "name": "sync.register('threads', '/api/threads/sync') callback",
+        "detail": "",
+        "kind": 12,
+        "range": {
+         "start": {
+          "line": 59,
+          "character": 55
+         },
+         "end": {
+          "line": 59,
+          "character": 104
+         }
+        },
+        "selectionRange": {
+         "start": {
+          "line": 59,
+          "character": 55
+         },
+         "end": {
+          "line": 59,
+          "character": 104
+         }
+        },
+        "children": []
+       }
+      ]
+     },
+     {
+      "name": "database",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 26,
+        "character": 2
+       },
+       "end": {
+        "line": 26,
+        "character": 56
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 26,
+        "character": 19
+       },
+       "end": {
+        "line": 26,
+        "character": 27
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "empty",
+      "detail": "",
+      "kind": 6,
+      "range": {
+       "start": {
+        "line": 93,
+        "character": 2
+       },
+       "end": {
+        "line": 95,
+        "character": 3
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 93,
+        "character": 16
+       },
+       "end": {
+        "line": 93,
+        "character": 21
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "entries$",
+      "detail": "",
+      "kind": 6,
+      "range": {
+       "start": {
+        "line": 35,
+        "character": 2
+       },
+       "end": {
+        "line": 37,
+        "character": 3
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 35,
+        "character": 2
+       },
+       "end": {
+        "line": 35,
+        "character": 10
+       }
+      },
+      "children": [
+       {
+        "name": "liveQuery() callback",
+        "detail": "",
+        "kind": 12,
+        "range": {
+         "start": {
+          "line": 36,
+          "character": 26
+         },
+         "end": {
+          "line": 36,
+          "character": 108
+         }
+        },
+        "selectionRange": {
+         "start": {
+          "line": 36,
+          "character": 26
+         },
+         "end": {
+          "line": 36,
+          "character": 108
+         }
+        },
+        "children": []
+       }
+      ]
+     },
+     {
+      "name": "projects$",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 32,
+        "character": 2
+       },
+       "end": {
+        "line": 32,
+        "character": 102
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 32,
+        "character": 11
+       },
+       "end": {
+        "line": 32,
+        "character": 20
+       }
+      },
+      "children": [
+       {
+        "name": "liveQuery() callback",
+        "detail": "",
+        "kind": 12,
+        "range": {
+         "start": {
+          "line": 32,
+          "character": 61
+         },
+         "end": {
+          "line": 32,
+          "character": 99
+         }
+        },
+        "selectionRange": {
+         "start": {
+          "line": 32,
+          "character": 61
+         },
+         "end": {
+          "line": 32,
+          "character": 99
+         }
+        },
+        "children": []
+       }
+      ]
+     },
+     {
+      "name": "remember",
+      "detail": "",
+      "kind": 6,
+      "range": {
+       "start": {
+        "line": 51,
+        "character": 2
+       },
+       "end": {
+        "line": 55,
+        "character": 3
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 51,
+        "character": 8
+       },
+       "end": {
+        "line": 51,
+        "character": 16
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "start",
+      "detail": "",
+      "kind": 6,
+      "range": {
+       "start": {
+        "line": 40,
+        "character": 2
+       },
+       "end": {
+        "line": 43,
+        "character": 3
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 40,
+        "character": 2
+       },
+       "end": {
+        "line": 40,
+        "character": 7
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "started",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 30,
+        "character": 2
+       },
+       "end": {
+        "line": 30,
+        "character": 47
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 30,
+        "character": 10
+       },
+       "end": {
+        "line": 30,
+        "character": 17
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "storage",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 29,
+        "character": 2
+       },
+       "end": {
+        "line": 29,
+        "character": 72
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 29,
+        "character": 19
+       },
+       "end": {
+        "line": 29,
+        "character": 26
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "sync",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 27,
+        "character": 2
+       },
+       "end": {
+        "line": 27,
+        "character": 50
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 27,
+        "character": 19
+       },
+       "end": {
+        "line": 27,
+        "character": 23
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "threads$",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 33,
+        "character": 2
+       },
+       "end": {
+        "line": 33,
+        "character": 99
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 33,
+        "character": 11
+       },
+       "end": {
+        "line": 33,
+        "character": 19
+       }
+      },
+      "children": [
+       {
+        "name": "liveQuery() callback",
+        "detail": "",
+        "kind": 12,
+        "range": {
+         "start": {
+          "line": 33,
+          "character": 59
+         },
+         "end": {
+          "line": 33,
+          "character": 96
+         }
+        },
+        "selectionRange": {
+         "start": {
+          "line": 33,
+          "character": 59
+         },
+         "end": {
+          "line": 33,
+          "character": 96
+         }
+        },
+        "children": []
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "prepareCallHierarchy": {
+  "jsonrpc": "2.0",
+  "id": 14,
+  "result": [
+   {
+    "uri": "file:///project/src/app/workspace/workspace.store.ts",
+    "kind": 5,
+    "name": "WorkspaceStore",
+    "range": {
+     "start": {
+      "line": 14,
+      "character": 0
+     },
+     "end": {
+      "line": 96,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 25,
+      "character": 13
+     },
+     "end": {
+      "line": 25,
+      "character": 27
+     }
+    },
+    "detail": "",
+    "data": {
+     "id": 1
+    }
+   }
+  ]
+ },
+ "outgoingCalls": {
+  "jsonrpc": "2.0",
+  "id": 15,
+  "result": [
+   {
+    "to": {
+     "uri": "file:///project/node_modules/%40angular/core/types/core.d.ts",
+     "kind": 12,
+     "name": "inject",
+     "range": {
+      "start": {
+       "line": 958,
+       "character": 0
+      },
+      "end": {
+       "line": 965,
+       "character": 55
+      }
+     },
+     "selectionRange": {
+      "start": {
+       "line": 965,
+       "character": 17
+      },
+      "end": {
+       "line": 965,
+       "character": 23
+      }
+     },
+     "detail": ""
+    },
+    "fromRanges": [
+     {
+      "start": {
+       "line": 26,
+       "character": 30
+      },
+      "end": {
+       "line": 26,
+       "character": 36
+      }
+     },
+     {
+      "start": {
+       "line": 27,
+       "character": 26
+      },
+      "end": {
+       "line": 27,
+       "character": 32
+      }
+     },
+     {
+      "start": {
+       "line": 28,
+       "character": 26
+      },
+      "end": {
+       "line": 28,
+       "character": 32
+      }
+     },
+     {
+      "start": {
+       "line": 29,
+       "character": 29
+      },
+      "end": {
+       "line": 29,
+       "character": 35
+      }
+     },
+     {
+      "start": {
+       "line": 29,
+       "character": 29
+      },
+      "end": {
+       "line": 29,
+       "character": 35
+      }
+     },
+     {
+      "start": {
+       "line": 29,
+       "character": 29
+      },
+      "end": {
+       "line": 29,
+       "character": 35
+      }
+     },
+     {
+      "start": {
+       "line": 29,
+       "character": 29
+      },
+      "end": {
+       "line": 29,
+       "character": 35
+      }
+     }
+    ]
+   },
+   {
+    "to": {
+     "uri": "file:///project/node_modules/rxjs/dist/types/internal/observable/from.d.ts",
+     "kind": 12,
+     "name": "from",
+     "range": {
+      "start": {
+       "line": 2,
+       "character": 0
+      },
+      "end": {
+       "line": 2,
+       "character": 103
+      }
+     },
+     "selectionRange": {
+      "start": {
+       "line": 2,
+       "character": 24
+      },
+      "end": {
+       "line": 2,
+       "character": 28
+      }
+     },
+     "detail": ""
+    },
+    "fromRanges": [
+     {
+      "start": {
+       "line": 32,
+       "character": 46
+      },
+      "end": {
+       "line": 32,
+       "character": 50
+      }
+     },
+     {
+      "start": {
+       "line": 33,
+       "character": 44
+      },
+      "end": {
+       "line": 33,
+       "character": 48
+      }
+     }
+    ]
+   },
+   {
+    "to": {
+     "uri": "file:///project/node_modules/dexie/dist/dexie.d.ts",
+     "kind": 12,
+     "name": "liveQuery",
+     "range": {
+      "start": {
+       "line": 1213,
+       "character": 0
+      },
+      "end": {
+       "line": 1213,
+       "character": 75
+      }
+     },
+     "selectionRange": {
+      "start": {
+       "line": 1213,
+       "character": 16
+      },
+      "end": {
+       "line": 1213,
+       "character": 25
+      }
+     },
+     "detail": ""
+    },
+    "fromRanges": [
+     {
+      "start": {
+       "line": 32,
+       "character": 51
+      },
+      "end": {
+       "line": 32,
+       "character": 60
+      }
+     },
+     {
+      "start": {
+       "line": 33,
+       "character": 49
+      },
+      "end": {
+       "line": 33,
+       "character": 58
+      }
+     }
+    ]
+   },
+   {
+    "to": {
+     "uri": "file:///project/node_modules/dexie/dist/dexie.d.ts",
+     "kind": 6,
+     "name": "toArray",
+     "range": {
+      "start": {
+       "line": 757,
+       "character": 1
+      },
+      "end": {
+       "line": 757,
+       "character": 38
+      }
+     },
+     "selectionRange": {
+      "start": {
+       "line": 757,
+       "character": 1
+      },
+      "end": {
+       "line": 757,
+       "character": 8
+      }
+     },
+     "detail": ""
+    },
+    "fromRanges": [
+     {
+      "start": {
+       "line": 32,
+       "character": 67
+      },
+      "end": {
+       "line": 32,
+       "character": 97
+      }
+     },
+     {
+      "start": {
+       "line": 32,
+       "character": 67
+      },
+      "end": {
+       "line": 32,
+       "character": 97
+      }
+     },
+     {
+      "start": {
+       "line": 33,
+       "character": 65
+      },
+      "end": {
+       "line": 33,
+       "character": 94
+      }
+     },
+     {
+      "start": {
+       "line": 33,
+       "character": 65
+      },
+      "end": {
+       "line": 33,
+       "character": 94
+      }
+     }
+    ]
+   }
+  ]
+ }
+}

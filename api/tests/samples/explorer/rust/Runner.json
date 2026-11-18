@@ -1,0 +1,1108 @@
+{
+ "thing": {
+  "file": "src/agents/runner.rs",
+  "name": "Runner",
+  "definition": "pub struct Runner"
+ },
+ "position": {
+  "line": 55,
+  "character": 11
+ },
+ "references": {
+  "jsonrpc": "2.0",
+  "id": 13,
+  "result": [
+   {
+    "uri": "file:///project/src/workspace/handlers.rs",
+    "range": {
+     "start": {
+      "line": 20,
+      "character": 28
+     },
+     "end": {
+      "line": 20,
+      "character": 34
+     }
+    }
+   },
+   {
+    "uri": "file:///project/src/workspace/handlers.rs",
+    "range": {
+     "start": {
+      "line": 157,
+      "character": 33
+     },
+     "end": {
+      "line": 157,
+      "character": 39
+     }
+    }
+   },
+   {
+    "uri": "file:///project/src/workspace/handlers.rs",
+    "range": {
+     "start": {
+      "line": 208,
+      "character": 33
+     },
+     "end": {
+      "line": 208,
+      "character": 39
+     }
+    }
+   },
+   {
+    "uri": "file:///project/src/workspace/mod.rs",
+    "range": {
+     "start": {
+      "line": 16,
+      "character": 27
+     },
+     "end": {
+      "line": 16,
+      "character": 33
+     }
+    }
+   },
+   {
+    "uri": "file:///project/src/workspace/mod.rs",
+    "range": {
+     "start": {
+      "line": 34,
+      "character": 17
+     },
+     "end": {
+      "line": 34,
+      "character": 23
+     }
+    }
+   },
+   {
+    "uri": "file:///project/src/workspace/mod.rs",
+    "range": {
+     "start": {
+      "line": 63,
+      "character": 49
+     },
+     "end": {
+      "line": 63,
+      "character": 55
+     }
+    }
+   },
+   {
+    "uri": "file:///project/tests/workspace.rs",
+    "range": {
+     "start": {
+      "line": 17,
+      "character": 29
+     },
+     "end": {
+      "line": 17,
+      "character": 35
+     }
+    }
+   },
+   {
+    "uri": "file:///project/tests/workspace.rs",
+    "range": {
+     "start": {
+      "line": 436,
+      "character": 8
+     },
+     "end": {
+      "line": 436,
+      "character": 14
+     }
+    }
+   },
+   {
+    "uri": "file:///project/tests/workspace.rs",
+    "range": {
+     "start": {
+      "line": 453,
+      "character": 21
+     },
+     "end": {
+      "line": 453,
+      "character": 27
+     }
+    }
+   },
+   {
+    "uri": "file:///project/src/agents/runner.rs",
+    "range": {
+     "start": {
+      "line": 59,
+      "character": 5
+     },
+     "end": {
+      "line": 59,
+      "character": 11
+     }
+    }
+   }
+  ]
+ },
+ "documentSymbol": {
+  "jsonrpc": "2.0",
+  "id": 14,
+  "result": [
+   {
+    "name": "LONGEST_COMPLAINT",
+    "detail": "usize",
+    "kind": 14,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 34,
+      "character": 0
+     },
+     "end": {
+      "line": 35,
+      "character": 38
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 35,
+      "character": 6
+     },
+     "end": {
+      "line": 35,
+      "character": 23
+     }
+    }
+   },
+   {
+    "name": "Stop",
+    "kind": 10,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 37,
+      "character": 0
+     },
+     "end": {
+      "line": 44,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 39,
+      "character": 5
+     },
+     "end": {
+      "line": 39,
+      "character": 9
+     }
+    },
+    "children": [
+     {
+      "name": "ByUser",
+      "kind": 22,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 40,
+        "character": 4
+       },
+       "end": {
+        "line": 41,
+        "character": 10
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 41,
+        "character": 4
+       },
+       "end": {
+        "line": 41,
+        "character": 10
+       }
+      }
+     },
+     {
+      "name": "Shutdown",
+      "kind": 22,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 42,
+        "character": 4
+       },
+       "end": {
+        "line": 43,
+        "character": 12
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 43,
+        "character": 4
+       },
+       "end": {
+        "line": 43,
+        "character": 12
+       }
+      }
+     }
+    ]
+   },
+   {
+    "name": "TurnRequest",
+    "kind": 23,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 46,
+      "character": 0
+     },
+     "end": {
+      "line": 51,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 47,
+      "character": 11
+     },
+     "end": {
+      "line": 47,
+      "character": 22
+     }
+    },
+    "children": [
+     {
+      "name": "thread",
+      "detail": "thread::Model",
+      "kind": 8,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 48,
+        "character": 4
+       },
+       "end": {
+        "line": 48,
+        "character": 29
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 48,
+        "character": 8
+       },
+       "end": {
+        "line": 48,
+        "character": 14
+       }
+      }
+     },
+     {
+      "name": "directory",
+      "detail": "PathBuf",
+      "kind": 8,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 49,
+        "character": 4
+       },
+       "end": {
+        "line": 49,
+        "character": 26
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 49,
+        "character": 8
+       },
+       "end": {
+        "line": 49,
+        "character": 17
+       }
+      }
+     },
+     {
+      "name": "message",
+      "detail": "String",
+      "kind": 8,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 50,
+        "character": 4
+       },
+       "end": {
+        "line": 50,
+        "character": 23
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 50,
+        "character": 8
+       },
+       "end": {
+        "line": 50,
+        "character": 15
+       }
+      }
+     }
+    ]
+   },
+   {
+    "name": "Runner",
+    "kind": 23,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 53,
+      "character": 0
+     },
+     "end": {
+      "line": 57,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 55,
+      "character": 11
+     },
+     "end": {
+      "line": 55,
+      "character": 17
+     }
+    },
+    "children": [
+     {
+      "name": "running",
+      "detail": "Arc<Mutex<HashMap<Uuid, Sender<Option<Stop>>>>>",
+      "kind": 8,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 56,
+        "character": 4
+       },
+       "end": {
+        "line": 56,
+        "character": 60
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 56,
+        "character": 4
+       },
+       "end": {
+        "line": 56,
+        "character": 11
+       }
+      }
+     }
+    ]
+   },
+   {
+    "name": "impl Runner",
+    "kind": 19,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 59,
+      "character": 0
+     },
+     "end": {
+      "line": 98,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 59,
+      "character": 5
+     },
+     "end": {
+      "line": 59,
+      "character": 11
+     }
+    },
+    "children": [
+     {
+      "name": "start",
+      "detail": "fn(&self, db: DatabaseConnection, settings: AgentSettings, request: TurnRequest)",
+      "kind": 6,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 60,
+        "character": 4
+       },
+       "end": {
+        "line": 79,
+        "character": 5
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 64,
+        "character": 11
+       },
+       "end": {
+        "line": 64,
+        "character": 16
+       }
+      }
+     },
+     {
+      "name": "stop",
+      "detail": "fn(&self, thread_id: Uuid)",
+      "kind": 6,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 81,
+        "character": 4
+       },
+       "end": {
+        "line": 86,
+        "character": 5
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 82,
+        "character": 11
+       },
+       "end": {
+        "line": 82,
+        "character": 15
+       }
+      }
+     },
+     {
+      "name": "stop_all",
+      "detail": "fn(&self)",
+      "kind": 6,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 88,
+        "character": 4
+       },
+       "end": {
+        "line": 93,
+        "character": 5
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 89,
+        "character": 11
+       },
+       "end": {
+        "line": 89,
+        "character": 19
+       }
+      }
+     },
+     {
+      "name": "running",
+      "detail": "fn(&self) -> std::sync::MutexGuard<'_, HashMap<Uuid, Sender<Option<Stop>>>>",
+      "kind": 6,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 95,
+        "character": 4
+       },
+       "end": {
+        "line": 97,
+        "character": 5
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 95,
+        "character": 7
+       },
+       "end": {
+        "line": 95,
+        "character": 14
+       }
+      }
+     }
+    ]
+   },
+   {
+    "name": "run_turn",
+    "detail": "fn( db: &DatabaseConnection, settings: &AgentSettings, request: TurnRequest, stopped: Receiver<Option<Stop>>, )",
+    "kind": 12,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 100,
+      "character": 0
+     },
+     "end": {
+      "line": 162,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 101,
+      "character": 9
+     },
+     "end": {
+      "line": 101,
+      "character": 17
+     }
+    }
+   },
+   {
+    "name": "Outcome",
+    "kind": 23,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 164,
+      "character": 0
+     },
+     "end": {
+      "line": 172,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 165,
+      "character": 7
+     },
+     "end": {
+      "line": 165,
+      "character": 14
+     }
+    },
+    "children": [
+     {
+      "name": "summarised",
+      "detail": "bool",
+      "kind": 8,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 166,
+        "character": 4
+       },
+       "end": {
+        "line": 167,
+        "character": 20
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 167,
+        "character": 4
+       },
+       "end": {
+        "line": 167,
+        "character": 14
+       }
+      }
+     },
+     {
+      "name": "stop",
+      "detail": "Option<Stop>",
+      "kind": 8,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 168,
+        "character": 4
+       },
+       "end": {
+        "line": 168,
+        "character": 22
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 168,
+        "character": 4
+       },
+       "end": {
+        "line": 168,
+        "character": 8
+       }
+      }
+     },
+     {
+      "name": "status",
+      "detail": "Option<ExitStatus>",
+      "kind": 8,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 169,
+        "character": 4
+       },
+       "end": {
+        "line": 169,
+        "character": 30
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 169,
+        "character": 4
+       },
+       "end": {
+        "line": 169,
+        "character": 10
+       }
+      }
+     },
+     {
+      "name": "complaints",
+      "detail": "String",
+      "kind": 8,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 170,
+        "character": 4
+       },
+       "end": {
+        "line": 171,
+        "character": 22
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 171,
+        "character": 4
+       },
+       "end": {
+        "line": 171,
+        "character": 14
+       }
+      }
+     }
+    ]
+   },
+   {
+    "name": "follow",
+    "detail": "fn( db: &DatabaseConnection, thread: &thread::Model, journal: &mut Journal, mut driver: Box<dyn AgentDriver>, mut child: Child, mut stopped: Receiver<Option<Stop>>, grace: Duration, ) -> Outcome",
+    "kind": 12,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 174,
+      "character": 0
+     },
+     "end": {
+      "line": 270,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 175,
+      "character": 9
+     },
+     "end": {
+      "line": 175,
+      "character": 15
+     }
+    }
+   },
+   {
+    "name": "spawn",
+    "detail": "fn(invocation: &Invocation, directory: &Path) -> Result<Child, IoError>",
+    "kind": 12,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 272,
+      "character": 0
+     },
+     "end": {
+      "line": 287,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 273,
+      "character": 3
+     },
+     "end": {
+      "line": 273,
+      "character": 8
+     }
+    }
+   },
+   {
+    "name": "program_path",
+    "detail": "fn(program: &str) -> PathBuf",
+    "kind": 12,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 289,
+      "character": 0
+     },
+     "end": {
+      "line": 300,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 294,
+      "character": 3
+     },
+     "end": {
+      "line": 294,
+      "character": 15
+     }
+    }
+   },
+   {
+    "name": "signal_group",
+    "detail": "fn(group: Option<u32>, signal: Signal)",
+    "kind": 12,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 302,
+      "character": 0
+     },
+     "end": {
+      "line": 308,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 302,
+      "character": 3
+     },
+     "end": {
+      "line": 302,
+      "character": 15
+     }
+    }
+   },
+   {
+    "name": "timed",
+    "detail": "fn(mut draft: EntryDraft, started: Instant) -> EntryDraft",
+    "kind": 12,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 310,
+      "character": 0
+     },
+     "end": {
+      "line": 317,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 311,
+      "character": 3
+     },
+     "end": {
+      "line": 311,
+      "character": 8
+     }
+    }
+   },
+   {
+    "name": "unfinished_turn",
+    "detail": "fn(status: Option<ExitStatus>, complaints: &str) -> String",
+    "kind": 12,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 319,
+      "character": 0
+     },
+     "end": {
+      "line": 329,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 320,
+      "character": 3
+     },
+     "end": {
+      "line": 320,
+      "character": 18
+     }
+    }
+   },
+   {
+    "name": "read_end",
+    "detail": "fn(output: Option<ChildStderr>) -> String",
+    "kind": 12,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 331,
+      "character": 0
+     },
+     "end": {
+      "line": 344,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 332,
+      "character": 9
+     },
+     "end": {
+      "line": 332,
+      "character": 17
+     }
+    }
+   },
+   {
+    "name": "record",
+    "detail": "fn(journal: &mut Journal, draft: EntryDraft)",
+    "kind": 12,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 346,
+      "character": 0
+     },
+     "end": {
+      "line": 350,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 346,
+      "character": 9
+     },
+     "end": {
+      "line": 346,
+      "character": 15
+     }
+    }
+   },
+   {
+    "name": "mark_conversation_started",
+    "detail": "fn( db: &DatabaseConnection, thread: thread::Model, ) -> Result<(), DbErr>",
+    "kind": 12,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 352,
+      "character": 0
+     },
+     "end": {
+      "line": 359,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 352,
+      "character": 9
+     },
+     "end": {
+      "line": 352,
+      "character": 34
+     }
+    }
+   },
+   {
+    "name": "store_commands",
+    "detail": "fn( db: &DatabaseConnection, thread: thread::Model, commands: Value, ) -> Result<(), DbErr>",
+    "kind": 12,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 361,
+      "character": 0
+     },
+     "end": {
+      "line": 369,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 361,
+      "character": 9
+     },
+     "end": {
+      "line": 361,
+      "character": 23
+     }
+    }
+   },
+   {
+    "name": "mark_idle",
+    "detail": "fn(db: &DatabaseConnection, thread: thread::Model) -> Result<(), DbErr>",
+    "kind": 12,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 371,
+      "character": 0
+     },
+     "end": {
+      "line": 379,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 374,
+      "character": 9
+     },
+     "end": {
+      "line": 374,
+      "character": 18
+     }
+    }
+   },
+   {
+    "name": "tests",
+    "kind": 2,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 381,
+      "character": 0
+     },
+     "end": {
+      "line": 431,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 382,
+      "character": 4
+     },
+     "end": {
+      "line": 382,
+      "character": 9
+     }
+    },
+    "children": [
+     {
+      "name": "exit_code",
+      "detail": "fn(code: i32) -> Option<ExitStatus>",
+      "kind": 12,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 389,
+        "character": 4
+       },
+       "end": {
+        "line": 391,
+        "character": 5
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 389,
+        "character": 7
+       },
+       "end": {
+        "line": 389,
+        "character": 16
+       }
+      }
+     },
+     {
+      "name": "killed",
+      "detail": "fn() -> Option<ExitStatus>",
+      "kind": 12,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 393,
+        "character": 4
+       },
+       "end": {
+        "line": 395,
+        "character": 5
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 393,
+        "character": 7
+       },
+       "end": {
+        "line": 393,
+        "character": 13
+       }
+      }
+     }
+    ]
+   }
+  ]
+ },
+ "prepareCallHierarchy": {
+  "jsonrpc": "2.0",
+  "id": 15,
+  "result": []
+ },
+ "outgoingCalls": null
+}

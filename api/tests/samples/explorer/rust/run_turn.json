@@ -1,0 +1,1533 @@
+{
+ "thing": {
+  "file": "src/agents/runner.rs",
+  "name": "run_turn",
+  "definition": "async fn run_turn"
+ },
+ "position": {
+  "line": 101,
+  "character": 9
+ },
+ "references": {
+  "jsonrpc": "2.0",
+  "id": 16,
+  "result": [
+   {
+    "uri": "file:///project/src/agents/runner.rs",
+    "range": {
+     "start": {
+      "line": 71,
+      "character": 12
+     },
+     "end": {
+      "line": 71,
+      "character": 20
+     }
+    }
+   }
+  ]
+ },
+ "documentSymbol": {
+  "jsonrpc": "2.0",
+  "id": 17,
+  "result": [
+   {
+    "name": "LONGEST_COMPLAINT",
+    "detail": "usize",
+    "kind": 14,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 34,
+      "character": 0
+     },
+     "end": {
+      "line": 35,
+      "character": 38
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 35,
+      "character": 6
+     },
+     "end": {
+      "line": 35,
+      "character": 23
+     }
+    }
+   },
+   {
+    "name": "Stop",
+    "kind": 10,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 37,
+      "character": 0
+     },
+     "end": {
+      "line": 44,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 39,
+      "character": 5
+     },
+     "end": {
+      "line": 39,
+      "character": 9
+     }
+    },
+    "children": [
+     {
+      "name": "ByUser",
+      "kind": 22,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 40,
+        "character": 4
+       },
+       "end": {
+        "line": 41,
+        "character": 10
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 41,
+        "character": 4
+       },
+       "end": {
+        "line": 41,
+        "character": 10
+       }
+      }
+     },
+     {
+      "name": "Shutdown",
+      "kind": 22,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 42,
+        "character": 4
+       },
+       "end": {
+        "line": 43,
+        "character": 12
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 43,
+        "character": 4
+       },
+       "end": {
+        "line": 43,
+        "character": 12
+       }
+      }
+     }
+    ]
+   },
+   {
+    "name": "TurnRequest",
+    "kind": 23,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 46,
+      "character": 0
+     },
+     "end": {
+      "line": 51,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 47,
+      "character": 11
+     },
+     "end": {
+      "line": 47,
+      "character": 22
+     }
+    },
+    "children": [
+     {
+      "name": "thread",
+      "detail": "thread::Model",
+      "kind": 8,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 48,
+        "character": 4
+       },
+       "end": {
+        "line": 48,
+        "character": 29
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 48,
+        "character": 8
+       },
+       "end": {
+        "line": 48,
+        "character": 14
+       }
+      }
+     },
+     {
+      "name": "directory",
+      "detail": "PathBuf",
+      "kind": 8,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 49,
+        "character": 4
+       },
+       "end": {
+        "line": 49,
+        "character": 26
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 49,
+        "character": 8
+       },
+       "end": {
+        "line": 49,
+        "character": 17
+       }
+      }
+     },
+     {
+      "name": "message",
+      "detail": "String",
+      "kind": 8,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 50,
+        "character": 4
+       },
+       "end": {
+        "line": 50,
+        "character": 23
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 50,
+        "character": 8
+       },
+       "end": {
+        "line": 50,
+        "character": 15
+       }
+      }
+     }
+    ]
+   },
+   {
+    "name": "Runner",
+    "kind": 23,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 53,
+      "character": 0
+     },
+     "end": {
+      "line": 57,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 55,
+      "character": 11
+     },
+     "end": {
+      "line": 55,
+      "character": 17
+     }
+    },
+    "children": [
+     {
+      "name": "running",
+      "detail": "Arc<Mutex<HashMap<Uuid, Sender<Option<Stop>>>>>",
+      "kind": 8,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 56,
+        "character": 4
+       },
+       "end": {
+        "line": 56,
+        "character": 60
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 56,
+        "character": 4
+       },
+       "end": {
+        "line": 56,
+        "character": 11
+       }
+      }
+     }
+    ]
+   },
+   {
+    "name": "impl Runner",
+    "kind": 19,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 59,
+      "character": 0
+     },
+     "end": {
+      "line": 98,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 59,
+      "character": 5
+     },
+     "end": {
+      "line": 59,
+      "character": 11
+     }
+    },
+    "children": [
+     {
+      "name": "start",
+      "detail": "fn(&self, db: DatabaseConnection, settings: AgentSettings, request: TurnRequest)",
+      "kind": 6,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 60,
+        "character": 4
+       },
+       "end": {
+        "line": 79,
+        "character": 5
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 64,
+        "character": 11
+       },
+       "end": {
+        "line": 64,
+        "character": 16
+       }
+      }
+     },
+     {
+      "name": "stop",
+      "detail": "fn(&self, thread_id: Uuid)",
+      "kind": 6,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 81,
+        "character": 4
+       },
+       "end": {
+        "line": 86,
+        "character": 5
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 82,
+        "character": 11
+       },
+       "end": {
+        "line": 82,
+        "character": 15
+       }
+      }
+     },
+     {
+      "name": "stop_all",
+      "detail": "fn(&self)",
+      "kind": 6,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 88,
+        "character": 4
+       },
+       "end": {
+        "line": 93,
+        "character": 5
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 89,
+        "character": 11
+       },
+       "end": {
+        "line": 89,
+        "character": 19
+       }
+      }
+     },
+     {
+      "name": "running",
+      "detail": "fn(&self) -> std::sync::MutexGuard<'_, HashMap<Uuid, Sender<Option<Stop>>>>",
+      "kind": 6,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 95,
+        "character": 4
+       },
+       "end": {
+        "line": 97,
+        "character": 5
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 95,
+        "character": 7
+       },
+       "end": {
+        "line": 95,
+        "character": 14
+       }
+      }
+     }
+    ]
+   },
+   {
+    "name": "run_turn",
+    "detail": "fn( db: &DatabaseConnection, settings: &AgentSettings, request: TurnRequest, stopped: Receiver<Option<Stop>>, )",
+    "kind": 12,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 100,
+      "character": 0
+     },
+     "end": {
+      "line": 162,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 101,
+      "character": 9
+     },
+     "end": {
+      "line": 101,
+      "character": 17
+     }
+    }
+   },
+   {
+    "name": "Outcome",
+    "kind": 23,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 164,
+      "character": 0
+     },
+     "end": {
+      "line": 172,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 165,
+      "character": 7
+     },
+     "end": {
+      "line": 165,
+      "character": 14
+     }
+    },
+    "children": [
+     {
+      "name": "summarised",
+      "detail": "bool",
+      "kind": 8,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 166,
+        "character": 4
+       },
+       "end": {
+        "line": 167,
+        "character": 20
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 167,
+        "character": 4
+       },
+       "end": {
+        "line": 167,
+        "character": 14
+       }
+      }
+     },
+     {
+      "name": "stop",
+      "detail": "Option<Stop>",
+      "kind": 8,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 168,
+        "character": 4
+       },
+       "end": {
+        "line": 168,
+        "character": 22
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 168,
+        "character": 4
+       },
+       "end": {
+        "line": 168,
+        "character": 8
+       }
+      }
+     },
+     {
+      "name": "status",
+      "detail": "Option<ExitStatus>",
+      "kind": 8,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 169,
+        "character": 4
+       },
+       "end": {
+        "line": 169,
+        "character": 30
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 169,
+        "character": 4
+       },
+       "end": {
+        "line": 169,
+        "character": 10
+       }
+      }
+     },
+     {
+      "name": "complaints",
+      "detail": "String",
+      "kind": 8,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 170,
+        "character": 4
+       },
+       "end": {
+        "line": 171,
+        "character": 22
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 171,
+        "character": 4
+       },
+       "end": {
+        "line": 171,
+        "character": 14
+       }
+      }
+     }
+    ]
+   },
+   {
+    "name": "follow",
+    "detail": "fn( db: &DatabaseConnection, thread: &thread::Model, journal: &mut Journal, mut driver: Box<dyn AgentDriver>, mut child: Child, mut stopped: Receiver<Option<Stop>>, grace: Duration, ) -> Outcome",
+    "kind": 12,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 174,
+      "character": 0
+     },
+     "end": {
+      "line": 270,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 175,
+      "character": 9
+     },
+     "end": {
+      "line": 175,
+      "character": 15
+     }
+    }
+   },
+   {
+    "name": "spawn",
+    "detail": "fn(invocation: &Invocation, directory: &Path) -> Result<Child, IoError>",
+    "kind": 12,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 272,
+      "character": 0
+     },
+     "end": {
+      "line": 287,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 273,
+      "character": 3
+     },
+     "end": {
+      "line": 273,
+      "character": 8
+     }
+    }
+   },
+   {
+    "name": "program_path",
+    "detail": "fn(program: &str) -> PathBuf",
+    "kind": 12,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 289,
+      "character": 0
+     },
+     "end": {
+      "line": 300,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 294,
+      "character": 3
+     },
+     "end": {
+      "line": 294,
+      "character": 15
+     }
+    }
+   },
+   {
+    "name": "signal_group",
+    "detail": "fn(group: Option<u32>, signal: Signal)",
+    "kind": 12,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 302,
+      "character": 0
+     },
+     "end": {
+      "line": 308,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 302,
+      "character": 3
+     },
+     "end": {
+      "line": 302,
+      "character": 15
+     }
+    }
+   },
+   {
+    "name": "timed",
+    "detail": "fn(mut draft: EntryDraft, started: Instant) -> EntryDraft",
+    "kind": 12,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 310,
+      "character": 0
+     },
+     "end": {
+      "line": 317,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 311,
+      "character": 3
+     },
+     "end": {
+      "line": 311,
+      "character": 8
+     }
+    }
+   },
+   {
+    "name": "unfinished_turn",
+    "detail": "fn(status: Option<ExitStatus>, complaints: &str) -> String",
+    "kind": 12,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 319,
+      "character": 0
+     },
+     "end": {
+      "line": 329,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 320,
+      "character": 3
+     },
+     "end": {
+      "line": 320,
+      "character": 18
+     }
+    }
+   },
+   {
+    "name": "read_end",
+    "detail": "fn(output: Option<ChildStderr>) -> String",
+    "kind": 12,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 331,
+      "character": 0
+     },
+     "end": {
+      "line": 344,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 332,
+      "character": 9
+     },
+     "end": {
+      "line": 332,
+      "character": 17
+     }
+    }
+   },
+   {
+    "name": "record",
+    "detail": "fn(journal: &mut Journal, draft: EntryDraft)",
+    "kind": 12,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 346,
+      "character": 0
+     },
+     "end": {
+      "line": 350,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 346,
+      "character": 9
+     },
+     "end": {
+      "line": 346,
+      "character": 15
+     }
+    }
+   },
+   {
+    "name": "mark_conversation_started",
+    "detail": "fn( db: &DatabaseConnection, thread: thread::Model, ) -> Result<(), DbErr>",
+    "kind": 12,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 352,
+      "character": 0
+     },
+     "end": {
+      "line": 359,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 352,
+      "character": 9
+     },
+     "end": {
+      "line": 352,
+      "character": 34
+     }
+    }
+   },
+   {
+    "name": "store_commands",
+    "detail": "fn( db: &DatabaseConnection, thread: thread::Model, commands: Value, ) -> Result<(), DbErr>",
+    "kind": 12,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 361,
+      "character": 0
+     },
+     "end": {
+      "line": 369,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 361,
+      "character": 9
+     },
+     "end": {
+      "line": 361,
+      "character": 23
+     }
+    }
+   },
+   {
+    "name": "mark_idle",
+    "detail": "fn(db: &DatabaseConnection, thread: thread::Model) -> Result<(), DbErr>",
+    "kind": 12,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 371,
+      "character": 0
+     },
+     "end": {
+      "line": 379,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 374,
+      "character": 9
+     },
+     "end": {
+      "line": 374,
+      "character": 18
+     }
+    }
+   },
+   {
+    "name": "tests",
+    "kind": 2,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 381,
+      "character": 0
+     },
+     "end": {
+      "line": 431,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 382,
+      "character": 4
+     },
+     "end": {
+      "line": 382,
+      "character": 9
+     }
+    },
+    "children": [
+     {
+      "name": "exit_code",
+      "detail": "fn(code: i32) -> Option<ExitStatus>",
+      "kind": 12,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 389,
+        "character": 4
+       },
+       "end": {
+        "line": 391,
+        "character": 5
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 389,
+        "character": 7
+       },
+       "end": {
+        "line": 389,
+        "character": 16
+       }
+      }
+     },
+     {
+      "name": "killed",
+      "detail": "fn() -> Option<ExitStatus>",
+      "kind": 12,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 393,
+        "character": 4
+       },
+       "end": {
+        "line": 395,
+        "character": 5
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 393,
+        "character": 7
+       },
+       "end": {
+        "line": 393,
+        "character": 13
+       }
+      }
+     }
+    ]
+   }
+  ]
+ },
+ "prepareCallHierarchy": {
+  "jsonrpc": "2.0",
+  "id": 18,
+  "result": [
+   {
+    "name": "run_turn",
+    "kind": 12,
+    "detail": "async fn run_turn(db: &DatabaseConnection, settings: &AgentSettings, request: TurnRequest, stopped: Receiver<Option<Stop>>)",
+    "uri": "file:///project/src/agents/runner.rs",
+    "range": {
+     "start": {
+      "line": 100,
+      "character": 0
+     },
+     "end": {
+      "line": 162,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 101,
+      "character": 9
+     },
+     "end": {
+      "line": 101,
+      "character": 17
+     }
+    }
+   }
+  ]
+ },
+ "outgoingCalls": {
+  "jsonrpc": "2.0",
+  "id": 19,
+  "result": [
+   {
+    "to": {
+     "name": "open",
+     "kind": 12,
+     "detail": "pub async fn open(db: &DatabaseConnection, thread: &thread::Model) -> Result<Self, DbErr>",
+     "uri": "file:///project/src/workspace/journal.rs",
+     "range": {
+      "start": {
+       "line": 28,
+       "character": 4
+      },
+      "end": {
+       "line": 42,
+       "character": 5
+      }
+     },
+     "selectionRange": {
+      "start": {
+       "line": 29,
+       "character": 17
+      },
+      "end": {
+       "line": 29,
+       "character": 21
+      }
+     }
+    },
+    "fromRanges": [
+     {
+      "start": {
+       "line": 113,
+       "character": 28
+      },
+      "end": {
+       "line": 113,
+       "character": 41
+      }
+     }
+    ]
+   },
+   {
+    "to": {
+     "name": "parse",
+     "kind": 12,
+     "detail": "pub fn parse(name: &str) -> Option<Self>",
+     "uri": "file:///project/src/agents/mod.rs",
+     "range": {
+      "start": {
+       "line": 31,
+       "character": 4
+      },
+      "end": {
+       "line": 38,
+       "character": 5
+      }
+     },
+     "selectionRange": {
+      "start": {
+       "line": 32,
+       "character": 11
+      },
+      "end": {
+       "line": 32,
+       "character": 16
+      }
+     }
+    },
+    "fromRanges": [
+     {
+      "start": {
+       "line": 120,
+       "character": 22
+      },
+      "end": {
+       "line": 120,
+       "character": 34
+      }
+     }
+    ]
+   },
+   {
+    "to": {
+     "name": "record",
+     "kind": 12,
+     "detail": "async fn record(journal: &mut Journal, draft: EntryDraft)",
+     "uri": "file:///project/src/agents/runner.rs",
+     "range": {
+      "start": {
+       "line": 346,
+       "character": 0
+      },
+      "end": {
+       "line": 350,
+       "character": 1
+      }
+     },
+     "selectionRange": {
+      "start": {
+       "line": 346,
+       "character": 9
+      },
+      "end": {
+       "line": 346,
+       "character": 15
+      }
+     }
+    },
+    "fromRanges": [
+     {
+      "start": {
+       "line": 121,
+       "character": 8
+      },
+      "end": {
+       "line": 121,
+       "character": 14
+      }
+     },
+     {
+      "start": {
+       "line": 139,
+       "character": 12
+      },
+      "end": {
+       "line": 139,
+       "character": 18
+      }
+     },
+     {
+      "start": {
+       "line": 148,
+       "character": 30
+      },
+      "end": {
+       "line": 148,
+       "character": 36
+      }
+     },
+     {
+      "start": {
+       "line": 150,
+       "character": 12
+      },
+      "end": {
+       "line": 150,
+       "character": 18
+      }
+     },
+     {
+      "start": {
+       "line": 158,
+       "character": 12
+      },
+      "end": {
+       "line": 158,
+       "character": 18
+      }
+     }
+    ]
+   },
+   {
+    "to": {
+     "name": "error",
+     "kind": 12,
+     "detail": "pub fn error(text: &str) -> Self",
+     "uri": "file:///project/src/agents/mod.rs",
+     "range": {
+      "start": {
+       "line": 92,
+       "character": 4
+      },
+      "end": {
+       "line": 94,
+       "character": 5
+      }
+     },
+     "selectionRange": {
+      "start": {
+       "line": 92,
+       "character": 11
+      },
+      "end": {
+       "line": 92,
+       "character": 16
+      }
+     }
+    },
+    "fromRanges": [
+     {
+      "start": {
+       "line": 123,
+       "character": 12
+      },
+      "end": {
+       "line": 123,
+       "character": 29
+      }
+     },
+     {
+      "start": {
+       "line": 139,
+       "character": 33
+      },
+      "end": {
+       "line": 139,
+       "character": 50
+      }
+     },
+     {
+      "start": {
+       "line": 158,
+       "character": 33
+      },
+      "end": {
+       "line": 158,
+       "character": 50
+      }
+     }
+    ]
+   },
+   {
+    "to": {
+     "name": "driver_for",
+     "kind": 12,
+     "detail": "pub fn driver_for(agent: Agent, settings: &AgentSettings) -> Box<dyn AgentDriver>",
+     "uri": "file:///project/src/agents/mod.rs",
+     "range": {
+      "start": {
+       "line": 166,
+       "character": 0
+      },
+      "end": {
+       "line": 171,
+       "character": 1
+      }
+     },
+     "selectionRange": {
+      "start": {
+       "line": 166,
+       "character": 7
+      },
+      "end": {
+       "line": 166,
+       "character": 17
+      }
+     }
+    },
+    "fromRanges": [
+     {
+      "start": {
+       "line": 129,
+       "character": 17
+      },
+      "end": {
+       "line": 129,
+       "character": 27
+      }
+     }
+    ]
+   },
+   {
+    "to": {
+     "name": "invocation",
+     "kind": 12,
+     "detail": "pub fn invocation(&self, turn: &Turn) -> Invocation",
+     "uri": "file:///project/src/agents/mod.rs",
+     "range": {
+      "start": {
+       "line": 145,
+       "character": 4
+      },
+      "end": {
+       "line": 145,
+       "character": 52
+      }
+     },
+     "selectionRange": {
+      "start": {
+       "line": 145,
+       "character": 7
+      },
+      "end": {
+       "line": 145,
+       "character": 17
+      }
+     }
+    },
+    "fromRanges": [
+     {
+      "start": {
+       "line": 130,
+       "character": 28
+      },
+      "end": {
+       "line": 130,
+       "character": 38
+      }
+     }
+    ]
+   },
+   {
+    "to": {
+     "name": "spawn",
+     "kind": 12,
+     "detail": "fn spawn(invocation: &Invocation, directory: &Path) -> Result<Child, IoError>",
+     "uri": "file:///project/src/agents/runner.rs",
+     "range": {
+      "start": {
+       "line": 272,
+       "character": 0
+      },
+      "end": {
+       "line": 287,
+       "character": 1
+      }
+     },
+     "selectionRange": {
+      "start": {
+       "line": 273,
+       "character": 3
+      },
+      "end": {
+       "line": 273,
+       "character": 8
+      }
+     }
+    },
+    "fromRanges": [
+     {
+      "start": {
+       "line": 135,
+       "character": 22
+      },
+      "end": {
+       "line": 135,
+       "character": 27
+      }
+     }
+    ]
+   },
+   {
+    "to": {
+     "name": "from_secs",
+     "kind": 12,
+     "detail": "pub const fn from_secs(secs: u64) -> Duration",
+     "uri": "file:///home/someone/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/time.rs",
+     "range": {
+      "start": {
+       "line": 207,
+       "character": 4
+      },
+      "end": {
+       "line": 225,
+       "character": 5
+      }
+     },
+     "selectionRange": {
+      "start": {
+       "line": 223,
+       "character": 17
+      },
+      "end": {
+       "line": 223,
+       "character": 26
+      }
+     }
+    },
+    "fromRanges": [
+     {
+      "start": {
+       "line": 144,
+       "character": 16
+      },
+      "end": {
+       "line": 144,
+       "character": 35
+      }
+     }
+    ]
+   },
+   {
+    "to": {
+     "name": "follow",
+     "kind": 12,
+     "detail": "async fn follow(\n    db: &DatabaseConnection,\n    thread: &thread::Model,\n    journal: &mut Journal,\n    mut driver: Box<dyn AgentDriver>,\n    mut child: Child,\n    mut stopped: Receiver<Option<Stop>>,\n    grace: Duration\n) -> Outcome",
+     "uri": "file:///project/src/agents/runner.rs",
+     "range": {
+      "start": {
+       "line": 174,
+       "character": 0
+      },
+      "end": {
+       "line": 270,
+       "character": 1
+      }
+     },
+     "selectionRange": {
+      "start": {
+       "line": 175,
+       "character": 9
+      },
+      "end": {
+       "line": 175,
+       "character": 15
+      }
+     }
+    },
+    "fromRanges": [
+     {
+      "start": {
+       "line": 145,
+       "character": 18
+      },
+      "end": {
+       "line": 145,
+       "character": 24
+      }
+     }
+    ]
+   },
+   {
+    "to": {
+     "name": "notice",
+     "kind": 12,
+     "detail": "pub fn notice(text: &str) -> Self",
+     "uri": "file:///project/src/agents/mod.rs",
+     "range": {
+      "start": {
+       "line": 88,
+       "character": 4
+      },
+      "end": {
+       "line": 90,
+       "character": 5
+      }
+     },
+     "selectionRange": {
+      "start": {
+       "line": 88,
+       "character": 11
+      },
+      "end": {
+       "line": 88,
+       "character": 17
+      }
+     }
+    },
+    "fromRanges": [
+     {
+      "start": {
+       "line": 148,
+       "character": 51
+      },
+      "end": {
+       "line": 148,
+       "character": 69
+      }
+     },
+     {
+      "start": {
+       "line": 152,
+       "character": 16
+      },
+      "end": {
+       "line": 152,
+       "character": 34
+      }
+     }
+    ]
+   },
+   {
+    "to": {
+     "name": "unfinished_turn",
+     "kind": 12,
+     "detail": "fn unfinished_turn(status: Option<ExitStatus>, complaints: &str) -> String",
+     "uri": "file:///project/src/agents/runner.rs",
+     "range": {
+      "start": {
+       "line": 319,
+       "character": 0
+      },
+      "end": {
+       "line": 329,
+       "character": 1
+      }
+     },
+     "selectionRange": {
+      "start": {
+       "line": 320,
+       "character": 3
+      },
+      "end": {
+       "line": 320,
+       "character": 18
+      }
+     }
+    },
+    "fromRanges": [
+     {
+      "start": {
+       "line": 157,
+       "character": 23
+      },
+      "end": {
+       "line": 157,
+       "character": 38
+      }
+     }
+    ]
+   }
+  ]
+ }
+}

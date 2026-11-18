@@ -1,0 +1,945 @@
+{
+ "thing": {
+  "file": "src/workspace/handlers.rs",
+  "name": "owned_project",
+  "definition": "fn owned_project"
+ },
+ "position": {
+  "line": 276,
+  "character": 20
+ },
+ "references": {
+  "jsonrpc": "2.0",
+  "id": 27,
+  "result": [
+   {
+    "uri": "file:///project/src/workspace/handlers.rs",
+    "range": {
+     "start": {
+      "line": 86,
+      "character": 18
+     },
+     "end": {
+      "line": 86,
+      "character": 31
+     }
+    }
+   },
+   {
+    "uri": "file:///project/src/workspace/handlers.rs",
+    "range": {
+     "start": {
+      "line": 126,
+      "character": 18
+     },
+     "end": {
+      "line": 126,
+      "character": 31
+     }
+    }
+   },
+   {
+    "uri": "file:///project/src/workspace/handlers.rs",
+    "range": {
+     "start": {
+      "line": 163,
+      "character": 18
+     },
+     "end": {
+      "line": 163,
+      "character": 31
+     }
+    }
+   },
+   {
+    "uri": "file:///project/src/files/handlers.rs",
+    "range": {
+     "start": {
+      "line": 14,
+      "character": 32
+     },
+     "end": {
+      "line": 14,
+      "character": 45
+     }
+    }
+   },
+   {
+    "uri": "file:///project/src/files/handlers.rs",
+    "range": {
+     "start": {
+      "line": 63,
+      "character": 18
+     },
+     "end": {
+      "line": 63,
+      "character": 31
+     }
+    }
+   }
+  ]
+ },
+ "documentSymbol": {
+  "jsonrpc": "2.0",
+  "id": 28,
+  "result": [
+   {
+    "name": "LONGEST_TITLE",
+    "detail": "usize",
+    "kind": 14,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 28,
+      "character": 0
+     },
+     "end": {
+      "line": 29,
+      "character": 32
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 29,
+      "character": 6
+     },
+     "end": {
+      "line": 29,
+      "character": 19
+     }
+    }
+   },
+   {
+    "name": "NewProject",
+    "kind": 23,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 31,
+      "character": 0
+     },
+     "end": {
+      "line": 35,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 32,
+      "character": 11
+     },
+     "end": {
+      "line": 32,
+      "character": 21
+     }
+    },
+    "children": [
+     {
+      "name": "name",
+      "detail": "String",
+      "kind": 8,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 33,
+        "character": 4
+       },
+       "end": {
+        "line": 33,
+        "character": 16
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 33,
+        "character": 4
+       },
+       "end": {
+        "line": 33,
+        "character": 8
+       }
+      }
+     },
+     {
+      "name": "directory",
+      "detail": "String",
+      "kind": 8,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 34,
+        "character": 4
+       },
+       "end": {
+        "line": 34,
+        "character": 21
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 34,
+        "character": 4
+       },
+       "end": {
+        "line": 34,
+        "character": 13
+       }
+      }
+     }
+    ]
+   },
+   {
+    "name": "NewThread",
+    "kind": 23,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 37,
+      "character": 0
+     },
+     "end": {
+      "line": 42,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 38,
+      "character": 11
+     },
+     "end": {
+      "line": 38,
+      "character": 20
+     }
+    },
+    "children": [
+     {
+      "name": "agent",
+      "detail": "String",
+      "kind": 8,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 39,
+        "character": 4
+       },
+       "end": {
+        "line": 39,
+        "character": 17
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 39,
+        "character": 4
+       },
+       "end": {
+        "line": 39,
+        "character": 9
+       }
+      }
+     },
+     {
+      "name": "title",
+      "detail": "String",
+      "kind": 8,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 40,
+        "character": 4
+       },
+       "end": {
+        "line": 41,
+        "character": 17
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 41,
+        "character": 4
+       },
+       "end": {
+        "line": 41,
+        "character": 9
+       }
+      }
+     }
+    ]
+   },
+   {
+    "name": "NewMessage",
+    "kind": 23,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 44,
+      "character": 0
+     },
+     "end": {
+      "line": 47,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 45,
+      "character": 11
+     },
+     "end": {
+      "line": 45,
+      "character": 21
+     }
+    },
+    "children": [
+     {
+      "name": "text",
+      "detail": "String",
+      "kind": 8,
+      "tags": [],
+      "deprecated": false,
+      "range": {
+       "start": {
+        "line": 46,
+        "character": 4
+       },
+       "end": {
+        "line": 46,
+        "character": 16
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 46,
+        "character": 4
+       },
+       "end": {
+        "line": 46,
+        "character": 8
+       }
+      }
+     }
+    ]
+   },
+   {
+    "name": "create_project",
+    "detail": "fn( State(app): State<Teryon>, CurrentUser { user, .. }: CurrentUser, Json(new): Json<NewProject>, ) -> Result<(StatusCode, Json<project::Model>), WorkspaceError>",
+    "kind": 12,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 49,
+      "character": 0
+     },
+     "end": {
+      "line": 75,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 49,
+      "character": 13
+     },
+     "end": {
+      "line": 49,
+      "character": 27
+     }
+    }
+   },
+   {
+    "name": "delete_project",
+    "detail": "fn( State(app): State<Teryon>, CurrentUser { user, .. }: CurrentUser, Path(project_id): Path<Uuid>, ) -> Result<StatusCode, WorkspaceError>",
+    "kind": 12,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 77,
+      "character": 0
+     },
+     "end": {
+      "line": 118,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 81,
+      "character": 13
+     },
+     "end": {
+      "line": 81,
+      "character": 27
+     }
+    }
+   },
+   {
+    "name": "create_thread",
+    "detail": "fn( State(app): State<Teryon>, CurrentUser { user, .. }: CurrentUser, Path(project_id): Path<Uuid>, Json(new): Json<NewThread>, ) -> Result<(StatusCode, Json<thread::Model>), WorkspaceError>",
+    "kind": 12,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 120,
+      "character": 0
+     },
+     "end": {
+      "line": 149,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 120,
+      "character": 13
+     },
+     "end": {
+      "line": 120,
+      "character": 26
+     }
+    }
+   },
+   {
+    "name": "send_message",
+    "detail": "fn( State(app): State<Teryon>, Extension(runner): Extension<Runner>, CurrentUser { user, .. }: CurrentUser, Path(thread_id): Path<Uuid>, Json(new): Json<NewMessage>, ) -> Result<(StatusCode, Json<thread_entry::Model>), WorkspaceError>",
+    "kind": 12,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 151,
+      "character": 0
+     },
+     "end": {
+      "line": 204,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 155,
+      "character": 13
+     },
+     "end": {
+      "line": 155,
+      "character": 25
+     }
+    }
+   },
+   {
+    "name": "stop_thread",
+    "detail": "fn( State(app): State<Teryon>, Extension(runner): Extension<Runner>, CurrentUser { user, .. }: CurrentUser, Path(thread_id): Path<Uuid>, ) -> Result<StatusCode, WorkspaceError>",
+    "kind": 12,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 206,
+      "character": 0
+     },
+     "end": {
+      "line": 215,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 206,
+      "character": 13
+     },
+     "end": {
+      "line": 206,
+      "character": 24
+     }
+    }
+   },
+   {
+    "name": "mark_thread_seen",
+    "detail": "fn( State(app): State<Teryon>, CurrentUser { user, .. }: CurrentUser, Path(thread_id): Path<Uuid>, ) -> Result<StatusCode, WorkspaceError>",
+    "kind": 12,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 217,
+      "character": 0
+     },
+     "end": {
+      "line": 235,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 223,
+      "character": 13
+     },
+     "end": {
+      "line": 223,
+      "character": 29
+     }
+    }
+   },
+   {
+    "name": "store_message",
+    "detail": "fn( db: &DatabaseConnection, thread: &thread::Model, text: &str, ) -> Result<thread_entry::Model, WorkspaceError>",
+    "kind": 12,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 237,
+      "character": 0
+     },
+     "end": {
+      "line": 254,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 238,
+      "character": 9
+     },
+     "end": {
+      "line": 238,
+      "character": 22
+     }
+    }
+   },
+   {
+    "name": "release",
+    "detail": "fn(db: &DatabaseConnection, thread: thread::Model)",
+    "kind": 12,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 256,
+      "character": 0
+     },
+     "end": {
+      "line": 263,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 257,
+      "character": 9
+     },
+     "end": {
+      "line": 257,
+      "character": 16
+     }
+    }
+   },
+   {
+    "name": "title_from",
+    "detail": "fn(text: &str) -> String",
+    "kind": 12,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 265,
+      "character": 0
+     },
+     "end": {
+      "line": 274,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 266,
+      "character": 3
+     },
+     "end": {
+      "line": 266,
+      "character": 13
+     }
+    }
+   },
+   {
+    "name": "owned_project",
+    "detail": "fn( db: &DatabaseConnection, user_id: Uuid, project_id: Uuid, ) -> Result<project::Model, WorkspaceError>",
+    "kind": 12,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 276,
+      "character": 0
+     },
+     "end": {
+      "line": 287,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 276,
+      "character": 20
+     },
+     "end": {
+      "line": 276,
+      "character": 33
+     }
+    }
+   },
+   {
+    "name": "owned_thread",
+    "detail": "fn( db: &DatabaseConnection, user_id: Uuid, thread_id: Uuid, ) -> Result<thread::Model, WorkspaceError>",
+    "kind": 12,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 289,
+      "character": 0
+     },
+     "end": {
+      "line": 300,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 289,
+      "character": 9
+     },
+     "end": {
+      "line": 289,
+      "character": 21
+     }
+    }
+   },
+   {
+    "name": "tests",
+    "kind": 2,
+    "tags": [],
+    "deprecated": false,
+    "range": {
+     "start": {
+      "line": 302,
+      "character": 0
+     },
+     "end": {
+      "line": 328,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 303,
+      "character": 4
+     },
+     "end": {
+      "line": 303,
+      "character": 9
+     }
+    }
+   }
+  ]
+ },
+ "prepareCallHierarchy": {
+  "jsonrpc": "2.0",
+  "id": 29,
+  "result": [
+   {
+    "name": "owned_project",
+    "kind": 12,
+    "detail": "pub(crate) async fn owned_project(db: &DatabaseConnection, user_id: Uuid, project_id: Uuid) -> Result<project::Model, WorkspaceError>",
+    "uri": "file:///project/src/workspace/handlers.rs",
+    "range": {
+     "start": {
+      "line": 276,
+      "character": 0
+     },
+     "end": {
+      "line": 287,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 276,
+      "character": 20
+     },
+     "end": {
+      "line": 276,
+      "character": 33
+     }
+    }
+   }
+  ]
+ },
+ "outgoingCalls": {
+  "jsonrpc": "2.0",
+  "id": 30,
+  "result": [
+   {
+    "to": {
+     "name": "ok_or",
+     "kind": 12,
+     "detail": "pub const fn ok_or<E>(self, err: E) -> Result<T, E>\nwhere\n    E: Destruct,",
+     "uri": "file:///home/someone/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/core/src/option.rs",
+     "range": {
+      "start": {
+       "line": 1308,
+       "character": 4
+      },
+      "end": {
+       "line": 1337,
+       "character": 5
+      }
+     },
+     "selectionRange": {
+      "start": {
+       "line": 1332,
+       "character": 17
+      },
+      "end": {
+       "line": 1332,
+       "character": 22
+      }
+     }
+    },
+    "fromRanges": [
+     {
+      "start": {
+       "line": 286,
+       "character": 9
+      },
+      "end": {
+       "line": 286,
+       "character": 14
+      }
+     }
+    ]
+   },
+   {
+    "to": {
+     "name": "one",
+     "kind": 12,
+     "detail": "pub async fn one<C>(self, db: &C) -> Result<Option<E::Model>, DbErr>\nwhere\n    C: ConnectionTrait,",
+     "uri": "file:///home/someone/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sea-orm-1.1.20/src/executor/select.rs",
+     "range": {
+      "start": {
+       "line": 441,
+       "character": 4
+      },
+      "end": {
+       "line": 447,
+       "character": 5
+      }
+     },
+     "selectionRange": {
+      "start": {
+       "line": 442,
+       "character": 17
+      },
+      "end": {
+       "line": 442,
+       "character": 20
+      }
+     }
+    },
+    "fromRanges": [
+     {
+      "start": {
+       "line": 284,
+       "character": 9
+      },
+      "end": {
+       "line": 284,
+       "character": 12
+      }
+     }
+    ]
+   },
+   {
+    "to": {
+     "name": "filter",
+     "kind": 12,
+     "detail": "pub fn filter<F>(self, filter: F) -> Self\nwhere\n    F: IntoCondition,",
+     "uri": "file:///home/someone/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sea-orm-1.1.20/src/query/helper.rs",
+     "range": {
+      "start": {
+       "line": 685,
+       "character": 4
+      },
+      "end": {
+       "line": 833,
+       "character": 5
+      }
+     },
+     "selectionRange": {
+      "start": {
+       "line": 827,
+       "character": 7
+      },
+      "end": {
+       "line": 827,
+       "character": 13
+      }
+     }
+    },
+    "fromRanges": [
+     {
+      "start": {
+       "line": 283,
+       "character": 9
+      },
+      "end": {
+       "line": 283,
+       "character": 15
+      }
+     },
+     {
+      "start": {
+       "line": 282,
+       "character": 9
+      },
+      "end": {
+       "line": 282,
+       "character": 15
+      }
+     }
+    ]
+   },
+   {
+    "to": {
+     "name": "find_by_id",
+     "kind": 12,
+     "detail": "pub fn find_by_id<T>(values: T) -> Select<Self>\nwhere\n    T: Into<<Self::PrimaryKey as PrimaryKeyTrait>::ValueType>,",
+     "uri": "file:///home/someone/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sea-orm-1.1.20/src/entity/base_entity.rs",
+     "range": {
+      "start": {
+       "line": 179,
+       "character": 4
+      },
+      "end": {
+       "line": 288,
+       "character": 5
+      }
+     },
+     "selectionRange": {
+      "start": {
+       "line": 270,
+       "character": 7
+      },
+      "end": {
+       "line": 270,
+       "character": 17
+      }
+     }
+    },
+    "fromRanges": [
+     {
+      "start": {
+       "line": 281,
+       "character": 4
+      },
+      "end": {
+       "line": 281,
+       "character": 31
+      }
+     }
+    ]
+   },
+   {
+    "to": {
+     "name": "eq",
+     "kind": 12,
+     "detail": "pub fn eq<V>(&self, v: V) -> SimpleExpr\nwhere\n    V: Into<Value>,",
+     "uri": "file:///home/someone/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sea-orm-1.1.20/src/entity/column.rs",
+     "range": {
+      "start": {
+       "line": 93,
+       "character": 4
+      },
+      "end": {
+       "line": 93,
+       "character": 26
+      }
+     },
+     "selectionRange": {
+      "start": {
+       "line": 93,
+       "character": 15
+      },
+      "end": {
+       "line": 93,
+       "character": 17
+      }
+     }
+    },
+    "fromRanges": [
+     {
+      "start": {
+       "line": 282,
+       "character": 40
+      },
+      "end": {
+       "line": 282,
+       "character": 42
+      }
+     }
+    ]
+   },
+   {
+    "to": {
+     "name": "is_null",
+     "kind": 12,
+     "detail": "pub fn is_null(&self) -> SimpleExpr",
+     "uri": "file:///home/someone/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/sea-orm-1.1.20/src/entity/column.rs",
+     "range": {
+      "start": {
+       "line": 248,
+       "character": 4
+      },
+      "end": {
+       "line": 248,
+       "character": 34
+      }
+     },
+     "selectionRange": {
+      "start": {
+       "line": 248,
+       "character": 25
+      },
+      "end": {
+       "line": 248,
+       "character": 32
+      }
+     }
+    },
+    "fromRanges": [
+     {
+      "start": {
+       "line": 283,
+       "character": 43
+      },
+      "end": {
+       "line": 283,
+       "character": 50
+      }
+     }
+    ]
+   }
+  ]
+ }
+}

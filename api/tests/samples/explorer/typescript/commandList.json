@@ -1,0 +1,4720 @@
+{
+ "thing": {
+  "file": "src/app/workspace/commands.model.ts",
+  "name": "commandList",
+  "definition": "export function commandList"
+ },
+ "position": {
+  "line": 84,
+  "character": 16
+ },
+ "references": {
+  "jsonrpc": "2.0",
+  "id": 8,
+  "result": [
+   {
+    "uri": "file:///project/src/app/workspace/workspace.page.ts",
+    "range": {
+     "start": {
+      "line": 28,
+      "character": 37
+     },
+     "end": {
+      "line": 28,
+      "character": 48
+     }
+    }
+   },
+   {
+    "uri": "file:///project/src/app/workspace/workspace.page.ts",
+    "range": {
+     "start": {
+      "line": 151,
+      "character": 34
+     },
+     "end": {
+      "line": 151,
+      "character": 45
+     }
+    }
+   },
+   {
+    "uri": "file:///project/src/app/workspace/commands.model.spec.ts",
+    "range": {
+     "start": {
+      "line": 3,
+      "character": 2
+     },
+     "end": {
+      "line": 3,
+      "character": 13
+     }
+    }
+   },
+   {
+    "uri": "file:///project/src/app/workspace/commands.model.spec.ts",
+    "range": {
+     "start": {
+      "line": 45,
+      "character": 15
+     },
+     "end": {
+      "line": 45,
+      "character": 26
+     }
+    }
+   },
+   {
+    "uri": "file:///project/src/app/workspace/commands.model.spec.ts",
+    "range": {
+     "start": {
+      "line": 55,
+      "character": 15
+     },
+     "end": {
+      "line": 55,
+      "character": 26
+     }
+    }
+   },
+   {
+    "uri": "file:///project/src/app/workspace/commands.model.spec.ts",
+    "range": {
+     "start": {
+      "line": 74,
+      "character": 29
+     },
+     "end": {
+      "line": 74,
+      "character": 40
+     }
+    }
+   },
+   {
+    "uri": "file:///project/src/app/workspace/commands.model.spec.ts",
+    "range": {
+     "start": {
+      "line": 81,
+      "character": 21
+     },
+     "end": {
+      "line": 81,
+      "character": 32
+     }
+    }
+   },
+   {
+    "uri": "file:///project/src/app/workspace/commands.model.spec.ts",
+    "range": {
+     "start": {
+      "line": 92,
+      "character": 21
+     },
+     "end": {
+      "line": 92,
+      "character": 32
+     }
+    }
+   },
+   {
+    "uri": "file:///project/src/app/workspace/commands.model.spec.ts",
+    "range": {
+     "start": {
+      "line": 104,
+      "character": 11
+     },
+     "end": {
+      "line": 104,
+      "character": 22
+     }
+    }
+   },
+   {
+    "uri": "file:///project/src/app/workspace/commands.model.spec.ts",
+    "range": {
+     "start": {
+      "line": 113,
+      "character": 18
+     },
+     "end": {
+      "line": 113,
+      "character": 29
+     }
+    }
+   },
+   {
+    "uri": "file:///project/src/app/workspace/commands.model.spec.ts",
+    "range": {
+     "start": {
+      "line": 119,
+      "character": 21
+     },
+     "end": {
+      "line": 119,
+      "character": 32
+     }
+    }
+   },
+   {
+    "uri": "file:///project/src/app/workspace/commands.model.spec.ts",
+    "range": {
+     "start": {
+      "line": 124,
+      "character": 17
+     },
+     "end": {
+      "line": 124,
+      "character": 28
+     }
+    }
+   },
+   {
+    "uri": "file:///project/src/app/workspace/commands.model.spec.ts",
+    "range": {
+     "start": {
+      "line": 125,
+      "character": 20
+     },
+     "end": {
+      "line": 125,
+      "character": 31
+     }
+    }
+   },
+   {
+    "uri": "file:///project/src/app/workspace/commands.model.spec.ts",
+    "range": {
+     "start": {
+      "line": 142,
+      "character": 13
+     },
+     "end": {
+      "line": 142,
+      "character": 24
+     }
+    }
+   },
+   {
+    "uri": "file:///project/src/app/workspace/commands.model.spec.ts",
+    "range": {
+     "start": {
+      "line": 148,
+      "character": 23
+     },
+     "end": {
+      "line": 148,
+      "character": 34
+     }
+    }
+   },
+   {
+    "uri": "file:///project/src/app/workspace/commands.model.spec.ts",
+    "range": {
+     "start": {
+      "line": 180,
+      "character": 23
+     },
+     "end": {
+      "line": 180,
+      "character": 34
+     }
+    }
+   },
+   {
+    "uri": "file:///project/src/app/workspace/commands.model.spec.ts",
+    "range": {
+     "start": {
+      "line": 191,
+      "character": 11
+     },
+     "end": {
+      "line": 191,
+      "character": 22
+     }
+    }
+   },
+   {
+    "uri": "file:///project/src/app/workspace/commands.model.spec.ts",
+    "range": {
+     "start": {
+      "line": 198,
+      "character": 11
+     },
+     "end": {
+      "line": 198,
+      "character": 22
+     }
+    }
+   }
+  ]
+ },
+ "documentSymbol": {
+  "jsonrpc": "2.0",
+  "id": 9,
+  "result": [
+   {
+    "name": "agentCommands",
+    "detail": "",
+    "kind": 12,
+    "range": {
+     "start": {
+      "line": 146,
+      "character": 0
+     },
+     "end": {
+      "line": 151,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 146,
+      "character": 9
+     },
+     "end": {
+      "line": 146,
+      "character": 22
+     }
+    },
+    "children": [
+     {
+      "name": "agent",
+      "detail": "",
+      "kind": 13,
+      "range": {
+       "start": {
+        "line": 147,
+        "character": 8
+       },
+       "end": {
+        "line": 147,
+        "character": 58
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 147,
+        "character": 8
+       },
+       "end": {
+        "line": 147,
+        "character": 13
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "map() callback",
+      "detail": "",
+      "kind": 12,
+      "range": {
+       "start": {
+        "line": 148,
+        "character": 44
+       },
+       "end": {
+        "line": 149,
+        "character": 131
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 148,
+        "character": 44
+       },
+       "end": {
+        "line": 149,
+        "character": 131
+       }
+      },
+      "children": [
+       {
+        "name": "detail",
+        "detail": "",
+        "kind": 7,
+        "range": {
+         "start": {
+          "line": 149,
+          "character": 90
+         },
+         "end": {
+          "line": 149,
+          "character": 128
+         }
+        },
+        "selectionRange": {
+         "start": {
+          "line": 149,
+          "character": 90
+         },
+         "end": {
+          "line": 149,
+          "character": 96
+         }
+        },
+        "children": []
+       },
+       {
+        "name": "kind",
+        "detail": "",
+        "kind": 7,
+        "range": {
+         "start": {
+          "line": 149,
+          "character": 52
+         },
+         "end": {
+          "line": 149,
+          "character": 65
+         }
+        },
+        "selectionRange": {
+         "start": {
+          "line": 149,
+          "character": 52
+         },
+         "end": {
+          "line": 149,
+          "character": 56
+         }
+        },
+        "children": []
+       },
+       {
+        "name": "text",
+        "detail": "",
+        "kind": 7,
+        "range": {
+         "start": {
+          "line": 149,
+          "character": 67
+         },
+         "end": {
+          "line": 149,
+          "character": 84
+         }
+        },
+        "selectionRange": {
+         "start": {
+          "line": 149,
+          "character": 67
+         },
+         "end": {
+          "line": 149,
+          "character": 71
+         }
+        },
+        "children": []
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "name": "boundCommand",
+    "detail": "",
+    "kind": 12,
+    "range": {
+     "start": {
+      "line": 210,
+      "character": 0
+     },
+     "end": {
+      "line": 212,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 210,
+      "character": 16
+     },
+     "end": {
+      "line": 210,
+      "character": 28
+     }
+    },
+    "children": [
+     {
+      "name": "commands.find() callback",
+      "detail": "",
+      "kind": 12,
+      "range": {
+       "start": {
+        "line": 211,
+        "character": 23
+       },
+       "end": {
+        "line": 211,
+        "character": 98
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 211,
+        "character": 23
+       },
+       "end": {
+        "line": 211,
+        "character": 98
+       }
+      },
+      "children": []
+     }
+    ]
+   },
+   {
+    "name": "command",
+    "detail": "",
+    "kind": 12,
+    "range": {
+     "start": {
+      "line": 220,
+      "character": 0
+     },
+     "end": {
+      "line": 228,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 220,
+      "character": 9
+     },
+     "end": {
+      "line": 220,
+      "character": 16
+     }
+    },
+    "children": [
+     {
+      "name": "action",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 227,
+        "character": 29
+       },
+       "end": {
+        "line": 227,
+        "character": 35
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 227,
+        "character": 29
+       },
+       "end": {
+        "line": 227,
+        "character": 35
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "detail",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 227,
+        "character": 37
+       },
+       "end": {
+        "line": 227,
+        "character": 63
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 227,
+        "character": 37
+       },
+       "end": {
+        "line": 227,
+        "character": 43
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "group",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 227,
+        "character": 22
+       },
+       "end": {
+        "line": 227,
+        "character": 27
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 227,
+        "character": 22
+       },
+       "end": {
+        "line": 227,
+        "character": 27
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "id",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 227,
+        "character": 11
+       },
+       "end": {
+        "line": 227,
+        "character": 13
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 227,
+        "character": 11
+       },
+       "end": {
+        "line": 227,
+        "character": 13
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "key",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 227,
+        "character": 65
+       },
+       "end": {
+        "line": 227,
+        "character": 87
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 227,
+        "character": 65
+       },
+       "end": {
+        "line": 227,
+        "character": 68
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "live",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 227,
+        "character": 89
+       },
+       "end": {
+        "line": 227,
+        "character": 114
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 227,
+        "character": 89
+       },
+       "end": {
+        "line": 227,
+        "character": 93
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "title",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 227,
+        "character": 15
+       },
+       "end": {
+        "line": 227,
+        "character": 20
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 227,
+        "character": 15
+       },
+       "end": {
+        "line": 227,
+        "character": 20
+       }
+      },
+      "children": []
+     }
+    ]
+   },
+   {
+    "name": "Command",
+    "detail": "",
+    "kind": 11,
+    "range": {
+     "start": {
+      "line": 39,
+      "character": 0
+     },
+     "end": {
+      "line": 50,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 39,
+      "character": 17
+     },
+     "end": {
+      "line": 39,
+      "character": 24
+     }
+    },
+    "children": [
+     {
+      "name": "action",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 49,
+        "character": 2
+       },
+       "end": {
+        "line": 49,
+        "character": 33
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 49,
+        "character": 11
+       },
+       "end": {
+        "line": 49,
+        "character": 17
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "detail",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 43,
+        "character": 2
+       },
+       "end": {
+        "line": 43,
+        "character": 26
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 43,
+        "character": 11
+       },
+       "end": {
+        "line": 43,
+        "character": 17
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "group",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 44,
+        "character": 2
+       },
+       "end": {
+        "line": 44,
+        "character": 31
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 44,
+        "character": 11
+       },
+       "end": {
+        "line": 44,
+        "character": 16
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "id",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 40,
+        "character": 2
+       },
+       "end": {
+        "line": 40,
+        "character": 22
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 40,
+        "character": 11
+       },
+       "end": {
+        "line": 40,
+        "character": 13
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "key",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 46,
+        "character": 2
+       },
+       "end": {
+        "line": 46,
+        "character": 30
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 46,
+        "character": 11
+       },
+       "end": {
+        "line": 46,
+        "character": 14
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "live",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 48,
+        "character": 2
+       },
+       "end": {
+        "line": 48,
+        "character": 25
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 48,
+        "character": 11
+       },
+       "end": {
+        "line": 48,
+        "character": 15
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "title",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 41,
+        "character": 2
+       },
+       "end": {
+        "line": 41,
+        "character": 25
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 41,
+        "character": 11
+       },
+       "end": {
+        "line": 41,
+        "character": 16
+       }
+      },
+      "children": []
+     }
+    ]
+   },
+   {
+    "name": "CommandAction",
+    "detail": "",
+    "kind": 13,
+    "range": {
+     "start": {
+      "line": 26,
+      "character": 0
+     },
+     "end": {
+      "line": 37,
+      "character": 54
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 26,
+      "character": 12
+     },
+     "end": {
+      "line": 26,
+      "character": 25
+     }
+    },
+    "children": []
+   },
+   {
+    "name": "CommandGroup",
+    "detail": "",
+    "kind": 13,
+    "range": {
+     "start": {
+      "line": 23,
+      "character": 0
+     },
+     "end": {
+      "line": 23,
+      "character": 83
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 23,
+      "character": 12
+     },
+     "end": {
+      "line": 23,
+      "character": 24
+     }
+    },
+    "children": []
+   },
+   {
+    "name": "commandList",
+    "detail": "",
+    "kind": 12,
+    "range": {
+     "start": {
+      "line": 84,
+      "character": 0
+     },
+     "end": {
+      "line": 135,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 84,
+      "character": 16
+     },
+     "end": {
+      "line": 84,
+      "character": 27
+     }
+    },
+    "children": [
+     {
+      "name": "actions",
+      "detail": "",
+      "kind": 13,
+      "range": {
+       "start": {
+        "line": 110,
+        "character": 8
+       },
+       "end": {
+        "line": 110,
+        "character": 31
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 110,
+        "character": 8
+       },
+       "end": {
+        "line": 110,
+        "character": 15
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "detail",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 113,
+        "character": 94
+       },
+       "end": {
+        "line": 113,
+        "character": 114
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 113,
+        "character": 94
+       },
+       "end": {
+        "line": 113,
+        "character": 100
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "detail",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 114,
+        "character": 92
+       },
+       "end": {
+        "line": 114,
+        "character": 112
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 114,
+        "character": 92
+       },
+       "end": {
+        "line": 114,
+        "character": 98
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "detail",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 115,
+        "character": 98
+       },
+       "end": {
+        "line": 115,
+        "character": 118
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 115,
+        "character": 98
+       },
+       "end": {
+        "line": 115,
+        "character": 104
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "detail",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 119,
+        "character": 106
+       },
+       "end": {
+        "line": 119,
+        "character": 133
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 119,
+        "character": 106
+       },
+       "end": {
+        "line": 119,
+        "character": 112
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "groups",
+      "detail": "",
+      "kind": 13,
+      "range": {
+       "start": {
+        "line": 85,
+        "character": 10
+       },
+       "end": {
+        "line": 85,
+        "character": 16
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 85,
+        "character": 10
+       },
+       "end": {
+        "line": 85,
+        "character": 16
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "key",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 113,
+        "character": 116
+       },
+       "end": {
+        "line": 113,
+        "character": 124
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 113,
+        "character": 116
+       },
+       "end": {
+        "line": 113,
+        "character": 119
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "key",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 114,
+        "character": 114
+       },
+       "end": {
+        "line": 114,
+        "character": 122
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 114,
+        "character": 114
+       },
+       "end": {
+        "line": 114,
+        "character": 117
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "key",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 115,
+        "character": 120
+       },
+       "end": {
+        "line": 115,
+        "character": 128
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 115,
+        "character": 120
+       },
+       "end": {
+        "line": 115,
+        "character": 123
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "kind",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 113,
+        "character": 60
+       },
+       "end": {
+        "line": 113,
+        "character": 79
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 113,
+        "character": 60
+       },
+       "end": {
+        "line": 113,
+        "character": 64
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "kind",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 114,
+        "character": 51
+       },
+       "end": {
+        "line": 114,
+        "character": 69
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 114,
+        "character": 51
+       },
+       "end": {
+        "line": 114,
+        "character": 55
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "kind",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 115,
+        "character": 55
+       },
+       "end": {
+        "line": 115,
+        "character": 73
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 115,
+        "character": 55
+       },
+       "end": {
+        "line": 115,
+        "character": 59
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "kind",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 119,
+        "character": 75
+       },
+       "end": {
+        "line": 119,
+        "character": 92
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 119,
+        "character": 75
+       },
+       "end": {
+        "line": 119,
+        "character": 79
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "kind",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 122,
+        "character": 112
+       },
+       "end": {
+        "line": 122,
+        "character": 131
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 122,
+        "character": 112
+       },
+       "end": {
+        "line": 122,
+        "character": 116
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "kind",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 123,
+        "character": 60
+       },
+       "end": {
+        "line": 123,
+        "character": 78
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 123,
+        "character": 60
+       },
+       "end": {
+        "line": 123,
+        "character": 64
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "kind",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 126,
+        "character": 95
+       },
+       "end": {
+        "line": 126,
+        "character": 116
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 126,
+        "character": 95
+       },
+       "end": {
+        "line": 126,
+        "character": 99
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "kind",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 129,
+        "character": 105
+       },
+       "end": {
+        "line": 129,
+        "character": 124
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 129,
+        "character": 105
+       },
+       "end": {
+        "line": 129,
+        "character": 109
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "kind",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 130,
+        "character": 59
+       },
+       "end": {
+        "line": 130,
+        "character": 79
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 130,
+        "character": 59
+       },
+       "end": {
+        "line": 130,
+        "character": 63
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "kind",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 131,
+        "character": 54
+       },
+       "end": {
+        "line": 131,
+        "character": 69
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 131,
+        "character": 54
+       },
+       "end": {
+        "line": 131,
+        "character": 58
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "project",
+      "detail": "",
+      "kind": 13,
+      "range": {
+       "start": {
+        "line": 85,
+        "character": 18
+       },
+       "end": {
+        "line": 85,
+        "character": 25
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 85,
+        "character": 18
+       },
+       "end": {
+        "line": 85,
+        "character": 25
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "project",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 113,
+        "character": 81
+       },
+       "end": {
+        "line": 113,
+        "character": 88
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 113,
+        "character": 81
+       },
+       "end": {
+        "line": 113,
+        "character": 88
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "project",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 126,
+        "character": 118
+       },
+       "end": {
+        "line": 126,
+        "character": 125
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 126,
+        "character": 118
+       },
+       "end": {
+        "line": 126,
+        "character": 125
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "projectNames",
+      "detail": "",
+      "kind": 13,
+      "range": {
+       "start": {
+        "line": 86,
+        "character": 8
+       },
+       "end": {
+        "line": 86,
+        "character": 93
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 86,
+        "character": 8
+       },
+       "end": {
+        "line": 86,
+        "character": 20
+       }
+      },
+      "children": [
+       {
+        "name": "groups.map() callback",
+        "detail": "",
+        "kind": 12,
+        "range": {
+         "start": {
+          "line": 86,
+          "character": 42
+         },
+         "end": {
+          "line": 86,
+          "character": 91
+         }
+        },
+        "selectionRange": {
+         "start": {
+          "line": 86,
+          "character": 42
+         },
+         "end": {
+          "line": 86,
+          "character": 91
+         }
+        },
+        "children": []
+       }
+      ]
+     },
+     {
+      "name": "projects",
+      "detail": "",
+      "kind": 13,
+      "range": {
+       "start": {
+        "line": 103,
+        "character": 8
+       },
+       "end": {
+        "line": 108,
+        "character": 3
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 103,
+        "character": 8
+       },
+       "end": {
+        "line": 103,
+        "character": 16
+       }
+      },
+      "children": [
+       {
+        "name": "groups.map() callback",
+        "detail": "",
+        "kind": 12,
+        "range": {
+         "start": {
+          "line": 103,
+          "character": 30
+         },
+         "end": {
+          "line": 107,
+          "character": 6
+         }
+        },
+        "selectionRange": {
+         "start": {
+          "line": 103,
+          "character": 30
+         },
+         "end": {
+          "line": 107,
+          "character": 6
+         }
+        },
+        "children": [
+         {
+          "name": "detail",
+          "detail": "",
+          "kind": 7,
+          "range": {
+           "start": {
+            "line": 105,
+            "character": 6
+           },
+           "end": {
+            "line": 105,
+            "character": 37
+           }
+          },
+          "selectionRange": {
+           "start": {
+            "line": 105,
+            "character": 6
+           },
+           "end": {
+            "line": 105,
+            "character": 12
+           }
+          },
+          "children": []
+         },
+         {
+          "name": "kind",
+          "detail": "",
+          "kind": 7,
+          "range": {
+           "start": {
+            "line": 104,
+            "character": 76
+           },
+           "end": {
+            "line": 104,
+            "character": 95
+           }
+          },
+          "selectionRange": {
+           "start": {
+            "line": 104,
+            "character": 76
+           },
+           "end": {
+            "line": 104,
+            "character": 80
+           }
+          },
+          "children": []
+         },
+         {
+          "name": "live",
+          "detail": "",
+          "kind": 7,
+          "range": {
+           "start": {
+            "line": 106,
+            "character": 6
+           },
+           "end": {
+            "line": 106,
+            "character": 25
+           }
+          },
+          "selectionRange": {
+           "start": {
+            "line": 106,
+            "character": 6
+           },
+           "end": {
+            "line": 106,
+            "character": 10
+           }
+          },
+          "children": []
+         },
+         {
+          "name": "project",
+          "detail": "",
+          "kind": 7,
+          "range": {
+           "start": {
+            "line": 104,
+            "character": 97
+           },
+           "end": {
+            "line": 104,
+            "character": 119
+           }
+          },
+          "selectionRange": {
+           "start": {
+            "line": 104,
+            "character": 97
+           },
+           "end": {
+            "line": 104,
+            "character": 104
+           }
+          },
+          "children": []
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "name": "screen",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 114,
+        "character": 71
+       },
+       "end": {
+        "line": 114,
+        "character": 86
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 114,
+        "character": 71
+       },
+       "end": {
+        "line": 114,
+        "character": 77
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "screen",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 115,
+        "character": 75
+       },
+       "end": {
+        "line": 115,
+        "character": 92
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 115,
+        "character": 75
+       },
+       "end": {
+        "line": 115,
+        "character": 81
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "thread",
+      "detail": "",
+      "kind": 13,
+      "range": {
+       "start": {
+        "line": 85,
+        "character": 27
+       },
+       "end": {
+        "line": 85,
+        "character": 33
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 85,
+        "character": 27
+       },
+       "end": {
+        "line": 85,
+        "character": 33
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "thread",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 119,
+        "character": 94
+       },
+       "end": {
+        "line": 119,
+        "character": 100
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 119,
+        "character": 94
+       },
+       "end": {
+        "line": 119,
+        "character": 100
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "threads",
+      "detail": "",
+      "kind": 13,
+      "range": {
+       "start": {
+        "line": 88,
+        "character": 8
+       },
+       "end": {
+        "line": 101,
+        "character": 86
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 88,
+        "character": 8
+       },
+       "end": {
+        "line": 88,
+        "character": 15
+       }
+      },
+      "children": [
+       {
+        "name": "groups.flatMap() callback",
+        "detail": "",
+        "kind": 12,
+        "range": {
+         "start": {
+          "line": 89,
+          "character": 13
+         },
+         "end": {
+          "line": 89,
+          "character": 37
+         }
+        },
+        "selectionRange": {
+         "start": {
+          "line": 89,
+          "character": 13
+         },
+         "end": {
+          "line": 89,
+          "character": 37
+         }
+        },
+        "children": []
+       },
+       {
+        "name": "map() callback",
+        "detail": "",
+        "kind": 12,
+        "range": {
+         "start": {
+          "line": 91,
+          "character": 9
+         },
+         "end": {
+          "line": 98,
+          "character": 7
+         }
+        },
+        "selectionRange": {
+         "start": {
+          "line": 91,
+          "character": 9
+         },
+         "end": {
+          "line": 98,
+          "character": 7
+         }
+        },
+        "children": [
+         {
+          "name": "detail",
+          "detail": "",
+          "kind": 7,
+          "range": {
+           "start": {
+            "line": 97,
+            "character": 10
+           },
+           "end": {
+            "line": 97,
+            "character": 62
+           }
+          },
+          "selectionRange": {
+           "start": {
+            "line": 97,
+            "character": 10
+           },
+           "end": {
+            "line": 97,
+            "character": 16
+           }
+          },
+          "children": []
+         },
+         {
+          "name": "kind",
+          "detail": "",
+          "kind": 7,
+          "range": {
+           "start": {
+            "line": 96,
+            "character": 10
+           },
+           "end": {
+            "line": 96,
+            "character": 28
+           }
+          },
+          "selectionRange": {
+           "start": {
+            "line": 96,
+            "character": 10
+           },
+           "end": {
+            "line": 96,
+            "character": 14
+           }
+          },
+          "children": []
+         },
+         {
+          "name": "live",
+          "detail": "",
+          "kind": 7,
+          "range": {
+           "start": {
+            "line": 97,
+            "character": 64
+           },
+           "end": {
+            "line": 97,
+            "character": 100
+           }
+          },
+          "selectionRange": {
+           "start": {
+            "line": 97,
+            "character": 64
+           },
+           "end": {
+            "line": 97,
+            "character": 68
+           }
+          },
+          "children": []
+         },
+         {
+          "name": "thread",
+          "detail": "",
+          "kind": 7,
+          "range": {
+           "start": {
+            "line": 96,
+            "character": 30
+           },
+           "end": {
+            "line": 96,
+            "character": 47
+           }
+          },
+          "selectionRange": {
+           "start": {
+            "line": 96,
+            "character": 30
+           },
+           "end": {
+            "line": 96,
+            "character": 36
+           }
+          },
+          "children": []
+         }
+        ]
+       },
+       {
+        "name": "sort() callback",
+        "detail": "",
+        "kind": 12,
+        "range": {
+         "start": {
+          "line": 90,
+          "character": 10
+         },
+         "end": {
+          "line": 90,
+          "character": 60
+         }
+        },
+        "selectionRange": {
+         "start": {
+          "line": 90,
+          "character": 10
+         },
+         "end": {
+          "line": 90,
+          "character": 60
+         }
+        },
+        "children": []
+       },
+       {
+        "name": "sort() callback",
+        "detail": "",
+        "kind": 12,
+        "range": {
+         "start": {
+          "line": 101,
+          "character": 10
+         },
+         "end": {
+          "line": 101,
+          "character": 85
+         }
+        },
+        "selectionRange": {
+         "start": {
+          "line": 101,
+          "character": 10
+         },
+         "end": {
+          "line": 101,
+          "character": 85
+         }
+        },
+        "children": []
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "name": "fitOf",
+    "detail": "",
+    "kind": 12,
+    "range": {
+     "start": {
+      "line": 231,
+      "character": 0
+     },
+     "end": {
+      "line": 236,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 231,
+      "character": 9
+     },
+     "end": {
+      "line": 231,
+      "character": 14
+     }
+    },
+    "children": [
+     {
+      "name": "detail",
+      "detail": "",
+      "kind": 13,
+      "range": {
+       "start": {
+        "line": 234,
+        "character": 8
+       },
+       "end": {
+        "line": 234,
+        "character": 63
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 234,
+        "character": 8
+       },
+       "end": {
+        "line": 234,
+        "character": 14
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "title",
+      "detail": "",
+      "kind": 13,
+      "range": {
+       "start": {
+        "line": 232,
+        "character": 8
+       },
+       "end": {
+        "line": 232,
+        "character": 61
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 232,
+        "character": 8
+       },
+       "end": {
+        "line": 232,
+        "character": 13
+       }
+      },
+      "children": []
+     }
+    ]
+   },
+   {
+    "name": "HEADINGS",
+    "detail": "",
+    "kind": 13,
+    "range": {
+     "start": {
+      "line": 68,
+      "character": 6
+     },
+     "end": {
+      "line": 74,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 68,
+      "character": 6
+     },
+     "end": {
+      "line": 68,
+      "character": 14
+     }
+    },
+    "children": [
+     {
+      "name": "action",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 72,
+        "character": 2
+       },
+       "end": {
+        "line": 72,
+        "character": 19
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 72,
+        "character": 2
+       },
+       "end": {
+        "line": 72,
+        "character": 8
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "agent",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 73,
+        "character": 2
+       },
+       "end": {
+        "line": 73,
+        "character": 25
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 73,
+        "character": 2
+       },
+       "end": {
+        "line": 73,
+        "character": 7
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "attention",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 69,
+        "character": 2
+       },
+       "end": {
+        "line": 69,
+        "character": 30
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 69,
+        "character": 2
+       },
+       "end": {
+        "line": 69,
+        "character": 11
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "project",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 71,
+        "character": 2
+       },
+       "end": {
+        "line": 71,
+        "character": 21
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 71,
+        "character": 2
+       },
+       "end": {
+        "line": 71,
+        "character": 9
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "thread",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 70,
+        "character": 2
+       },
+       "end": {
+        "line": 70,
+        "character": 19
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 70,
+        "character": 2
+       },
+       "end": {
+        "line": 70,
+        "character": 8
+       }
+      },
+      "children": []
+     }
+    ]
+   },
+   {
+    "name": "holdsInOrder",
+    "detail": "",
+    "kind": 12,
+    "range": {
+     "start": {
+      "line": 247,
+      "character": 0
+     },
+     "end": {
+      "line": 255,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 247,
+      "character": 9
+     },
+     "end": {
+      "line": 247,
+      "character": 21
+     }
+    },
+    "children": [
+     {
+      "name": "found",
+      "detail": "",
+      "kind": 13,
+      "range": {
+       "start": {
+        "line": 250,
+        "character": 10
+       },
+       "end": {
+        "line": 250,
+        "character": 44
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 250,
+        "character": 10
+       },
+       "end": {
+        "line": 250,
+        "character": 15
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "from",
+      "detail": "",
+      "kind": 13,
+      "range": {
+       "start": {
+        "line": 248,
+        "character": 6
+       },
+       "end": {
+        "line": 248,
+        "character": 14
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 248,
+        "character": 6
+       },
+       "end": {
+        "line": 248,
+        "character": 10
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "letter",
+      "detail": "",
+      "kind": 13,
+      "range": {
+       "start": {
+        "line": 249,
+        "character": 13
+       },
+       "end": {
+        "line": 249,
+        "character": 19
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 249,
+        "character": 13
+       },
+       "end": {
+        "line": 249,
+        "character": 19
+       }
+      },
+      "children": []
+     }
+    ]
+   },
+   {
+    "name": "matching",
+    "detail": "",
+    "kind": 12,
+    "range": {
+     "start": {
+      "line": 174,
+      "character": 0
+     },
+     "end": {
+      "line": 182,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 174,
+      "character": 16
+     },
+     "end": {
+      "line": 174,
+      "character": 24
+     }
+    },
+    "children": [
+     {
+      "name": "commands.map() callback",
+      "detail": "",
+      "kind": 12,
+      "range": {
+       "start": {
+        "line": 178,
+        "character": 9
+       },
+       "end": {
+        "line": 178,
+        "character": 83
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 178,
+        "character": 9
+       },
+       "end": {
+        "line": 178,
+        "character": 83
+       }
+      },
+      "children": [
+       {
+        "name": "candidate",
+        "detail": "",
+        "kind": 7,
+        "range": {
+         "start": {
+          "line": 178,
+          "character": 34
+         },
+         "end": {
+          "line": 178,
+          "character": 43
+         }
+        },
+        "selectionRange": {
+         "start": {
+          "line": 178,
+          "character": 34
+         },
+         "end": {
+          "line": 178,
+          "character": 43
+         }
+        },
+        "children": []
+       },
+       {
+        "name": "fit",
+        "detail": "",
+        "kind": 7,
+        "range": {
+         "start": {
+          "line": 178,
+          "character": 52
+         },
+         "end": {
+          "line": 178,
+          "character": 80
+         }
+        },
+        "selectionRange": {
+         "start": {
+          "line": 178,
+          "character": 52
+         },
+         "end": {
+          "line": 178,
+          "character": 55
+         }
+        },
+        "children": []
+       },
+       {
+        "name": "index",
+        "detail": "",
+        "kind": 7,
+        "range": {
+         "start": {
+          "line": 178,
+          "character": 45
+         },
+         "end": {
+          "line": 178,
+          "character": 50
+         }
+        },
+        "selectionRange": {
+         "start": {
+          "line": 178,
+          "character": 45
+         },
+         "end": {
+          "line": 178,
+          "character": 50
+         }
+        },
+        "children": []
+       }
+      ]
+     },
+     {
+      "name": "filter() callback",
+      "detail": "",
+      "kind": 12,
+      "range": {
+       "start": {
+        "line": 179,
+        "character": 12
+       },
+       "end": {
+        "line": 179,
+        "character": 43
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 179,
+        "character": 12
+       },
+       "end": {
+        "line": 179,
+        "character": 43
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "map() callback",
+      "detail": "",
+      "kind": 12,
+      "range": {
+       "start": {
+        "line": 181,
+        "character": 9
+       },
+       "end": {
+        "line": 181,
+        "character": 37
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 181,
+        "character": 9
+       },
+       "end": {
+        "line": 181,
+        "character": 37
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "query",
+      "detail": "",
+      "kind": 13,
+      "range": {
+       "start": {
+        "line": 175,
+        "character": 8
+       },
+       "end": {
+        "line": 175,
+        "character": 42
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 175,
+        "character": 8
+       },
+       "end": {
+        "line": 175,
+        "character": 13
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "sort() callback",
+      "detail": "",
+      "kind": 12,
+      "range": {
+       "start": {
+        "line": 180,
+        "character": 10
+       },
+       "end": {
+        "line": 180,
+        "character": 78
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 180,
+        "character": 10
+       },
+       "end": {
+        "line": 180,
+        "character": 78
+       }
+      },
+      "children": []
+     }
+    ]
+   },
+   {
+    "name": "menuAsked",
+    "detail": "",
+    "kind": 12,
+    "range": {
+     "start": {
+      "line": 201,
+      "character": 0
+     },
+     "end": {
+      "line": 207,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 201,
+      "character": 16
+     },
+     "end": {
+      "line": 201,
+      "character": 25
+     }
+    },
+    "children": []
+   },
+   {
+    "name": "MenuRow",
+    "detail": "",
+    "kind": 11,
+    "range": {
+     "start": {
+      "line": 63,
+      "character": 0
+     },
+     "end": {
+      "line": 66,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 63,
+      "character": 17
+     },
+     "end": {
+      "line": 63,
+      "character": 24
+     }
+    },
+    "children": [
+     {
+      "name": "command",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 64,
+        "character": 2
+       },
+       "end": {
+        "line": 64,
+        "character": 28
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 64,
+        "character": 11
+       },
+       "end": {
+        "line": 64,
+        "character": 18
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "heading",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 65,
+        "character": 2
+       },
+       "end": {
+        "line": 65,
+        "character": 34
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 65,
+        "character": 11
+       },
+       "end": {
+        "line": 65,
+        "character": 18
+       }
+      },
+      "children": []
+     }
+    ]
+   },
+   {
+    "name": "menuRows",
+    "detail": "",
+    "kind": 12,
+    "range": {
+     "start": {
+      "line": 185,
+      "character": 0
+     },
+     "end": {
+      "line": 191,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 185,
+      "character": 16
+     },
+     "end": {
+      "line": 185,
+      "character": 24
+     }
+    },
+    "children": [
+     {
+      "name": "commands.map() callback",
+      "detail": "",
+      "kind": 12,
+      "range": {
+       "start": {
+        "line": 187,
+        "character": 22
+       },
+       "end": {
+        "line": 190,
+        "character": 4
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 187,
+        "character": 22
+       },
+       "end": {
+        "line": 190,
+        "character": 4
+       }
+      },
+      "children": [
+       {
+        "name": "command",
+        "detail": "",
+        "kind": 7,
+        "range": {
+         "start": {
+          "line": 188,
+          "character": 4
+         },
+         "end": {
+          "line": 188,
+          "character": 22
+         }
+        },
+        "selectionRange": {
+         "start": {
+          "line": 188,
+          "character": 4
+         },
+         "end": {
+          "line": 188,
+          "character": 11
+         }
+        },
+        "children": []
+       },
+       {
+        "name": "heading",
+        "detail": "",
+        "kind": 7,
+        "range": {
+         "start": {
+          "line": 189,
+          "character": 4
+         },
+         "end": {
+          "line": 189,
+          "character": 107
+         }
+        },
+        "selectionRange": {
+         "start": {
+          "line": 189,
+          "character": 4
+         },
+         "end": {
+          "line": 189,
+          "character": 11
+         }
+        },
+        "children": []
+       }
+      ]
+     },
+     {
+      "name": "sectioned",
+      "detail": "",
+      "kind": 13,
+      "range": {
+       "start": {
+        "line": 186,
+        "character": 8
+       },
+       "end": {
+        "line": 186,
+        "character": 33
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 186,
+        "character": 8
+       },
+       "end": {
+        "line": 186,
+        "character": 17
+       }
+      },
+      "children": []
+     }
+    ]
+   },
+   {
+    "name": "offeredNames",
+    "detail": "",
+    "kind": 12,
+    "range": {
+     "start": {
+      "line": 153,
+      "character": 0
+     },
+     "end": {
+      "line": 161,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 153,
+      "character": 9
+     },
+     "end": {
+      "line": 153,
+      "character": 21
+     }
+    },
+    "children": [
+     {
+      "name": "candidates",
+      "detail": "",
+      "kind": 13,
+      "range": {
+       "start": {
+        "line": 155,
+        "character": 8
+       },
+       "end": {
+        "line": 158,
+        "character": 61
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 155,
+        "character": 8
+       },
+       "end": {
+        "line": 155,
+        "character": 18
+       }
+      },
+      "children": [
+       {
+        "name": "filter() callback",
+        "detail": "",
+        "kind": 12,
+        "range": {
+         "start": {
+          "line": 157,
+          "character": 12
+         },
+         "end": {
+          "line": 157,
+          "character": 76
+         }
+        },
+        "selectionRange": {
+         "start": {
+          "line": 157,
+          "character": 12
+         },
+         "end": {
+          "line": 157,
+          "character": 76
+         }
+        },
+        "children": []
+       },
+       {
+        "name": "situation.groups.flatMap() callback",
+        "detail": "",
+        "kind": 12,
+        "range": {
+         "start": {
+          "line": 156,
+          "character": 13
+         },
+         "end": {
+          "line": 156,
+          "character": 37
+         }
+        },
+        "selectionRange": {
+         "start": {
+          "line": 156,
+          "character": 13
+         },
+         "end": {
+          "line": 156,
+          "character": 37
+         }
+        },
+        "children": []
+       },
+       {
+        "name": "sort() callback",
+        "detail": "",
+        "kind": 12,
+        "range": {
+         "start": {
+          "line": 158,
+          "character": 10
+         },
+         "end": {
+          "line": 158,
+          "character": 60
+         }
+        },
+        "selectionRange": {
+         "start": {
+          "line": 158,
+          "character": 10
+         },
+         "end": {
+          "line": 158,
+          "character": 60
+         }
+        },
+        "children": []
+       }
+      ]
+     },
+     {
+      "name": "nearest",
+      "detail": "",
+      "kind": 13,
+      "range": {
+       "start": {
+        "line": 159,
+        "character": 8
+       },
+       "end": {
+        "line": 159,
+        "character": 107
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 159,
+        "character": 8
+       },
+       "end": {
+        "line": 159,
+        "character": 15
+       }
+      },
+      "children": [
+       {
+        "name": "candidates.find() callback",
+        "detail": "",
+        "kind": 12,
+        "range": {
+         "start": {
+          "line": 159,
+          "character": 34
+         },
+         "end": {
+          "line": 159,
+          "character": 89
+         }
+        },
+        "selectionRange": {
+         "start": {
+          "line": 159,
+          "character": 34
+         },
+         "end": {
+          "line": 159,
+          "character": 89
+         }
+        },
+        "children": []
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "name": "Situation",
+    "detail": "",
+    "kind": 11,
+    "range": {
+     "start": {
+      "line": 53,
+      "character": 0
+     },
+     "end": {
+      "line": 60,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 53,
+      "character": 17
+     },
+     "end": {
+      "line": 53,
+      "character": 26
+     }
+    },
+    "children": [
+     {
+      "name": "agent",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 58,
+        "character": 2
+       },
+       "end": {
+        "line": 58,
+        "character": 28
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 58,
+        "character": 11
+       },
+       "end": {
+        "line": 58,
+        "character": 16
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "groups",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 54,
+        "character": 2
+       },
+       "end": {
+        "line": 54,
+        "character": 43
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 54,
+        "character": 11
+       },
+       "end": {
+        "line": 54,
+        "character": 17
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "project",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 55,
+        "character": 2
+       },
+       "end": {
+        "line": 55,
+        "character": 35
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 55,
+        "character": 11
+       },
+       "end": {
+        "line": 55,
+        "character": 18
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "theme",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 59,
+        "character": 2
+       },
+       "end": {
+        "line": 59,
+        "character": 35
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 59,
+        "character": 11
+       },
+       "end": {
+        "line": 59,
+        "character": 16
+       }
+      },
+      "children": []
+     },
+     {
+      "name": "thread",
+      "detail": "",
+      "kind": 7,
+      "range": {
+       "start": {
+        "line": 56,
+        "character": 2
+       },
+       "end": {
+        "line": 56,
+        "character": 33
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 56,
+        "character": 11
+       },
+       "end": {
+        "line": 56,
+        "character": 17
+       }
+      },
+      "children": []
+     }
+    ]
+   },
+   {
+    "name": "SPREAD_OUT",
+    "detail": "",
+    "kind": 13,
+    "range": {
+     "start": {
+      "line": 238,
+      "character": 6
+     },
+     "end": {
+      "line": 238,
+      "character": 20
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 238,
+      "character": 6
+     },
+     "end": {
+      "line": 238,
+      "character": 16
+     }
+    },
+    "children": []
+   },
+   {
+    "name": "stepped",
+    "detail": "",
+    "kind": 12,
+    "range": {
+     "start": {
+      "line": 215,
+      "character": 0
+     },
+     "end": {
+      "line": 218,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 215,
+      "character": 16
+     },
+     "end": {
+      "line": 215,
+      "character": 23
+     }
+    },
+    "children": []
+   },
+   {
+    "name": "textFit",
+    "detail": "",
+    "kind": 12,
+    "range": {
+     "start": {
+      "line": 240,
+      "character": 0
+     },
+     "end": {
+      "line": 245,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 240,
+      "character": 9
+     },
+     "end": {
+      "line": 240,
+      "character": 16
+     }
+    },
+    "children": [
+     {
+      "name": "some() callback",
+      "detail": "",
+      "kind": 12,
+      "range": {
+       "start": {
+        "line": 242,
+        "character": 35
+       },
+       "end": {
+        "line": 242,
+        "character": 67
+       }
+      },
+      "selectionRange": {
+       "start": {
+        "line": 242,
+        "character": 35
+       },
+       "end": {
+        "line": 242,
+        "character": 67
+       }
+      },
+      "children": []
+     }
+    ]
+   }
+  ]
+ },
+ "prepareCallHierarchy": {
+  "jsonrpc": "2.0",
+  "id": 10,
+  "result": [
+   {
+    "uri": "file:///project/src/app/workspace/commands.model.ts",
+    "kind": 12,
+    "name": "commandList",
+    "range": {
+     "start": {
+      "line": 76,
+      "character": 0
+     },
+     "end": {
+      "line": 135,
+      "character": 1
+     }
+    },
+    "selectionRange": {
+     "start": {
+      "line": 84,
+      "character": 16
+     },
+     "end": {
+      "line": 84,
+      "character": 27
+     }
+    },
+    "detail": "",
+    "data": {
+     "id": 1
+    }
+   }
+  ]
+ },
+ "outgoingCalls": {
+  "jsonrpc": "2.0",
+  "id": 11,
+  "result": [
+   {
+    "to": {
+     "uri": "file:///tmp/bunx-1000-%40vtsls/language-server%40latest/node_modules/typescript/lib/lib.es5.d.ts",
+     "kind": 6,
+     "name": "map",
+     "range": {
+      "start": {
+       "line": 1269,
+       "character": 4
+      },
+      "end": {
+       "line": 1274,
+       "character": 96
+      }
+     },
+     "selectionRange": {
+      "start": {
+       "line": 1274,
+       "character": 4
+      },
+      "end": {
+       "line": 1274,
+       "character": 7
+      }
+     },
+     "detail": ""
+    },
+    "fromRanges": [
+     {
+      "start": {
+       "line": 86,
+       "character": 31
+      },
+      "end": {
+       "line": 86,
+       "character": 41
+      }
+     },
+     {
+      "start": {
+       "line": 86,
+       "character": 31
+      },
+      "end": {
+       "line": 86,
+       "character": 41
+      }
+     },
+     {
+      "start": {
+       "line": 103,
+       "character": 19
+      },
+      "end": {
+       "line": 103,
+       "character": 29
+      }
+     },
+     {
+      "start": {
+       "line": 103,
+       "character": 19
+      },
+      "end": {
+       "line": 103,
+       "character": 29
+      }
+     }
+    ]
+   },
+   {
+    "to": {
+     "uri": "file:///tmp/bunx-1000-%40vtsls/language-server%40latest/node_modules/typescript/lib/lib.es5.d.ts",
+     "kind": 6,
+     "name": "sort",
+     "range": {
+      "start": {
+       "line": 1384,
+       "character": 4
+      },
+      "end": {
+       "line": 1394,
+       "character": 51
+      }
+     },
+     "selectionRange": {
+      "start": {
+       "line": 1394,
+       "character": 4
+      },
+      "end": {
+       "line": 1394,
+       "character": 8
+      }
+     },
+     "detail": ""
+    },
+    "fromRanges": [
+     {
+      "start": {
+       "line": 88,
+       "character": 18
+      },
+      "end": {
+       "line": 101,
+       "character": 9
+      }
+     },
+     {
+      "start": {
+       "line": 88,
+       "character": 18
+      },
+      "end": {
+       "line": 101,
+       "character": 9
+      }
+     },
+     {
+      "start": {
+       "line": 88,
+       "character": 18
+      },
+      "end": {
+       "line": 90,
+       "character": 9
+      }
+     },
+     {
+      "start": {
+       "line": 88,
+       "character": 18
+      },
+      "end": {
+       "line": 90,
+       "character": 9
+      }
+     },
+     {
+      "start": {
+       "line": 88,
+       "character": 18
+      },
+      "end": {
+       "line": 90,
+       "character": 9
+      }
+     },
+     {
+      "start": {
+       "line": 88,
+       "character": 18
+      },
+      "end": {
+       "line": 90,
+       "character": 9
+      }
+     },
+     {
+      "start": {
+       "line": 88,
+       "character": 18
+      },
+      "end": {
+       "line": 90,
+       "character": 9
+      }
+     },
+     {
+      "start": {
+       "line": 88,
+       "character": 18
+      },
+      "end": {
+       "line": 90,
+       "character": 9
+      }
+     },
+     {
+      "start": {
+       "line": 88,
+       "character": 18
+      },
+      "end": {
+       "line": 90,
+       "character": 9
+      }
+     },
+     {
+      "start": {
+       "line": 88,
+       "character": 18
+      },
+      "end": {
+       "line": 90,
+       "character": 9
+      }
+     }
+    ]
+   },
+   {
+    "to": {
+     "uri": "file:///tmp/bunx-1000-%40vtsls/language-server%40latest/node_modules/typescript/lib/lib.es5.d.ts",
+     "kind": 6,
+     "name": "map",
+     "range": {
+      "start": {
+       "line": 1464,
+       "character": 4
+      },
+      "end": {
+       "line": 1469,
+       "character": 87
+      }
+     },
+     "selectionRange": {
+      "start": {
+       "line": 1469,
+       "character": 4
+      },
+      "end": {
+       "line": 1469,
+       "character": 7
+      }
+     },
+     "detail": ""
+    },
+    "fromRanges": [
+     {
+      "start": {
+       "line": 88,
+       "character": 18
+      },
+      "end": {
+       "line": 91,
+       "character": 8
+      }
+     },
+     {
+      "start": {
+       "line": 88,
+       "character": 18
+      },
+      "end": {
+       "line": 91,
+       "character": 8
+      }
+     },
+     {
+      "start": {
+       "line": 88,
+       "character": 18
+      },
+      "end": {
+       "line": 91,
+       "character": 8
+      }
+     },
+     {
+      "start": {
+       "line": 88,
+       "character": 18
+      },
+      "end": {
+       "line": 91,
+       "character": 8
+      }
+     }
+    ]
+   },
+   {
+    "to": {
+     "uri": "file:///tmp/bunx-1000-%40vtsls/language-server%40latest/node_modules/typescript/lib/lib.es2019.array.d.ts",
+     "kind": 6,
+     "name": "flatMap",
+     "range": {
+      "start": {
+       "line": 25,
+       "character": 4
+      },
+      "end": {
+       "line": 38,
+       "character": 11
+      }
+     },
+     "selectionRange": {
+      "start": {
+       "line": 35,
+       "character": 4
+      },
+      "end": {
+       "line": 35,
+       "character": 11
+      }
+     },
+     "detail": ""
+    },
+    "fromRanges": [
+     {
+      "start": {
+       "line": 88,
+       "character": 18
+      },
+      "end": {
+       "line": 89,
+       "character": 12
+      }
+     },
+     {
+      "start": {
+       "line": 88,
+       "character": 18
+      },
+      "end": {
+       "line": 89,
+       "character": 12
+      }
+     },
+     {
+      "start": {
+       "line": 88,
+       "character": 18
+      },
+      "end": {
+       "line": 89,
+       "character": 12
+      }
+     },
+     {
+      "start": {
+       "line": 88,
+       "character": 18
+      },
+      "end": {
+       "line": 89,
+       "character": 12
+      }
+     },
+     {
+      "start": {
+       "line": 88,
+       "character": 18
+      },
+      "end": {
+       "line": 89,
+       "character": 12
+      }
+     },
+     {
+      "start": {
+       "line": 88,
+       "character": 18
+      },
+      "end": {
+       "line": 89,
+       "character": 12
+      }
+     },
+     {
+      "start": {
+       "line": 88,
+       "character": 18
+      },
+      "end": {
+       "line": 89,
+       "character": 12
+      }
+     },
+     {
+      "start": {
+       "line": 88,
+       "character": 18
+      },
+      "end": {
+       "line": 89,
+       "character": 12
+      }
+     },
+     {
+      "start": {
+       "line": 88,
+       "character": 18
+      },
+      "end": {
+       "line": 89,
+       "character": 12
+      }
+     },
+     {
+      "start": {
+       "line": 88,
+       "character": 18
+      },
+      "end": {
+       "line": 89,
+       "character": 12
+      }
+     },
+     {
+      "start": {
+       "line": 88,
+       "character": 18
+      },
+      "end": {
+       "line": 89,
+       "character": 12
+      }
+     },
+     {
+      "start": {
+       "line": 88,
+       "character": 18
+      },
+      "end": {
+       "line": 89,
+       "character": 12
+      }
+     },
+     {
+      "start": {
+       "line": 88,
+       "character": 18
+      },
+      "end": {
+       "line": 89,
+       "character": 12
+      }
+     },
+     {
+      "start": {
+       "line": 88,
+       "character": 18
+      },
+      "end": {
+       "line": 89,
+       "character": 12
+      }
+     },
+     {
+      "start": {
+       "line": 88,
+       "character": 18
+      },
+      "end": {
+       "line": 89,
+       "character": 12
+      }
+     },
+     {
+      "start": {
+       "line": 88,
+       "character": 18
+      },
+      "end": {
+       "line": 89,
+       "character": 12
+      }
+     }
+    ]
+   },
+   {
+    "to": {
+     "uri": "file:///tmp/bunx-1000-%40vtsls/language-server%40latest/node_modules/typescript/lib/lib.es2020.string.d.ts",
+     "kind": 6,
+     "name": "localeCompare",
+     "range": {
+      "start": {
+       "line": 36,
+       "character": 4
+      },
+      "end": {
+       "line": 42,
+       "character": 104
+      }
+     },
+     "selectionRange": {
+      "start": {
+       "line": 42,
+       "character": 4
+      },
+      "end": {
+       "line": 42,
+       "character": 17
+      }
+     },
+     "detail": ""
+    },
+    "fromRanges": [
+     {
+      "start": {
+       "line": 90,
+       "character": 20
+      },
+      "end": {
+       "line": 90,
+       "character": 46
+      }
+     },
+     {
+      "start": {
+       "line": 90,
+       "character": 20
+      },
+      "end": {
+       "line": 90,
+       "character": 46
+      }
+     },
+     {
+      "start": {
+       "line": 90,
+       "character": 20
+      },
+      "end": {
+       "line": 90,
+       "character": 46
+      }
+     },
+     {
+      "start": {
+       "line": 90,
+       "character": 20
+      },
+      "end": {
+       "line": 90,
+       "character": 46
+      }
+     },
+     {
+      "start": {
+       "line": 90,
+       "character": 20
+      },
+      "end": {
+       "line": 90,
+       "character": 46
+      }
+     },
+     {
+      "start": {
+       "line": 90,
+       "character": 20
+      },
+      "end": {
+       "line": 90,
+       "character": 46
+      }
+     },
+     {
+      "start": {
+       "line": 90,
+       "character": 20
+      },
+      "end": {
+       "line": 90,
+       "character": 46
+      }
+     },
+     {
+      "start": {
+       "line": 90,
+       "character": 20
+      },
+      "end": {
+       "line": 90,
+       "character": 46
+      }
+     }
+    ]
+   },
+   {
+    "to": {
+     "uri": "file:///tmp/bunx-1000-%40vtsls/language-server%40latest/node_modules/typescript/lib/lib.es5.d.ts",
+     "kind": 6,
+     "name": "localeCompare",
+     "range": {
+      "start": {
+       "line": 445,
+       "character": 4
+      },
+      "end": {
+       "line": 449,
+       "character": 40
+      }
+     },
+     "selectionRange": {
+      "start": {
+       "line": 449,
+       "character": 4
+      },
+      "end": {
+       "line": 449,
+       "character": 17
+      }
+     },
+     "detail": ""
+    },
+    "fromRanges": [
+     {
+      "start": {
+       "line": 90,
+       "character": 20
+      },
+      "end": {
+       "line": 90,
+       "character": 46
+      }
+     },
+     {
+      "start": {
+       "line": 90,
+       "character": 20
+      },
+      "end": {
+       "line": 90,
+       "character": 46
+      }
+     },
+     {
+      "start": {
+       "line": 90,
+       "character": 20
+      },
+      "end": {
+       "line": 90,
+       "character": 46
+      }
+     },
+     {
+      "start": {
+       "line": 90,
+       "character": 20
+      },
+      "end": {
+       "line": 90,
+       "character": 46
+      }
+     },
+     {
+      "start": {
+       "line": 90,
+       "character": 20
+      },
+      "end": {
+       "line": 90,
+       "character": 46
+      }
+     },
+     {
+      "start": {
+       "line": 90,
+       "character": 20
+      },
+      "end": {
+       "line": 90,
+       "character": 46
+      }
+     },
+     {
+      "start": {
+       "line": 90,
+       "character": 20
+      },
+      "end": {
+       "line": 90,
+       "character": 46
+      }
+     },
+     {
+      "start": {
+       "line": 90,
+       "character": 20
+      },
+      "end": {
+       "line": 90,
+       "character": 46
+      }
+     }
+    ]
+   },
+   {
+    "to": {
+     "uri": "file:///tmp/bunx-1000-%40vtsls/language-server%40latest/node_modules/typescript/lib/lib.es5.d.ts",
+     "kind": 6,
+     "name": "localeCompare",
+     "range": {
+      "start": {
+       "line": 4562,
+       "character": 4
+      },
+      "end": {
+       "line": 4568,
+       "character": 101
+      }
+     },
+     "selectionRange": {
+      "start": {
+       "line": 4568,
+       "character": 4
+      },
+      "end": {
+       "line": 4568,
+       "character": 17
+      }
+     },
+     "detail": ""
+    },
+    "fromRanges": [
+     {
+      "start": {
+       "line": 90,
+       "character": 20
+      },
+      "end": {
+       "line": 90,
+       "character": 46
+      }
+     },
+     {
+      "start": {
+       "line": 90,
+       "character": 20
+      },
+      "end": {
+       "line": 90,
+       "character": 46
+      }
+     },
+     {
+      "start": {
+       "line": 90,
+       "character": 20
+      },
+      "end": {
+       "line": 90,
+       "character": 46
+      }
+     },
+     {
+      "start": {
+       "line": 90,
+       "character": 20
+      },
+      "end": {
+       "line": 90,
+       "character": 46
+      }
+     },
+     {
+      "start": {
+       "line": 90,
+       "character": 20
+      },
+      "end": {
+       "line": 90,
+       "character": 46
+      }
+     },
+     {
+      "start": {
+       "line": 90,
+       "character": 20
+      },
+      "end": {
+       "line": 90,
+       "character": 46
+      }
+     },
+     {
+      "start": {
+       "line": 90,
+       "character": 20
+      },
+      "end": {
+       "line": 90,
+       "character": 46
+      }
+     },
+     {
+      "start": {
+       "line": 90,
+       "character": 20
+      },
+      "end": {
+       "line": 90,
+       "character": 46
+      }
+     }
+    ]
+   },
+   {
+    "to": {
+     "uri": "file:///project/src/app/workspace/commands.model.ts",
+     "kind": 12,
+     "name": "command",
+     "range": {
+      "start": {
+       "line": 220,
+       "character": 0
+      },
+      "end": {
+       "line": 228,
+       "character": 1
+      }
+     },
+     "selectionRange": {
+      "start": {
+       "line": 220,
+       "character": 9
+      },
+      "end": {
+       "line": 220,
+       "character": 16
+      }
+     },
+     "detail": ""
+    },
+    "fromRanges": [
+     {
+      "start": {
+       "line": 92,
+       "character": 6
+      },
+      "end": {
+       "line": 92,
+       "character": 13
+      }
+     },
+     {
+      "start": {
+       "line": 92,
+       "character": 6
+      },
+      "end": {
+       "line": 92,
+       "character": 13
+      }
+     },
+     {
+      "start": {
+       "line": 104,
+       "character": 4
+      },
+      "end": {
+       "line": 104,
+       "character": 11
+      }
+     },
+     {
+      "start": {
+       "line": 113,
+       "character": 6
+      },
+      "end": {
+       "line": 113,
+       "character": 13
+      }
+     },
+     {
+      "start": {
+       "line": 114,
+       "character": 6
+      },
+      "end": {
+       "line": 114,
+       "character": 13
+      }
+     },
+     {
+      "start": {
+       "line": 115,
+       "character": 6
+      },
+      "end": {
+       "line": 115,
+       "character": 13
+      }
+     },
+     {
+      "start": {
+       "line": 119,
+       "character": 17
+      },
+      "end": {
+       "line": 119,
+       "character": 24
+      }
+     },
+     {
+      "start": {
+       "line": 122,
+       "character": 4
+      },
+      "end": {
+       "line": 122,
+       "character": 11
+      }
+     },
+     {
+      "start": {
+       "line": 123,
+       "character": 4
+      },
+      "end": {
+       "line": 123,
+       "character": 11
+      }
+     },
+     {
+      "start": {
+       "line": 126,
+       "character": 17
+      },
+      "end": {
+       "line": 126,
+       "character": 24
+      }
+     },
+     {
+      "start": {
+       "line": 129,
+       "character": 4
+      },
+      "end": {
+       "line": 129,
+       "character": 11
+      }
+     },
+     {
+      "start": {
+       "line": 130,
+       "character": 4
+      },
+      "end": {
+       "line": 130,
+       "character": 11
+      }
+     },
+     {
+      "start": {
+       "line": 131,
+       "character": 4
+      },
+      "end": {
+       "line": 131,
+       "character": 11
+      }
+     }
+    ]
+   },
+   {
+    "to": {
+     "uri": "file:///project/src/app/workspace/workspace.model.ts",
+     "kind": 12,
+     "name": "threadLabel",
+     "range": {
+      "start": {
+       "line": 187,
+       "character": 0
+      },
+      "end": {
+       "line": 189,
+       "character": 1
+      }
+     },
+     "selectionRange": {
+      "start": {
+       "line": 187,
+       "character": 16
+      },
+      "end": {
+       "line": 187,
+       "character": 27
+      }
+     },
+     "detail": ""
+    },
+    "fromRanges": [
+     {
+      "start": {
+       "line": 94,
+       "character": 8
+      },
+      "end": {
+       "line": 94,
+       "character": 19
+      }
+     },
+     {
+      "start": {
+       "line": 94,
+       "character": 8
+      },
+      "end": {
+       "line": 94,
+       "character": 19
+      }
+     },
+     {
+      "start": {
+       "line": 119,
+       "character": 114
+      },
+      "end": {
+       "line": 119,
+       "character": 125
+      }
+     }
+    ]
+   },
+   {
+    "to": {
+     "uri": "file:///tmp/bunx-1000-%40vtsls/language-server%40latest/node_modules/typescript/lib/lib.es2015.collection.d.ts",
+     "kind": 6,
+     "name": "get",
+     "range": {
+      "start": {
+       "line": 28,
+       "character": 4
+      },
+      "end": {
+       "line": 32,
+       "character": 31
+      }
+     },
+     "selectionRange": {
+      "start": {
+       "line": 32,
+       "character": 4
+      },
+      "end": {
+       "line": 32,
+       "character": 7
+      }
+     },
+     "detail": ""
+    },
+    "fromRanges": [
+     {
+      "start": {
+       "line": 97,
+       "character": 18
+      },
+      "end": {
+       "line": 97,
+       "character": 34
+      }
+     },
+     {
+      "start": {
+       "line": 97,
+       "character": 18
+      },
+      "end": {
+       "line": 97,
+       "character": 34
+      }
+     },
+     {
+      "start": {
+       "line": 97,
+       "character": 18
+      },
+      "end": {
+       "line": 97,
+       "character": 34
+      }
+     },
+     {
+      "start": {
+       "line": 97,
+       "character": 18
+      },
+      "end": {
+       "line": 97,
+       "character": 34
+      }
+     }
+    ]
+   },
+   {
+    "to": {
+     "uri": "file:///tmp/bunx-1000-%40vtsls/language-server%40latest/node_modules/typescript/lib/lib.es5.d.ts",
+     "kind": 6,
+     "name": "push",
+     "range": {
+      "start": {
+       "line": 1342,
+       "character": 4
+      },
+      "end": {
+       "line": 1346,
+       "character": 32
+      }
+     },
+     "selectionRange": {
+      "start": {
+       "line": 1346,
+       "character": 4
+      },
+      "end": {
+       "line": 1346,
+       "character": 8
+      }
+     },
+     "detail": ""
+    },
+    "fromRanges": [
+     {
+      "start": {
+       "line": 112,
+       "character": 4
+      },
+      "end": {
+       "line": 112,
+       "character": 16
+      }
+     },
+     {
+      "start": {
+       "line": 112,
+       "character": 4
+      },
+      "end": {
+       "line": 112,
+       "character": 16
+      }
+     },
+     {
+      "start": {
+       "line": 119,
+       "character": 4
+      },
+      "end": {
+       "line": 119,
+       "character": 16
+      }
+     },
+     {
+      "start": {
+       "line": 119,
+       "character": 4
+      },
+      "end": {
+       "line": 119,
+       "character": 16
+      }
+     },
+     {
+      "start": {
+       "line": 121,
+       "character": 2
+      },
+      "end": {
+       "line": 121,
+       "character": 14
+      }
+     },
+     {
+      "start": {
+       "line": 121,
+       "character": 2
+      },
+      "end": {
+       "line": 121,
+       "character": 14
+      }
+     },
+     {
+      "start": {
+       "line": 126,
+       "character": 4
+      },
+      "end": {
+       "line": 126,
+       "character": 16
+      }
+     },
+     {
+      "start": {
+       "line": 126,
+       "character": 4
+      },
+      "end": {
+       "line": 126,
+       "character": 16
+      }
+     },
+     {
+      "start": {
+       "line": 128,
+       "character": 2
+      },
+      "end": {
+       "line": 128,
+       "character": 14
+      }
+     },
+     {
+      "start": {
+       "line": 128,
+       "character": 2
+      },
+      "end": {
+       "line": 128,
+       "character": 14
+      }
+     }
+    ]
+   },
+   {
+    "to": {
+     "uri": "file:///project/src/app/workspace/workspace.model.ts",
+     "kind": 12,
+     "name": "agentLabel",
+     "range": {
+      "start": {
+       "line": 191,
+       "character": 0
+      },
+      "end": {
+       "line": 193,
+       "character": 1
+      }
+     },
+     "selectionRange": {
+      "start": {
+       "line": 191,
+       "character": 16
+      },
+      "end": {
+       "line": 191,
+       "character": 26
+      }
+     },
+     "detail": ""
+    },
+    "fromRanges": [
+     {
+      "start": {
+       "line": 122,
+       "character": 41
+      },
+      "end": {
+       "line": 122,
+       "character": 51
+      }
+     }
+    ]
+   },
+   {
+    "to": {
+     "uri": "file:///project/src/app/workspace/workspace.model.ts",
+     "kind": 12,
+     "name": "otherAgent",
+     "range": {
+      "start": {
+       "line": 195,
+       "character": 0
+      },
+      "end": {
+       "line": 197,
+       "character": 1
+      }
+     },
+     "selectionRange": {
+      "start": {
+       "line": 195,
+       "character": 16
+      },
+      "end": {
+       "line": 195,
+       "character": 26
+      }
+     },
+     "detail": ""
+    },
+    "fromRanges": [
+     {
+      "start": {
+       "line": 122,
+       "character": 52
+      },
+      "end": {
+       "line": 122,
+       "character": 62
+      }
+     }
+    ]
+   },
+   {
+    "to": {
+     "uri": "file:///project/src/app/workspace/commands.model.ts",
+     "kind": 12,
+     "name": "agentCommands",
+     "range": {
+      "start": {
+       "line": 137,
+       "character": 0
+      },
+      "end": {
+       "line": 151,
+       "character": 1
+      }
+     },
+     "selectionRange": {
+      "start": {
+       "line": 146,
+       "character": 9
+      },
+      "end": {
+       "line": 146,
+       "character": 22
+      }
+     },
+     "detail": ""
+    },
+    "fromRanges": [
+     {
+      "start": {
+       "line": 134,
+       "character": 50
+      },
+      "end": {
+       "line": 134,
+       "character": 63
+      }
+     }
+    ]
+   }
+  ]
+ }
+}
