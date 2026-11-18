@@ -76,6 +76,7 @@ impl Service {
             Setup {
                 agents: settings.agents,
                 open: settings.open,
+                github: settings.github,
                 tools: Some(AgentTools {
                     program,
                     data: folders.data.clone(),

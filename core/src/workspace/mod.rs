@@ -35,6 +35,7 @@ use uuid::Uuid;
 use crate::agents::runner::{Journal, Pending, Runner, ThreadChange, TurnRequest};
 use crate::agents::{Agent, EntryDraft, EntryKind};
 use crate::changes::finish::FinishError;
+use crate::changes::github::on_github;
 use crate::changes::status::Look;
 use crate::changes::ChangeError;
 use crate::directory::existing_directory;
@@ -43,7 +44,7 @@ use crate::files::{FileView, FilesError, Listing};
 use crate::history::turns::{turns_in, working_at, Turn};
 use crate::history::{Changes, History};
 use crate::protocol::{Event, Opens, ProjectState, ProjectView};
-use crate::settings::{AgentSettings, OpenSettings};
+use crate::settings::{AgentSettings, GitHubSettings, OpenSettings};
 use crate::store::projects::ProjectList;
 use crate::store::threads::ThreadStore;
 use crate::store::{Entry, Project, Status, StoreError, Thread};
@@ -86,6 +87,7 @@ pub enum WorkspaceError {
 pub struct Setup {
     pub agents: AgentSettings,
     pub open: OpenSettings,
+    pub github: GitHubSettings,
     /// What agents need to call `teryon` themselves. Nothing where there is
     /// no such program, as in the core library's own tests.
     pub tools: Option<AgentTools>,
@@ -160,6 +162,8 @@ impl Threads {
 struct State {
     projects: ProjectList,
     threads: HashMap<Uuid, Threads>,
+    /// The projects whose `origin` is on GitHub, read when each was opened.
+    on_github: HashSet<Uuid>,
 }
 
 impl State {
@@ -168,7 +172,7 @@ impl State {
             .threads
             .get(&project.id)
             .map_or(ProjectState::Missing, Threads::state);
-        ProjectView::new(project, state)
+        ProjectView::new(project, state, self.on_github.contains(&project.id))
     }
 
     fn project(&self, id: Uuid) -> Result<&Project, WorkspaceError> {
@@ -258,7 +262,11 @@ impl Workspace {
     pub fn open(data_folder: &Path, setup: Setup) -> Result<Self, WorkspaceError> {
         let projects = ProjectList::open(data_folder)?;
         let mut threads = HashMap::new();
+        let mut github = HashSet::new();
         for project in projects.projects() {
+            if on_github(&project.directory) {
+                github.insert(project.id);
+            }
             let mut opened = Threads::open(project);
             if let Threads::Ready(store) = &mut opened {
                 release_interrupted(store);
@@ -269,7 +277,11 @@ impl Workspace {
         Ok(Self {
             inner: Arc::new(Inner {
                 setup,
-                state: Mutex::new(State { projects, threads }),
+                state: Mutex::new(State {
+                    projects,
+                    threads,
+                    on_github: github,
+                }),
                 runner: Runner::default(),
                 changes,
                 noticed: Mutex::new(HashMap::new()),
@@ -332,6 +344,9 @@ impl Workspace {
             directory,
             created_at: Utc::now(),
         };
+        if on_github(&project.directory) {
+            state.on_github.insert(project.id);
+        }
         let mut opened = Threads::open(&project);
         if let Threads::Ready(store) = &mut opened {
             release_interrupted(store);
@@ -371,6 +386,7 @@ impl Workspace {
         }
         state.projects.remove(project_id)?;
         state.threads.remove(&project_id);
+        state.on_github.remove(&project_id);
         drop(state);
 
         self.inner.announce(Event::ProjectRemoved { project_id });

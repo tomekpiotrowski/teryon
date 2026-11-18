@@ -38,6 +38,8 @@ export type CommandAction =
   | { readonly kind: 'applyChange'; readonly thread: Thread }
   | { readonly kind: 'catchUp'; readonly thread: Thread }
   | { readonly kind: 'discardChange'; readonly thread: Thread }
+  | { readonly kind: 'sendForReview'; readonly thread: Thread }
+  | { readonly kind: 'openReview'; readonly thread: Thread }
   | { readonly kind: 'copyLocation'; readonly path: string }
   | { readonly kind: 'openCopy'; readonly thread: Thread; readonly opener: Opener }
   | { readonly kind: 'draft'; readonly text: string };
@@ -143,6 +145,25 @@ export function commandList(situation: Situation): Command[] {
   return [...threads, ...projects, ...changeCommands(situation), ...actions, ...agentCommands(situation)];
 }
 
+/**
+ * Sending the open thread's change for review on GitHub, or opening the review once sent.
+ *
+ * Only for projects on GitHub. A declined review can be sent again.
+ */
+function reviewCommands(situation: Situation, thread: Thread): Command[] {
+  const change = thread.change;
+  if (!change || !situation.project?.on_github) return [];
+  const extra = (key: string) => ({ detail: change.name, key, leader: CHANGE_LEADER });
+  const commands: Command[] = [];
+  if (change.review?.state !== 'in_review') {
+    commands.push(command('change:sendForReview', 'Send for review on GitHub', 'change', { kind: 'sendForReview', thread }, extra('r')));
+  }
+  if (change.review) {
+    commands.push(command('change:openReview', 'Open review on GitHub', 'change', { kind: 'openReview', thread }, extra('o')));
+  }
+  return commands;
+}
+
 /** The leader key for the commands about the open thread's change. */
 export const CHANGE_LEADER = 'w';
 
@@ -166,6 +187,7 @@ function changeCommands(situation: Situation): Command[] {
   const commands = [
     command('change:apply', 'Apply to the project', 'change', { kind: 'applyChange', thread }, extra('a')),
     command('change:catchUp', 'Catch up with the project', 'change', { kind: 'catchUp', thread }, extra('u')),
+    ...reviewCommands(situation, thread),
     discard,
     command('change:copyLocation', 'Copy location', 'change', { kind: 'copyLocation', path: change.path }, extra('y')),
     command('change:openFolder', 'Open folder', 'change', { kind: 'openCopy', thread, opener: 'folder' }, extra('f')),

@@ -92,6 +92,15 @@ pub enum Request {
     DiscardChange {
         thread_id: Uuid,
     },
+    /// Sends a thread's change for review on GitHub, described by `description`.
+    SendForReview {
+        thread_id: Uuid,
+        description: String,
+    },
+    /// Opens a thread's review on GitHub in the browser. Only from this machine.
+    OpenReview {
+        thread_id: Uuid,
+    },
     /// Opens a thread's copy in another program. Only from this machine.
     OpenCopy {
         thread_id: Uuid,
@@ -262,16 +271,19 @@ pub struct ProjectView {
     pub directory: PathBuf,
     pub created_at: DateTime<Utc>,
     pub state: ProjectState,
+    /// Whether its `origin` is on GitHub, so changes can be sent for review there.
+    pub on_github: bool,
 }
 
 impl ProjectView {
-    pub fn new(project: &Project, state: ProjectState) -> Self {
+    pub fn new(project: &Project, state: ProjectState, on_github: bool) -> Self {
         Self {
             id: project.id,
             name: project.name.clone(),
             directory: project.directory.clone(),
             created_at: project.created_at,
             state,
+            on_github,
         }
     }
 }
@@ -298,7 +310,7 @@ mod tests {
     use ts_rs::Config;
 
     use super::*;
-    use crate::changes::{Change, ChangeState, Fit};
+    use crate::changes::{Change, ChangeState, Fit, Review, ReviewState};
     use crate::files::diff::{Line, LineChange};
     use crate::files::{Content, FileChange, FileEntry};
     use crate::history::{ChangedFile, Commit};
@@ -323,6 +335,8 @@ mod tests {
             Status::decl(&config),
             Change::decl(&config),
             ChangeState::decl(&config),
+            Review::decl(&config),
+            ReviewState::decl(&config),
             Fit::decl(&config),
             Opener::decl(&config),
             Opens::decl(&config),

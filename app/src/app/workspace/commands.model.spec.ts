@@ -429,6 +429,7 @@ describe('the commands for a thread\'s change', () => {
       start: 'abc',
       branch: 'fix-login',
       state: { copy_present: true, base_present: true, files_changed: 1, fit: 'applies', unfinished: false },
+      review: null,
       ...overrides,
     };
   }
@@ -527,14 +528,53 @@ describe('the commands for a thread\'s change', () => {
     expect(ids(offered(stuck))).toEqual(ALWAYS);
   });
 
+  describe('on GitHub', () => {
+    const hosted = { ...first, on_github: true };
+
+    function onGitHub(thread: Thread): Command[] {
+      return commandList(situation({ groups: groupThreads([hosted], [thread]), project: hosted, thread })).filter(
+        (candidate) => candidate.group === 'change',
+      );
+    }
+
+    function review(state: 'in_review' | 'accepted' | 'declined') {
+      return { number: 12, url: 'https://github.com/owner/app/pull/12', state };
+    }
+
+    it('offers sending for review on W R, after catching up', () => {
+      expect(ids(onGitHub(changed))).toEqual(['change:apply', 'change:catchUp', 'change:sendForReview', 'change:discard', 'change:copyLocation', 'change:openFolder']);
+      const send = onGitHub(changed)[2];
+      expect([send.title, keyHint(send)]).toEqual(['Send for review on GitHub', 'W R']);
+      expect(send.action).toEqual({ kind: 'sendForReview', thread: changed });
+    });
+
+    it('offers opening the review in place of sending it, once in review', () => {
+      const reviewed = { ...changed, change: change({ review: review('in_review') }) };
+      const commands = onGitHub(reviewed);
+      expect(ids(commands)).toEqual(['change:apply', 'change:catchUp', 'change:openReview', 'change:discard', 'change:copyLocation', 'change:openFolder']);
+      expect(keyHint(commands[2])).toBe('W O');
+    });
+
+    it('offers sending it again, and opening the old review, once declined', () => {
+      const declined = { ...changed, change: change({ review: review('declined') }) };
+      expect(ids(onGitHub(declined)).slice(2, 4)).toEqual(['change:sendForReview', 'change:openReview']);
+    });
+
+    it('offers nothing about reviews in a project that is not on GitHub', () => {
+      expect(ids(offered(changed)).some((id) => id.includes('Review'))).toBe(false);
+    });
+  });
+
   it('heads them as the thread\'s changes', () => {
     const rows = menuRows(offered(changed), '');
     expect(rows[0].heading).toBe('This thread’s changes');
   });
 
   it('never puts a git word in a title or a heading', () => {
+    const hosted = { ...first, on_github: true };
+    const reviewed = { ...changed, change: change({ review: { number: 1, url: 'u', state: 'declined' } }) };
     const everything = commandList(
-      situation({ groups: groupThreads([first], [changed]), project: first, thread: changed, opens: { editor: true, terminal: true } }),
+      situation({ groups: groupThreads([hosted], [reviewed]), project: hosted, thread: reviewed, opens: { editor: true, terminal: true } }),
     );
     const texts = [...everything.map((candidate) => candidate.title), ...menuRows(everything, '').map((row) => row.heading ?? '')];
     expect(texts.flatMap(gitWordsIn)).toEqual([]);

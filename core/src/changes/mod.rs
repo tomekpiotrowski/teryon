@@ -18,6 +18,7 @@
 pub mod claim;
 pub mod create;
 pub mod finish;
+pub mod github;
 pub mod instruction;
 pub mod name;
 pub mod open;
@@ -70,6 +71,30 @@ pub struct Change {
     pub branch: Option<String>,
     /// Nothing until first read.
     pub state: Option<ChangeState>,
+    /// The review the change was sent for on GitHub. Nothing until it is sent.
+    #[serde(default)]
+    pub review: Option<Review>,
+}
+
+/// A change sent for review on GitHub: a pull request, underneath.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct Review {
+    #[ts(type = "number")]
+    pub number: u64,
+    /// Where the review is on GitHub, for the person to open.
+    pub url: String,
+    pub state: ReviewState,
+}
+
+/// How a review on GitHub is going.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum ReviewState {
+    InReview,
+    /// Merged on GitHub. Teryon then tidies the change away.
+    Accepted,
+    /// Closed on GitHub without merging.
+    Declined,
 }
 
 /// Where a change stands, as last read from git.

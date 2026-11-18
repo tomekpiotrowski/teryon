@@ -60,6 +60,16 @@ pub enum FinishError {
     ProjectMoved,
     #[error("This change already has all the newer work in the project.")]
     UpToDate,
+    #[error("This project is not on GitHub.")]
+    NotOnGitHub,
+    #[error("This change is already in review on GitHub.")]
+    AlreadyInReview,
+    #[error("GitHub's own program, gh, is not installed. Install it from cli.github.com, then sign in with `gh auth login`.")]
+    GhMissing,
+    #[error("Sign in to GitHub first: run `gh auth login` in a terminal.")]
+    GhSignedOut,
+    #[error("The change could not be sent to GitHub. The service's log has the details.")]
+    NotSent,
     #[error("Something went wrong. The service's log has the details.")]
     Git(#[from] GitError),
 }
@@ -214,7 +224,7 @@ pub async fn save_leftovers(copy: &Git) -> Result<bool, FinishError> {
 }
 
 /// Checks that a change can be applied or caught up, and gives its base as a full reference.
-async fn ready(project: &Path, change: &Change) -> Result<String, FinishError> {
+pub(crate) async fn ready(project: &Path, change: &Change) -> Result<String, FinishError> {
     if !change.path.is_dir() {
         return Err(FinishError::CopyGone);
     }
@@ -321,7 +331,7 @@ fn files_in_way(complaint: &str) -> Vec<String> {
 }
 
 /// Removes the copy and its branch, tolerating either being gone already.
-async fn remove(project: &Path, change: &Change) -> Result<(), FinishError> {
+pub(crate) async fn remove(project: &Path, change: &Change) -> Result<(), FinishError> {
     let git = Git::at(project);
     if change.path.is_dir() {
         let path = change.path.to_string_lossy().into_owned();
@@ -390,6 +400,11 @@ mod tests {
             FinishError::OwnEdits(names(&["a.rs"])),
             FinishError::ProjectMoved,
             FinishError::UpToDate,
+            FinishError::NotOnGitHub,
+            FinishError::AlreadyInReview,
+            FinishError::GhMissing,
+            FinishError::GhSignedOut,
+            FinishError::NotSent,
             FinishError::Git(GitError::Failed {
                 command: "merge".to_string(),
                 complaint: "branch".to_string(),

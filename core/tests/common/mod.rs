@@ -48,9 +48,9 @@ pub fn settings_with(program: &str) -> AgentSettings {
 }
 
 /// What a workspace in tests is opened with: the given agents, nothing to open copies with, and no `teryon` program.
-fn setup(settings: &AgentSettings) -> Setup {
+pub fn setup(settings: AgentSettings) -> Setup {
     Setup {
-        agents: settings.clone(),
+        agents: settings,
         ..Setup::default()
     }
 }
@@ -135,7 +135,7 @@ pub fn kinds(names: &[&str]) -> Vec<String> {
 /// An open workspace in a data folder of its own.
 pub struct Scene {
     pub home: TempDir,
-    pub settings: AgentSettings,
+    pub setup: Setup,
     pub workspace: Workspace,
 }
 
@@ -145,12 +145,15 @@ impl Scene {
     }
 
     pub fn with(settings: AgentSettings) -> Self {
+        Self::with_setup(setup(settings))
+    }
+
+    pub fn with_setup(setup: Setup) -> Self {
         let home = tempdir().expect("a data folder");
-        let workspace =
-            Workspace::open(home.path(), setup(&settings)).expect("the workspace opens");
+        let workspace = Workspace::open(home.path(), setup.clone()).expect("the workspace opens");
         Self {
             home,
-            settings,
+            setup,
             workspace,
         }
     }
@@ -159,16 +162,16 @@ impl Scene {
     pub fn restart(self, meanwhile: impl FnOnce(&Path)) -> Self {
         let Self {
             home,
-            settings,
+            setup,
             workspace,
         } = self;
         drop(workspace);
         meanwhile(home.path());
         let workspace =
-            Workspace::open(home.path(), setup(&settings)).expect("the workspace opens again");
+            Workspace::open(home.path(), setup.clone()).expect("the workspace opens again");
         Self {
             home,
-            settings,
+            setup,
             workspace,
         }
     }

@@ -67,6 +67,16 @@ export class WorkspaceApi {
     );
   }
 
+  /** Sends a thread's change for review on GitHub, described by `description`. */
+  sendForReview(threadId: string, description: string): Observable<void> {
+    return this.ask({ type: 'send_for_review', thread_id: threadId, description }, () => undefined as void);
+  }
+
+  /** Opens a thread's review on GitHub in the browser of the machine Teryon runs on. */
+  openReview(threadId: string): Observable<void> {
+    return this.ask({ type: 'open_review', thread_id: threadId }, () => undefined as void);
+  }
+
   /** Throws a thread's change away, stopping its agent first. */
   discardChange(threadId: string): Observable<void> {
     return this.ask({ type: 'discard_change', thread_id: threadId }, () => undefined as void);

@@ -428,7 +428,7 @@ describe('connectionText', () => {
 describe('changeStatus', () => {
   function change(state: Partial<ChangeState> | null): Change {
     const whole: ChangeState = { copy_present: true, base_present: true, files_changed: 2, fit: 'applies', unfinished: false };
-    return { name: 'fix-login', path: '/work/a/.teryon/worktrees/fix-login', base: 'main', start: 'abc', branch: 'fix-login', state: state && { ...whole, ...state } };
+    return { name: 'fix-login', path: '/work/a/.teryon/worktrees/fix-login', base: 'main', start: 'abc', branch: 'fix-login', state: state && { ...whole, ...state }, review: null };
   }
 
   it('says nothing before Teryon has looked', () => {
@@ -467,6 +467,20 @@ describe('changeStatus', () => {
     expect(changeStatus(change({ copy_present: false, unfinished: true }))).toEqual(['its copy was removed outside Teryon']);
   });
 
+  it.each([
+    ['in_review', 'in review on GitHub'],
+    ['accepted', 'accepted on GitHub'],
+    ['declined', 'declined on GitHub'],
+  ] as const)('says how a review is going in place of being ready to apply: %s', (state, words) => {
+    const reviewed = { ...change({}), review: { number: 12, url: 'https://github.com/owner/app/pull/12', state } };
+    expect(changeStatus(reviewed)).toEqual(['2 files changed', words]);
+  });
+
+  it('says it overlaps rather than how its review is going', () => {
+    const reviewed = { ...change({ fit: 'overlaps' }), review: { number: 12, url: 'u', state: 'in_review' as const } };
+    expect(changeStatus(reviewed)).toEqual(['2 files changed', 'overlaps with newer work in the project']);
+  });
+
   it('never uses a git word', () => {
     const states: Partial<ChangeState>[] = [];
     for (const copy_present of [true, false])
@@ -474,7 +488,11 @@ describe('changeStatus', () => {
         for (const files_changed of [0, 1, 2])
           for (const fit of ['applies', 'overlaps', 'unknown'] as const)
             for (const unfinished of [true, false]) states.push({ copy_present, base_present, files_changed, fit, unfinished });
-    const words = states.flatMap((state) => changeStatus(change(state))).flatMap(gitWordsIn);
+    const reviews = [null, 'in_review', 'accepted', 'declined'] as const;
+    const words = states
+      .flatMap((state) => reviews.map((review) => ({ ...change(state), review: review && { number: 1, url: 'u', state: review } })))
+      .flatMap(changeStatus)
+      .flatMap(gitWordsIn);
     expect(words).toEqual([]);
   });
 });
@@ -492,7 +510,7 @@ describe('gitWordsIn', () => {
 describe('discardWarning', () => {
   function change(state: Partial<ChangeState> | null): Change {
     const whole: ChangeState = { copy_present: true, base_present: true, files_changed: 2, fit: 'applies', unfinished: false };
-    return { name: 'fix-login', path: '/work/a/.teryon/worktrees/fix-login', base: 'main', start: 'abc', branch: 'fix-login', state: state && { ...whole, ...state } };
+    return { name: 'fix-login', path: '/work/a/.teryon/worktrees/fix-login', base: 'main', start: 'abc', branch: 'fix-login', state: state && { ...whole, ...state }, review: null };
   }
 
   it('counts the changed files that will be lost', () => {

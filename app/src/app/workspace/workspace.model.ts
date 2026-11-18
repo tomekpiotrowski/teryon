@@ -14,6 +14,8 @@ export interface Project {
   readonly created_at: string;
   /** Whether it can be worked in: its directory may have gone, or another Teryon may have it open. */
   readonly state?: 'ready' | 'missing' | 'in_use';
+  /** Whether it lives on GitHub, so its changes can be sent for review there. */
+  readonly on_github?: boolean;
 }
 
 export interface Thread {
@@ -48,6 +50,16 @@ export interface Change {
   readonly branch: string | null;
   /** Nothing until Teryon has looked. */
   readonly state: ChangeState | null;
+  /** The review it was sent for on GitHub. Nothing until it is sent. */
+  readonly review: Review | null;
+}
+
+/** A change sent for review on GitHub. */
+export interface Review {
+  readonly number: number;
+  /** Where the review is on GitHub. */
+  readonly url: string;
+  readonly state: 'in_review' | 'accepted' | 'declined';
 }
 
 export interface ChangeState {
@@ -198,6 +210,12 @@ export function composerAction(press: ComposerPress): 'send' | 'leave' | null {
   return null;
 }
 
+const REVIEW_WORDS: Readonly<Record<Review['state'], string>> = {
+  in_review: 'in review on GitHub',
+  accepted: 'accepted on GitHub',
+  declined: 'declined on GitHub',
+};
+
 /**
  * What the status line says about a change, after its name, one part each.
  *
@@ -214,8 +232,10 @@ export function changeStatus(change: Change): string[] {
   const files = state.files_changed;
   const parts = [files === 0 ? 'no files changed yet' : files === 1 ? '1 file changed' : `${files} files changed`];
   if (!state.base_present) return [...parts, 'the version of the project it started from is gone'];
+  if (state.fit === 'overlaps') return [...parts, 'overlaps with newer work in the project'];
+  const review = change.review?.state;
+  if (review) return [...parts, REVIEW_WORDS[review]];
   if (files > 0 && state.fit === 'applies') parts.push('ready to apply');
-  if (state.fit === 'overlaps') parts.push('overlaps with newer work in the project');
   return parts;
 }
 

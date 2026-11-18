@@ -5,7 +5,7 @@ export type JsonValue = number | string | boolean | null | JsonValue[] | { [key:
 
 export type ClientMessage = { "type": "hello", token: string, } | { "type": "call", id: number, request: Request, };
 
-export type Request = { "type": "add_project", name: string, directory: string, } | { "type": "remove_project", project_id: string, } | { "type": "start_thread", project_id: string, agent: string, title: string, } | { "type": "send_message", thread_id: string, text: string, } | { "type": "stop", thread_id: string, } | { "type": "mark_seen", thread_id: string, } | { "type": "start_change", thread_id: string, turn: string, name: string, from: string | null, } | { "type": "draft_description", thread_id: string, } | { "type": "apply_change", thread_id: string, description: string, } | { "type": "catch_up", thread_id: string, } | { "type": "discard_change", thread_id: string, } | { "type": "open_copy", thread_id: string, with: Opener, } | { "type": "follow_thread", thread_id: string, } | { "type": "unfollow_thread", thread_id: string, } | { "type": "files", project_id: string, branch: string | null, commit: string | null, } | { "type": "file", project_id: string, branch: string | null, commit: string | null, path: string, } | { "type": "history", project_id: string, branch: string | null, } | { "type": "changes", project_id: string, commit: string, from: string | null, } | { "type": "change", project_id: string, commit: string, from: string | null, path: string, } | { "type": "shutdown" };
+export type Request = { "type": "add_project", name: string, directory: string, } | { "type": "remove_project", project_id: string, } | { "type": "start_thread", project_id: string, agent: string, title: string, } | { "type": "send_message", thread_id: string, text: string, } | { "type": "stop", thread_id: string, } | { "type": "mark_seen", thread_id: string, } | { "type": "start_change", thread_id: string, turn: string, name: string, from: string | null, } | { "type": "draft_description", thread_id: string, } | { "type": "apply_change", thread_id: string, description: string, } | { "type": "catch_up", thread_id: string, } | { "type": "discard_change", thread_id: string, } | { "type": "send_for_review", thread_id: string, description: string, } | { "type": "open_review", thread_id: string, } | { "type": "open_copy", thread_id: string, with: Opener, } | { "type": "follow_thread", thread_id: string, } | { "type": "unfollow_thread", thread_id: string, } | { "type": "files", project_id: string, branch: string | null, commit: string | null, } | { "type": "file", project_id: string, branch: string | null, commit: string | null, path: string, } | { "type": "history", project_id: string, branch: string | null, } | { "type": "changes", project_id: string, commit: string, from: string | null, } | { "type": "change", project_id: string, commit: string, from: string | null, path: string, } | { "type": "shutdown" };
 
 export type ServiceMessage = { "type": "reply", id: number, outcome: Outcome, } | { "type": "event", event: Event, };
 
@@ -15,7 +15,11 @@ export type Answer = { "type": "nothing" } | { "type": "project", project: Proje
 
 export type Event = { "type": "snapshot", projects: Array<ProjectView>, threads: Array<Thread>, opens: Opens, } | { "type": "project_added", project: ProjectView, } | { "type": "project_removed", project_id: string, } | { "type": "thread_changed", thread: Thread, } | { "type": "entry_added", entry: Entry, };
 
-export type ProjectView = { id: string, name: string, directory: string, created_at: string, state: ProjectState, };
+export type ProjectView = { id: string, name: string, directory: string, created_at: string, state: ProjectState, 
+/**
+ * Whether its `origin` is on GitHub, so changes can be sent for review there.
+ */
+on_github: boolean, };
 
 export type ProjectState = "ready" | "missing" | "in_use";
 
@@ -85,7 +89,11 @@ branch: string | null,
 /**
  * Nothing until first read.
  */
-state: ChangeState | null, };
+state: ChangeState | null, 
+/**
+ * The review the change was sent for on GitHub. Nothing until it is sent.
+ */
+review: Review | null, };
 
 export type ChangeState = { 
 /**
@@ -106,6 +114,14 @@ files_changed: number, fit: Fit,
  * switched it to another branch. Something only the agent can sort out.
  */
 unfinished: boolean, };
+
+export type Review = { number: number, 
+/**
+ * Where the review is on GitHub, for the person to open.
+ */
+url: string, state: ReviewState, };
+
+export type ReviewState = "in_review" | "accepted" | "declined";
 
 export type Fit = "applies" | "overlaps" | "unknown";
 

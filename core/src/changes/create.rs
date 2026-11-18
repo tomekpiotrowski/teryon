@@ -68,6 +68,7 @@ pub async fn create(project: &Path, name: &str, from: Option<&str>) -> Result<Ch
         start,
         branch: Some(name.to_string()),
         state: None,
+        review: None,
     })
 }
 
@@ -92,6 +93,7 @@ pub async fn take_over(project: &Path, copy: &FoundCopy) -> Result<Change, Chang
         start,
         branch: copy.branch.clone(),
         state: None,
+        review: None,
     })
 }
 

@@ -324,6 +324,10 @@ export class WorkspacePage implements OnDestroy {
         return this.catchUp(action.thread);
       case 'discardChange':
         return void this.confirmDiscard(action.thread);
+      case 'sendForReview':
+        return this.sendForReview(action.thread);
+      case 'openReview':
+        return this.openReview(action.thread);
       case 'copyLocation':
         return this.copyLocation(action.path);
       case 'openCopy':
@@ -438,23 +442,59 @@ export class WorkspacePage implements OnDestroy {
    * history, so the person gets the last word on it.
    */
   applyChange(thread: Thread): void {
+    this.describe(thread, {
+      header: 'Apply to the project',
+      message: 'Describe the change. It becomes one entry in the project’s history.',
+      button: 'Apply',
+      failure: 'The change could not be applied.',
+      then: (description) => this.sendApply(thread, description),
+    });
+  }
+
+  /**
+   * Asks for the change's description, then sends it for review on GitHub.
+   *
+   * The first line becomes the review's title, the rest its text.
+   */
+  sendForReview(thread: Thread): void {
+    this.describe(thread, {
+      header: 'Send for review on GitHub',
+      message: 'Describe the change. The first line becomes the title of the review.',
+      button: 'Send',
+      failure: 'The change could not be sent for review.',
+      then: (description) =>
+        this.api.sendForReview(thread.id, description).subscribe({
+          next: () => this.alerts.success('Sent for review on GitHub.'),
+          error: (failure: unknown) => this.alerts.error(refusalText(failure, 'The change could not be sent for review.')),
+        }),
+    });
+  }
+
+  openReview(thread: Thread): void {
+    this.api.openReview(thread.id).subscribe({
+      error: (failure: unknown) => this.alerts.error(refusalText(failure, 'The review could not be opened.')),
+    });
+  }
+
+  /** Asks for a description of the change, starting from what the agent wrote, and hands it on. */
+  private describe(
+    thread: Thread,
+    ask: { header: string; message: string; button: string; failure: string; then: (description: string) => void },
+  ): void {
     this.api.draftDescription(thread.id).subscribe({
       next: async (draft) => {
         const alert = await this.alertController.create({
-          header: 'Apply to the project',
-          message: 'Describe the change. It becomes one entry in the project’s history.',
+          header: ask.header,
+          message: ask.message,
           inputs: [{ name: 'description', type: 'textarea', value: draft, attributes: { 'aria-label': 'Description', rows: 6 } }],
           buttons: [
             { text: 'Cancel', role: 'cancel' },
-            {
-              text: 'Apply',
-              handler: (values: { description: string }) => this.sendApply(thread, values.description),
-            },
+            { text: ask.button, handler: (values: { description: string }) => ask.then(values.description) },
           ],
         });
         await alert.present();
       },
-      error: (failure: unknown) => this.alerts.error(refusalText(failure, 'The change could not be applied.')),
+      error: (failure: unknown) => this.alerts.error(refusalText(failure, ask.failure)),
     });
   }
 

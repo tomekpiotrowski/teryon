@@ -353,7 +353,7 @@ fn spawn(
 /// from the configuration would point somewhere else. A bare name such as
 /// `claude` is found through `PATH`; on Windows that includes `claude.cmd`,
 /// which is how programs installed with npm arrive there.
-fn program_path(program: &str) -> PathBuf {
+pub(crate) fn program_path(program: &str) -> PathBuf {
     let path = Path::new(program);
     if path.is_absolute() {
         return path.to_path_buf();

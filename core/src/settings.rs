@@ -21,6 +21,9 @@
 //! [open]
 //! editor = "code {path}"
 //! terminal = "alacritty --working-directory {path}"
+//!
+//! [github]
+//! program = "gh"
 //! ```
 
 use std::fs::read_to_string;
@@ -56,6 +59,7 @@ pub struct Settings {
     pub service: ServiceSettings,
     pub agents: AgentSettings,
     pub open: OpenSettings,
+    pub github: GitHubSettings,
 }
 
 impl Settings {
@@ -128,6 +132,23 @@ pub struct OpenSettings {
     pub terminal: Option<String>,
 }
 
+/// How GitHub is reached: through its own `gh` program, signed in by the person.
+///
+/// Teryon stores no GitHub credentials, as it stores none for agents.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields)]
+pub struct GitHubSettings {
+    pub program: String,
+}
+
+impl Default for GitHubSettings {
+    fn default() -> Self {
+        Self {
+            program: "gh".to_string(),
+        }
+    }
+}
+
 /// How the Claude Code program is started.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
@@ -193,6 +214,7 @@ mod tests {
                         service: ServiceSettings { port: USUAL_PORT, allowed_origins: vec!["http://localhost:4200".to_string()] },
                         agents: AgentSettings::default(),
                         open: OpenSettings::default(),
+                        github: GitHubSettings::default(),
                     }))
                 }
             }

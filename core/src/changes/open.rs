@@ -33,6 +33,16 @@ pub fn command_line(template: &str, path: &Path) -> Option<CommandLine> {
 
 /// The system's own way of opening a folder.
 pub fn file_manager(path: &Path) -> CommandLine {
+    system_opener(path.to_string_lossy().into_owned())
+}
+
+/// The system's own way of opening a web page: the person's browser.
+pub fn browser(url: &str) -> CommandLine {
+    system_opener(url.to_string())
+}
+
+/// The program each system opens things with, given what to open.
+fn system_opener(target: String) -> CommandLine {
     let program = if cfg!(target_os = "macos") {
         "open"
     } else if cfg!(windows) {
@@ -42,7 +52,7 @@ pub fn file_manager(path: &Path) -> CommandLine {
     };
     CommandLine {
         program: program.to_string(),
-        arguments: vec![path.to_string_lossy().into_owned()],
+        arguments: vec![target],
     }
 }
 

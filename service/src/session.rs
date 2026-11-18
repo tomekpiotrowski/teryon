@@ -59,6 +59,7 @@ impl Session {
             Request::AddProject { .. }
             | Request::RemoveProject { .. }
             | Request::OpenCopy { .. }
+            | Request::OpenReview { .. }
             | Request::Shutdown
                 if !local =>
             {
@@ -128,6 +129,18 @@ impl Session {
             Request::DiscardChange { thread_id } => workspace
                 .discard_change(thread_id)
                 .await
+                .map(|()| Answer::Nothing)
+                .map_err(|problem| problem.to_string()),
+            Request::SendForReview {
+                thread_id,
+                description,
+            } => workspace
+                .send_for_review(thread_id, &description)
+                .await
+                .map(|()| Answer::Nothing)
+                .map_err(|problem| problem.to_string()),
+            Request::OpenReview { thread_id } => workspace
+                .open_review(thread_id)
                 .map(|()| Answer::Nothing)
                 .map_err(|problem| problem.to_string()),
             Request::OpenCopy { thread_id, with } => workspace

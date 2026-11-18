@@ -11,6 +11,7 @@
 //! with git besides reading it.
 
 use std::collections::{HashMap, HashSet};
+use std::env::temp_dir;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, MutexGuard, PoisonError};
@@ -26,9 +27,10 @@ use crate::agents::{EntryDraft, EntryKind};
 use crate::changes::claim::{claimant, Candidate};
 use crate::changes::create::{create, take_over};
 use crate::changes::finish::{apply, catch_up, discard, draft_description, CaughtUp, FinishError};
-use crate::changes::open::{command_line, file_manager, CommandLine};
+use crate::changes::github::{review_now, send_for_review, tidy_after_acceptance, Tidied};
+use crate::changes::open::{browser, command_line, file_manager, CommandLine};
 use crate::changes::status::{read_state, Look};
-use crate::changes::{copies_in, Change, ChangeState, FoundCopy};
+use crate::changes::{copies_in, Change, ChangeState, FoundCopy, Review, ReviewState};
 use crate::protocol::{Event, Opener};
 use crate::store::{Status, Thread};
 use crate::workspace::{Inner, Workspace, WorkspaceError};
@@ -153,9 +155,45 @@ impl Workspace {
         Ok(path)
     }
 
-    /// Reads again where a thread's change stands, closely. For when a person opens the thread.
+    /// Reads again where a thread's change stands, closely, and how its review is going. For when a person opens the thread.
     pub async fn refresh_change(&self, thread_id: Uuid) {
         self.inner.look_at(thread_id, Look::Thorough).await;
+        self.inner.follow_review(thread_id).await;
+    }
+
+    /// Sends a thread's change for review on GitHub, described by `description`.
+    pub async fn send_for_review(
+        &self,
+        thread_id: Uuid,
+        description: &str,
+    ) -> Result<(), WorkspaceError> {
+        let (directory, project_id, _, change) = self.inner.finishable(thread_id)?;
+        let _turn = self.inner.finishing(thread_id)?;
+        let _project = self.inner.project_lock(project_id).lock_owned().await;
+        self.inner.check_idle(thread_id)?;
+        let review = send_for_review(
+            &directory,
+            &change,
+            description,
+            &self.inner.setup.github.program,
+        )
+        .await?;
+        self.inner.store_review(thread_id, review)?;
+        self.inner.look_at(thread_id, Look::Thorough).await;
+        Ok(())
+    }
+
+    /// Opens a thread's review on GitHub in the person's browser.
+    pub fn open_review(&self, thread_id: Uuid) -> Result<(), WorkspaceError> {
+        let (_, thread) = self.inner.state().holding(thread_id)?;
+        let review = thread
+            .change
+            .and_then(|change| change.review)
+            .ok_or(WorkspaceError::Busy(
+                "This change has not been sent for review.",
+            ))?;
+        let directory = temp_dir();
+        start_detached(&browser(&review.url), &directory)
     }
 
     /// Opens a thread's copy in the file manager, or in the editor or terminal set up for it.
@@ -263,6 +301,78 @@ impl Inner {
         let thread = store.change(thread_id, |thread| thread.change = None)?;
         drop(state);
         self.announce(Event::EntryAdded { entry });
+        self.announce(Event::ThreadChanged { thread });
+        Ok(())
+    }
+
+    /// Asks GitHub how a thread's review is going, and tidies the change away once it is accepted.
+    ///
+    /// Problems are logged: this runs when someone opens the thread, with
+    /// nobody waiting for it, and the next opening asks again.
+    async fn follow_review(self: &Arc<Self>, thread_id: Uuid) {
+        let Ok((directory, project_id, _, change)) = self.finishable(thread_id) else {
+            return;
+        };
+        let Some(review) = change
+            .review
+            .clone()
+            .filter(|review| review.state == ReviewState::InReview)
+        else {
+            return;
+        };
+        let now = match review_now(&directory, &review, &self.setup.github.program).await {
+            Ok(now) => now,
+            Err(problem) => {
+                warn!(
+                    "could not ask GitHub about the review of {}: {problem}",
+                    change.name
+                );
+                return;
+            }
+        };
+        match now.state {
+            ReviewState::InReview => {}
+            ReviewState::Declined => {
+                if let Err(problem) = self.store_review(thread_id, now) {
+                    error!("could not store a declined review: {problem}");
+                }
+            }
+            ReviewState::Accepted => {
+                let Ok(_turn) = self.finishing(thread_id) else {
+                    return;
+                };
+                let _project = self.project_lock(project_id).lock_owned().await;
+                let note = match tidy_after_acceptance(&directory, &change).await {
+                    Ok(Tidied::UpToDate) => "Accepted on GitHub.",
+                    Ok(Tidied::Behind) => {
+                        "Accepted on GitHub. Your project folder does not have it yet."
+                    }
+                    Err(problem) => {
+                        warn!(
+                            "could not tidy away the accepted change {}: {problem}",
+                            change.name
+                        );
+                        return;
+                    }
+                };
+                if let Err(problem) = self.forget_change(thread_id, note) {
+                    error!("could not forget an accepted change: {problem}");
+                }
+                self.look_at_all(project_id).await;
+            }
+        }
+    }
+
+    /// Stores how a thread's review is going.
+    fn store_review(&self, thread_id: Uuid, review: Review) -> Result<(), WorkspaceError> {
+        let mut state = self.state();
+        let (store, _) = state.holding(thread_id)?;
+        let thread = store.change(thread_id, |thread| {
+            if let Some(change) = thread.change.as_mut() {
+                change.review = Some(review);
+            }
+        })?;
+        drop(state);
         self.announce(Event::ThreadChanged { thread });
         Ok(())
     }
