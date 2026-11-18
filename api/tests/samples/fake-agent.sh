@@ -14,6 +14,15 @@ shift
 samples="$(dirname "$0")/agents"
 printf '%s\n' "$(printf '%s' "$*" | tr '\n' ' ')" >> .fake-agent-invocations
 
+# Creates the worktree the instruction names, on the branch `feature`.
+# The path is taken out of the arguments, punctuation and all.
+make_worktree() {
+  path=$(printf '%s\n' "$1" | sed -n 's/.*\(\.teryon\/worktrees\/[0-9a-f][-0-9a-f]*\).*/\1/p')
+  if [ -n "$path" ]; then
+    git worktree add -q -b feature "$path" HEAD
+  fi
+}
+
 case "$*" in
   *"please fail"*)
     echo "the fake agent was told to fail" >&2
@@ -37,6 +46,15 @@ case "$*" in
     ;;
   *"use tools"*)
     cat "$samples/$agent-tools.jsonl"
+    ;;
+  *"make a worktree and wait"*)
+    make_worktree "$*"
+    head -n 1 "$samples/$agent-first.jsonl"
+    exec sleep 30
+    ;;
+  *"make a worktree"*)
+    make_worktree "$*"
+    cat "$samples/$agent-first.jsonl"
     ;;
   *"write markdown"*)
     # Not a recording as such: the first one with the answer replaced by hand

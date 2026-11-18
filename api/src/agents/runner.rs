@@ -23,14 +23,18 @@ use serde_json::{json, Value};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::process::{Child, ChildStderr, Command};
 use tokio::sync::watch::{channel, Receiver, Sender};
-use tokio::time::{sleep_until, timeout, Instant as TokioInstant};
+use tokio::time::{interval, sleep_until, timeout, Instant as TokioInstant, MissedTickBehavior};
 use tracing::{error, warn};
 use uuid::Uuid;
 
+use crate::agents::worktree::{instruction_for, observed_branch};
 use crate::agents::{driver_for, Agent, AgentDriver, EntryDraft, EntryKind, Invocation, Turn};
 use crate::settings::AgentSettings;
 use crate::workspace::journal::Journal;
 use crate::workspace::thread;
+
+/// How often a running turn looks for the worktree its agent may have created.
+const CHECK_WORKTREE_EVERY: Duration = Duration::from_secs(1);
 
 /// How much of a failed program's complaints is shown.
 const LONGEST_COMPLAINT: usize = 2000;
@@ -128,10 +132,13 @@ async fn run_turn(
     };
 
     let driver = driver_for(agent, settings);
+    let brief = instruction_for(&directory, thread.id).await;
+    let watch_worktree = brief.is_some();
     let invocation = driver.invocation(&Turn {
         message,
         conversation: thread.conversation_id,
         first: !thread.conversation_started,
+        brief,
     });
     let child = match spawn(&invocation, &directory) {
         Ok(child) => child,
@@ -143,7 +150,18 @@ async fn run_turn(
     };
 
     let grace = Duration::from_secs(settings.stop_grace_seconds);
-    let outcome = follow(db, &thread, &mut journal, driver, child, stopped, grace).await;
+    let outcome = follow(
+        db,
+        &thread,
+        &directory,
+        watch_worktree,
+        &mut journal,
+        driver,
+        child,
+        stopped,
+        grace,
+    )
+    .await;
 
     match outcome.stop {
         Some(Stop::ByUser) => record(&mut journal, EntryDraft::notice("Stopped by you.")).await,
@@ -176,6 +194,8 @@ struct Outcome {
 async fn follow(
     db: &DatabaseConnection,
     thread: &thread::Model,
+    directory: &Path,
+    watch_worktree: bool,
     journal: &mut Journal,
     mut driver: Box<dyn AgentDriver>,
     mut child: Child,
@@ -193,12 +213,18 @@ async fn follow(
     let mut summarised = false;
     let mut conversation_started = thread.conversation_started;
     let mut known_commands = thread.commands.clone();
+    let mut known_branch = thread.branch.clone();
     let mut stop = None;
     let mut listening = true;
     let mut kill_at: Option<TokioInstant> = None;
+    let mut ticks = interval(CHECK_WORKTREE_EVERY);
+    ticks.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
     while let Some(report) = lines.as_mut() {
         tokio::select! {
+            _ = ticks.tick(), if watch_worktree => {
+                remember_branch(db, thread, directory, &mut known_branch).await;
+            }
             line = report.next_line() => {
                 let Ok(Some(line)) = line else { break };
                 if !conversation_started {
@@ -249,6 +275,10 @@ async fn follow(
                 signal_group(group, Signal::SIGKILL);
             }
         }
+    }
+
+    if watch_worktree {
+        remember_branch(db, thread, directory, &mut known_branch).await;
     }
 
     let status = match timeout(grace, child.wait()).await {
@@ -357,6 +387,34 @@ async fn mark_conversation_started(
     let mut thread = thread.into_active_model();
     thread.conversation_started = Set(true);
     thread.update(db).await.map(|_| ())
+}
+
+/// Stores the branch checked out for a thread when it has changed.
+///
+/// A failure to read the worktrees leaves the stored branch as it was: not
+/// being able to ask git is different from the checkout being gone.
+async fn remember_branch(
+    db: &DatabaseConnection,
+    thread: &thread::Model,
+    directory: &Path,
+    known: &mut Option<String>,
+) {
+    let found = match observed_branch(directory, thread.id).await {
+        Ok(found) => found,
+        Err(problem) => {
+            warn!("could not read worktrees: {problem}");
+            return;
+        }
+    };
+    if found == *known {
+        return;
+    }
+    let mut current = thread.clone().into_active_model();
+    current.branch = Set(found.clone());
+    match current.update(db).await {
+        Ok(_) => *known = found,
+        Err(problem) => warn!("could not store a thread's branch: {problem}"),
+    }
 }
 
 async fn store_commands(

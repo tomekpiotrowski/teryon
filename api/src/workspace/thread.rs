@@ -38,6 +38,13 @@ pub struct Model {
     ///
     /// Empty until the program has run once for this thread.
     pub commands: Json,
+    /// The branch checked out in this thread's worktree.
+    ///
+    /// Nothing until the agent creates `.teryon/worktrees/<thread id>`, and
+    /// nothing again once that checkout is gone. The agent decides whether
+    /// the work needs a checkout. Teryon only records the branch, so the
+    /// files can be opened there.
+    pub branch: Option<String>,
     pub created_at: NaiveDateTime,
     pub sync_seq: i64,
     pub deleted_at: Option<NaiveDateTime>,

@@ -39,6 +39,7 @@ enum Threads {
     Status,
     Unread,
     Commands,
+    Branch,
     CreatedAt,
 }
 
@@ -111,6 +112,7 @@ impl MigrationTrait for Migration {
                             .default(false),
                     )
                     .col(ColumnDef::new(Threads::Commands).json_binary().not_null())
+                    .col(ColumnDef::new(Threads::Branch).text().null())
                     .col(
                         ColumnDef::new(Threads::CreatedAt)
                             .timestamp()

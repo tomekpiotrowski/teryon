@@ -120,6 +120,9 @@
                   <div class="composer-meta thread-meta">
                     <div>
                       <span>{{ agentLabel(view.thread.agent) }}</span>
+                      @if (view.thread.branch) {
+                        <button type="button" class="code-link" [attr.aria-label]="'Explore ' + view.thread.branch" (click)="explore(view.project, view.thread.branch)">{{ view.thread.branch }}</button>
+                      }
                       <button type="button" class="code-link" aria-keyshortcuts="/" (click)="openMenu()">menu <kbd>/</kbd></button>
                     <button type="button" class="code-link" aria-keyshortcuts="h" (click)="screen$.next('history')">history <kbd>H</kbd></button>
                       <button type="button" class="code-link" aria-keyshortcuts="c" (click)="screen$.next('files')">code <kbd>C</kbd></button>

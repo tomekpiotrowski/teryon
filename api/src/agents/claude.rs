@@ -46,7 +46,7 @@ impl AgentDriver for ClaudeDriver {
         } else {
             "--resume"
         };
-        let arguments = [
+        let mut arguments = [
             "-p",
             "--output-format",
             "stream-json",
@@ -55,11 +55,22 @@ impl AgentDriver for ClaudeDriver {
             "auto",
             conversation_option,
             &turn.conversation.to_string(),
-            "--",
-            &turn.message,
         ]
         .map(String::from)
         .to_vec();
+        // The snapshot is off so a later turn of the same conversation is
+        // told the branch the project directory is on then, not the one it
+        // was on when the conversation started.
+        if let Some(brief) = &turn.brief {
+            arguments.extend([
+                "--append-system-prompt".to_string(),
+                brief.clone(),
+                "--system-prompt-snapshot".to_string(),
+                "off".to_string(),
+            ]);
+        }
+        arguments.push("--".to_string());
+        arguments.push(turn.message.clone());
 
         Invocation {
             program: self.program.clone(),
@@ -204,11 +215,12 @@ mod tests {
         })
     }
 
-    fn turn(message: &str, first: bool) -> Turn {
+    fn turn(message: &str, first: bool, brief: Option<&str>) -> Turn {
         Turn {
             message: message.to_string(),
             conversation: Uuid::nil(),
             first,
+            brief: brief.map(str::to_string),
         }
     }
 
@@ -264,10 +276,11 @@ mod tests {
     }
 
     lets_expect! {
-        expect(driver(use_subscription).invocation(&turn(message, first))) {
+        expect(driver(use_subscription).invocation(&turn(message, first, brief))) {
             let use_subscription = true;
             let message = "Fix the bug";
             let first = true;
+            let brief: Option<&str> = None;
 
             // requirement: the first message starts a new conversation with an identifier chosen by Teryon
             to start_a_conversation {
@@ -287,6 +300,17 @@ mod tests {
             when(message = "--help") as keep_a_message_that_looks_like_an_option_last to hold {
                 have(arguments[8].as_str()) equal("--"),
                 have(arguments[9].as_str()) equal("--help")
+            }
+
+            // requirement: a worktree instruction is added beside the message, and is not frozen for the conversation
+            when(brief = Some("Stay in the worktree.")) as pass_the_worktree_instruction to hold {
+                have(arguments.clone()) equal([
+                    "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "auto",
+                    "--session-id", "00000000-0000-0000-0000-000000000000",
+                    "--append-system-prompt", "Stay in the worktree.",
+                    "--system-prompt-snapshot", "off",
+                    "--", "Fix the bug",
+                ].map(String::from).to_vec())
             }
 
             // requirement: by default the API key variables are not passed to Claude

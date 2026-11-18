@@ -58,17 +58,23 @@ impl AgentDriver for GrokDriver {
         } else {
             "--resume"
         };
+        let mut arguments = vec![
+            format!("--single={}", turn.message),
+            "--output-format".to_string(),
+            "streaming-json".to_string(),
+            "--permission-mode".to_string(),
+            "auto".to_string(),
+        ];
+        if let Some(brief) = &turn.brief {
+            arguments.push("--rules".to_string());
+            arguments.push(brief.clone());
+        }
+        arguments.push(conversation_option.to_string());
+        arguments.push(turn.conversation.to_string());
+
         Invocation {
             program: self.program.clone(),
-            arguments: vec![
-                format!("--single={}", turn.message),
-                "--output-format".to_string(),
-                "streaming-json".to_string(),
-                "--permission-mode".to_string(),
-                "auto".to_string(),
-                conversation_option.to_string(),
-                turn.conversation.to_string(),
-            ],
+            arguments,
             removed_variables: Vec::new(),
         }
     }
@@ -168,11 +174,12 @@ mod tests {
         })
     }
 
-    fn turn(message: &str, first: bool) -> Turn {
+    fn turn(message: &str, first: bool, brief: Option<&str>) -> Turn {
         Turn {
             message: message.to_string(),
             conversation: Uuid::nil(),
             first,
+            brief: brief.map(str::to_string),
         }
     }
 
@@ -238,9 +245,10 @@ mod tests {
     }
 
     lets_expect! {
-        expect(driver().invocation(&turn(message, first))) {
+        expect(driver().invocation(&turn(message, first, brief))) {
             let message = "Fix the bug";
             let first = true;
+            let brief: Option<&str> = None;
 
             // requirement: the first message starts a new conversation with an identifier chosen by Teryon
             to start_a_conversation {
@@ -260,6 +268,15 @@ mod tests {
 
             when(message = "--help") as keep_a_message_that_looks_like_an_option_attached to hold {
                 have(arguments[0].as_str()) equal("--single=--help")
+            }
+
+            // requirement: a worktree instruction is added beside the message
+            when(brief = Some("Stay in the worktree.")) as pass_the_worktree_instruction to hold {
+                have(arguments.clone()) equal([
+                    "--single=Fix the bug", "--output-format", "streaming-json", "--permission-mode", "auto",
+                    "--rules", "Stay in the worktree.",
+                    "--session-id", "00000000-0000-0000-0000-000000000000",
+                ].map(String::from).to_vec())
             }
         }
 

@@ -24,6 +24,8 @@ export interface Thread {
   readonly unread: boolean;
   /** The names of the slash commands the agent program last said it takes. Empty until it has run here. */
   readonly commands: readonly string[];
+  /** The branch checked out for this thread. Nothing when it has no worktree. */
+  readonly branch: string | null;
   readonly created_at: string;
 }
 

@@ -5,7 +5,7 @@
 // with a script that replays recordings. Nothing here reaches a model provider.
 
 import { expect, test } from "@playwright/test";
-import { addProject, choose, menu, openWorkspace } from "./support";
+import { addProject, choose, commit, git, menu, openWorkspace, put } from "./support";
 
 test.beforeEach(openWorkspace);
 
@@ -27,6 +27,26 @@ test("an agent works in a project and the thread fills in live", async ({ page }
   await expect(page.getByLabel("Thread").locator("code", { hasText: /^note\.txt$/ })).toBeVisible();
   await expect(page.getByText(/is 6 bytes/)).toBeVisible();
   await expect(page.getByLabel("Reply")).toHaveValue("");
+});
+
+test("a thread's worktree can be explored on its branch", async ({ page }) => {
+  await addProject(page, "Sample", (folder) => {
+    git(folder, "init", "-q", "-b", "main");
+    put(folder, "README.md", "# Sample\n");
+    commit(folder);
+  });
+
+  await page.getByLabel("New thread").fill("make a worktree");
+  await page.getByRole("button", { name: "Run ↵" }).click();
+
+  const thread = page.getByLabel("Thread");
+  await expect(thread.getByText("ready", { exact: true })).toBeVisible();
+  await expect(thread.getByText(/\.teryon\/worktrees/)).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Explore feature" }).click();
+  await expect(page.getByLabel("Branch")).toHaveValue("feature");
+  await expect(page.getByLabel("Repository files").getByRole("button", { name: "README.md" })).toBeVisible();
+  await expect(page.getByText(/\.teryon\/worktrees/)).toHaveCount(0);
 });
 
 test("an agent's markdown is rendered, and what it must not act on is shown as text", async ({ page }) => {

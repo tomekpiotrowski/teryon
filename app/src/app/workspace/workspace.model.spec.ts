@@ -32,7 +32,7 @@ function project(id: string, created_at: string): Project {
 }
 
 function thread(id: string, project_id: string, created_at: string, status: Thread['status'] = 'idle'): Thread {
-  return { id, project_id, title: '', agent: 'claude', status, unread: false, commands: [], created_at };
+  return { id, project_id, title: '', agent: 'claude', status, unread: false, commands: [], branch: null, created_at };
 }
 
 function press(overrides: Partial<KeyPress> = {}): KeyPress {

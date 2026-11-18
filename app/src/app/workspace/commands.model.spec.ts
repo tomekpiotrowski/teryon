@@ -15,7 +15,7 @@ function project(id: string, name = `Project ${id}`): Project {
 }
 
 function thread(id: string, project_id: string, created_at: string, overrides: Partial<Thread> = {}): Thread {
-  return { id, project_id, title: `Thread ${id}`, agent: 'claude', status: 'idle', unread: false, commands: [], created_at, ...overrides };
+  return { id, project_id, title: `Thread ${id}`, agent: 'claude', status: 'idle', unread: false, commands: [], branch: null, created_at, ...overrides };
 }
 
 function press(overrides: Partial<KeyPress> = {}): KeyPress {

@@ -337,6 +337,12 @@ export class WorkspacePage implements OnDestroy {
     this.place$.next({ projectId: project.id, branch, commit: null });
   }
 
+  /** Opens the files and the history on the branch a thread has checked out. */
+  explore(project: Project, branch: string): void {
+    this.chooseBranch(project, branch);
+    this.screen$.next('files');
+  }
+
   /** Shows the files of a project as a commit left them. */
   browseAt(project: Project, commit: string): void {
     this.place$.next({ ...placeIn(this.place$.value, project.id), commit });

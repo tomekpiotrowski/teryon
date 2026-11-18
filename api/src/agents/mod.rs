@@ -12,6 +12,7 @@ pub mod claude;
 pub mod grok;
 pub mod runner;
 mod summary;
+mod worktree;
 
 use serde_json::{json, Value};
 use thiserror::Error;
@@ -125,6 +126,11 @@ pub struct Turn {
     pub conversation: Uuid,
     /// Whether this message starts the conversation.
     pub first: bool,
+    /// What the agent is told about worktrees, beside the person's message.
+    ///
+    /// Nothing when the project is not a git repository. The programs take
+    /// this as their own extra instruction, so it is not part of the message.
+    pub brief: Option<String>,
 }
 
 /// How to start an agent program for one turn.
