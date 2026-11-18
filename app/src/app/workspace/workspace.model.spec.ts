@@ -1,9 +1,11 @@
 import {
   agentLabel,
   barTitle,
+  CATCH_UP_REQUEST,
   type Change,
   type ChangeState,
   changeStatus,
+  discardWarning,
   connectionText,
   composerAction,
   type ComposerPress,
@@ -484,5 +486,31 @@ describe('gitWordsIn', () => {
 
   it('leaves words that only contain one alone', () => {
     expect(gitWordsIn('Pushover headline commitment')).toEqual([]);
+  });
+});
+
+describe('discardWarning', () => {
+  function change(state: Partial<ChangeState> | null): Change {
+    const whole: ChangeState = { copy_present: true, base_present: true, files_changed: 2, fit: 'applies', unfinished: false };
+    return { name: 'fix-login', path: '/work/a/.teryon/worktrees/fix-login', base: 'main', start: 'abc', branch: 'fix-login', state: state && { ...whole, ...state } };
+  }
+
+  it('counts the changed files that will be lost', () => {
+    expect(discardWarning(change({}))).toBe('All changes in fix-login will be lost: 2 changed files. This cannot be undone.');
+  });
+
+  it('counts one file as one', () => {
+    expect(discardWarning(change({ files_changed: 1 }))).toBe('All changes in fix-login will be lost: 1 changed file. This cannot be undone.');
+  });
+
+  it('counts nothing when no file changed, the copy is gone, or nobody has looked', () => {
+    const plain = 'All changes in fix-login will be lost. This cannot be undone.';
+    expect(discardWarning(change({ files_changed: 0 }))).toBe(plain);
+    expect(discardWarning(change({ copy_present: false }))).toBe(plain);
+    expect(discardWarning(change(null))).toBe(plain);
+  });
+
+  it('and the request to catch up never use a git word', () => {
+    expect([discardWarning(change({})), CATCH_UP_REQUEST].flatMap(gitWordsIn)).toEqual([]);
   });
 });

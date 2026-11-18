@@ -4,7 +4,7 @@
 // Each test has a Teryon service of its own, which starts a script that
 // replays recordings in place of the agent programs. Nothing here reaches a model provider.
 
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 
 import { addProject, choose, commit, expect, git, menu, openWorkspace, put, test } from "./support";
@@ -44,7 +44,7 @@ test("an agent's change shows where it stands, and its copy can be found", async
 
   const thread = page.getByLabel("Thread");
   await expect(thread.getByText("ready", { exact: true })).toBeVisible();
-  const changes = page.getByLabel("Changes");
+  const changes = page.getByLabel("Changes", { exact: true });
   await expect(changes).toContainText("fix-login");
   await expect(changes).toContainText("· 1 file changed");
   await expect(changes).toContainText("· ready to apply");
@@ -70,6 +70,57 @@ test("an agent's change shows where it stands, and its copy can be found", async
   await page.getByRole("button", { name: "Explore fix-login" }).click();
   await expect(page.getByLabel("Repository files").getByRole("button", { name: "fix-login.txt" })).toBeVisible();
   await expect(page.getByText(/\.teryon\/worktrees/)).toHaveCount(0);
+});
+
+test("an agent's change is applied to the project with the person's description", async ({ page }) => {
+  const directory = await addProject(page, "Sample", (folder) => {
+    git(folder, "init", "-q", "-b", "main");
+    put(folder, "README.md", "# Sample\n");
+    commit(folder);
+  });
+
+  await page.getByLabel("New thread").fill("start a change fix-login");
+  await page.getByRole("button", { name: "Run ↵" }).click();
+  await expect(page.getByLabel("Changes", { exact: true })).toContainText("ready to apply");
+
+  await page.getByLabel("Reply").press("Escape");
+  await page.keyboard.press("w");
+  await page.keyboard.press("a");
+  const description = page.locator("ion-alert textarea");
+  await expect(description).toHaveValue("start a change fix-login");
+  await description.fill("Fix the login\n\nIt redirected twice.");
+  await page.locator("ion-alert").getByRole("button", { name: "Apply" }).click();
+
+  await expect(page.getByText("Applied to the project.", { exact: true }).first()).toBeVisible();
+  await expect(page.getByLabel("Thread").getByText("Applied to the project.")).toBeVisible();
+  await expect(page.getByLabel("Changes", { exact: true })).toHaveCount(0);
+  await expect.poll(() => git(directory, "log", "-1", "--format=%B")).toBe("Fix the login\n\nIt redirected twice.");
+  expect(existsSync(join(directory, "fix-login.txt"))).toBe(true);
+  expect(existsSync(join(directory, ".teryon", "worktrees", "fix-login"))).toBe(false);
+});
+
+test("an agent's change is discarded once the person confirms", async ({ page }) => {
+  const directory = await addProject(page, "Sample", (folder) => {
+    git(folder, "init", "-q", "-b", "main");
+    put(folder, "README.md", "# Sample\n");
+    commit(folder);
+  });
+
+  await page.getByLabel("New thread").fill("start a change fix-login");
+  await page.getByRole("button", { name: "Run ↵" }).click();
+  await expect(page.getByLabel("Changes", { exact: true })).toContainText("1 file changed");
+
+  await choose(page, "Discard changes");
+  await expect(page.locator("ion-alert")).toContainText("All changes in fix-login will be lost: 1 changed file. This cannot be undone.");
+  await page.locator("ion-alert").getByRole("button", { name: "Cancel" }).click();
+  await expect(page.getByLabel("Changes", { exact: true })).toContainText("fix-login");
+
+  await choose(page, "Discard changes");
+  await page.locator("ion-alert").getByRole("button", { name: "Discard" }).click();
+  await expect(page.getByLabel("Thread").getByText("Changes discarded.")).toBeVisible();
+  await expect(page.getByLabel("Changes", { exact: true })).toHaveCount(0);
+  expect(existsSync(join(directory, ".teryon", "worktrees", "fix-login"))).toBe(false);
+  expect(git(directory, "rev-list", "--count", "main")).toBe("1");
 });
 
 test("an agent's markdown is rendered, and what it must not act on is shown as text", async ({ page }) => {

@@ -441,17 +441,22 @@ describe('the commands for a thread\'s change', () => {
   }
 
   const changed = thread('t9', 'a', '2026-11-06T10:00:00', { change: change() });
+  /** What is offered for a change whose copy is there, whatever is set up. */
+  const ALWAYS = ['change:apply', 'change:catchUp', 'change:discard', 'change:copyLocation', 'change:openFolder'];
 
   it('offers nothing without an open thread, or for a thread with no change', () => {
     expect(offered(null)).toEqual([]);
     expect(offered(older)).toEqual([]);
   });
 
-  it('offers copying the location and opening the folder, after the projects and before the actions', () => {
+  it('offers applying, catching up, discarding, copying the location and opening the folder, after the projects and before the actions', () => {
     const commands = commandList(situation({ groups: groupThreads([first], [changed]), project: first, thread: changed }));
     expect(ids(commands)).toEqual([
       'thread:t9',
       'project:a',
+      'change:apply',
+      'change:catchUp',
+      'change:discard',
       'change:copyLocation',
       'change:openFolder',
       'action:newThread',
@@ -466,39 +471,60 @@ describe('the commands for a thread\'s change', () => {
 
   it('names the change beside each command, with keys after W', () => {
     expect(offered(changed).map((candidate) => [candidate.title, candidate.detail, keyHint(candidate)])).toEqual([
+      ['Apply to the project', 'fix-login', 'W A'],
+      ['Catch up with the project', 'fix-login', 'W U'],
+      ['Discard changes', 'fix-login', 'W D'],
       ['Copy location', 'fix-login', 'W Y'],
       ['Open folder', 'fix-login', 'W F'],
     ]);
   });
 
+  it('applies, catches up and discards the open thread\'s change', () => {
+    const [apply, catchUp, discard] = offered(changed);
+    expect(apply.action).toEqual({ kind: 'applyChange', thread: changed });
+    expect(catchUp.action).toEqual({ kind: 'catchUp', thread: changed });
+    expect(discard.action).toEqual({ kind: 'discardChange', thread: changed });
+  });
+
   it('copies the copy\'s full location and opens the open thread\'s copy', () => {
-    const [copy, folder] = offered(changed);
+    const [, , , copy, folder] = offered(changed);
     expect(copy.action).toEqual({ kind: 'copyLocation', path: '/work/a/.teryon/worktrees/fix-login' });
     expect(folder.action).toEqual({ kind: 'openCopy', thread: changed, opener: 'folder' });
   });
 
   it.each([
-    [{ editor: true, terminal: false }, ['change:copyLocation', 'change:openFolder', 'change:openEditor']],
-    [{ editor: false, terminal: true }, ['change:copyLocation', 'change:openFolder', 'change:openTerminal']],
-    [{ editor: true, terminal: true }, ['change:copyLocation', 'change:openFolder', 'change:openEditor', 'change:openTerminal']],
+    [{ editor: true, terminal: false }, [...ALWAYS, 'change:openEditor']],
+    [{ editor: false, terminal: true }, [...ALWAYS, 'change:openTerminal']],
+    [{ editor: true, terminal: true }, [...ALWAYS, 'change:openEditor', 'change:openTerminal']],
   ])('offers the editor and the terminal only when set up: %o', (opens, expected) => {
     expect(ids(offered(changed, opens))).toEqual(expected);
   });
 
   it('offers the editor and the terminal on W E and W T', () => {
-    const [, , editor, terminal] = offered(changed, { editor: true, terminal: true });
+    const [, , , , , editor, terminal] = offered(changed, { editor: true, terminal: true });
     expect([keyHint(editor), keyHint(terminal)]).toEqual(['W E', 'W T']);
     expect(editor.action).toEqual({ kind: 'openCopy', thread: changed, opener: 'editor' });
   });
 
-  it('offers nothing once the copy is gone', () => {
+  it('offers only discarding once the copy is gone', () => {
     const gone = { ...changed, change: change({ state: { copy_present: false, base_present: false, files_changed: 0, fit: 'unknown', unfinished: false } }) };
-    expect(offered(gone, { editor: true, terminal: true })).toEqual([]);
+    expect(ids(offered(gone, { editor: true, terminal: true }))).toEqual(['change:discard']);
   });
 
-  it('offers them before Teryon has looked at the change', () => {
+  it('offers them all before Teryon has looked at the change', () => {
     const unread = { ...changed, change: change({ state: null }) };
-    expect(ids(offered(unread))).toEqual(['change:copyLocation', 'change:openFolder']);
+    expect(ids(offered(unread))).toEqual(ALWAYS);
+  });
+
+  it.each([
+    ['nothing changed', { files_changed: 0 }],
+    ['it overlaps', { fit: 'overlaps' as const }],
+    ['the agent left it unfinished', { unfinished: true }],
+    ['its starting point is gone', { base_present: false }],
+  ])('still offers applying when %s, to say why it cannot be done', (_, state) => {
+    const whole = { copy_present: true, base_present: true, files_changed: 1, fit: 'applies' as const, unfinished: false };
+    const stuck = { ...changed, change: change({ state: { ...whole, ...state } }) };
+    expect(ids(offered(stuck))).toEqual(ALWAYS);
   });
 
   it('heads them as the thread\'s changes', () => {

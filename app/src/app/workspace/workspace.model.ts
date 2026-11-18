@@ -219,6 +219,26 @@ export function changeStatus(change: Change): string[] {
   return parts;
 }
 
+/**
+ * What discarding a change will lose, for the person to confirm.
+ *
+ * Counting the files makes plain how much is at stake, without listing them.
+ */
+export function discardWarning(change: Change): string {
+  const files = change.state?.copy_present ? change.state.files_changed : 0;
+  const lost = files === 0 ? '' : files === 1 ? ': 1 changed file' : `: ${files} changed files`;
+  return `All changes in ${change.name} will be lost${lost}. This cannot be undone.`;
+}
+
+/**
+ * What the agent is asked when its change overlaps with newer work in the project.
+ *
+ * Put in the message box rather than sent, like every request Teryon drafts:
+ * the person decides whether the agent should spend a turn on it.
+ */
+export const CATCH_UP_REQUEST =
+  'Bring this change up to date with the newer work in the project, and resolve where the two overlap.';
+
 /** The screen to show once one is asked for. Asking for the screen already shown goes back to the thread. */
 export function screenAfter(current: Screen, asked: Exclude<Screen, 'thread'>): Screen {
   return current === asked ? 'thread' : asked;

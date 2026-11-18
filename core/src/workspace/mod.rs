@@ -13,41 +13,41 @@
 //! The stores are behind one lock. Every change is a few small file writes,
 //! so holding it briefly is cheaper than anything finer would be. Reading a
 //! repository for the file browser, the history or a thread's change happens
-//! outside the lock.
+//! outside the lock. Changes have a file of their own, see [`changes`].
+
+mod changes;
 
 use std::collections::{HashMap, HashSet};
 use std::env::{join_paths, split_paths, var_os};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use chrono::Utc;
 use thiserror::Error;
-use tokio::process::Command;
 use tokio::sync::broadcast::{channel, Receiver, Sender};
+use tokio::sync::Mutex as AsyncMutex;
 use tokio::time::{sleep, Instant};
-use tracing::{error, warn};
+use tracing::error;
 use uuid::Uuid;
 
 use crate::agents::runner::{Journal, Pending, Runner, ThreadChange, TurnRequest};
 use crate::agents::{Agent, EntryDraft, EntryKind};
-use crate::changes::claim::{claimant, Candidate};
-use crate::changes::create::{create, take_over};
-use crate::changes::open::{command_line, file_manager, CommandLine};
-use crate::changes::status::{read_state, Look};
-use crate::changes::{copies_in, Change, ChangeError, ChangeState, FoundCopy};
+use crate::changes::finish::FinishError;
+use crate::changes::status::Look;
+use crate::changes::ChangeError;
 use crate::directory::existing_directory;
 use crate::files::repository::{Place, Repository};
 use crate::files::{FileView, FilesError, Listing};
 use crate::history::turns::{turns_in, working_at, Turn};
 use crate::history::{Changes, History};
-use crate::protocol::{Event, Opener, Opens, ProjectState, ProjectView};
+use crate::protocol::{Event, Opens, ProjectState, ProjectView};
 use crate::settings::{AgentSettings, OpenSettings};
 use crate::store::projects::ProjectList;
 use crate::store::threads::ThreadStore;
 use crate::store::{Entry, Project, Status, StoreError, Thread};
+use crate::workspace::changes::Noticed;
 
 /// The longest title taken from a first message.
 const LONGEST_TITLE: usize = 60;
@@ -76,6 +76,9 @@ pub enum WorkspaceError {
     /// A change could not be started; the text, meant for the agent, says why.
     #[error("{0}")]
     Change(#[from] ChangeError),
+    /// A change could not be finished; the text says why.
+    #[error("{0}")]
+    Finish(#[from] FinishError),
 }
 
 /// What a workspace needs besides its data folder.
@@ -223,6 +226,10 @@ struct Inner {
     changes: Sender<Event>,
     /// The copies each project had when Teryon looked, see [`Inner::claim_copies`].
     noticed: Mutex<HashMap<Uuid, Noticed>>,
+    /// The threads whose change is being applied, caught up or discarded.
+    finishing_threads: Mutex<HashSet<Uuid>>,
+    /// One lock per project, held while one of its changes is finished.
+    project_locks: Mutex<HashMap<Uuid, Arc<AsyncMutex<()>>>>,
 }
 
 impl Inner {
@@ -266,6 +273,8 @@ impl Workspace {
                 runner: Runner::default(),
                 changes,
                 noticed: Mutex::new(HashMap::new()),
+                finishing_threads: Mutex::new(HashSet::new()),
+                project_locks: Mutex::new(HashMap::new()),
             }),
         })
     }
@@ -420,6 +429,11 @@ impl Workspace {
                 "The agent is still working on the previous message.",
             ));
         }
+        if self.inner.finishing_threads().contains(&thread_id) {
+            return Err(WorkspaceError::Busy(
+                "Teryon is finishing this thread's changes. Send the message once it is done.",
+            ));
+        }
         let draft = EntryDraft::user_message(text);
         let entry = store.append(thread_id, draft.kind.name(), draft.body)?;
         let thread = store.change(thread_id, |thread| {
@@ -477,84 +491,6 @@ impl Workspace {
         drop(state);
         self.inner.announce(Event::ThreadChanged { thread });
         Ok(())
-    }
-
-    /// Starts a change for a thread: a copy of the project on a new branch, named by the agent.
-    ///
-    /// Only the agent running the thread's current turn may, which it proves
-    /// with the turn's identifier from its environment. That keeps a command
-    /// copied to a terminal, or run after the turn, from touching the thread.
-    /// Returns where the copy is.
-    pub async fn start_change(
-        &self,
-        thread_id: Uuid,
-        turn: Uuid,
-        name: &str,
-        from: Option<&str>,
-    ) -> Result<PathBuf, WorkspaceError> {
-        let (directory, project_id) = {
-            let mut state = self.inner.state();
-            let (_, thread) = state.holding(thread_id)?;
-            if self.inner.runner.turn_of(thread_id) != Some(turn) {
-                return Err(WorkspaceError::Invalid(
-                    "`teryon worktree create` is for agents working in Teryon, during their turn."
-                        .to_string(),
-                ));
-            }
-            if let Some(change) = &thread.change {
-                return Err(WorkspaceError::Invalid(format!(
-                    "This thread already has a worktree at `{}`. Work there.",
-                    change.path.display()
-                )));
-            }
-            (
-                state.project(thread.project_id)?.directory.clone(),
-                thread.project_id,
-            )
-        };
-
-        // Noticed before it exists, so a look in between cannot take it for one
-        // the agent made by hand and give it away with a guessed starting point.
-        self.inner.notice(project_id, name);
-        let change = create(&directory, name, from).await?;
-        let path = change.path.clone();
-        self.inner.adopt(thread_id, change)?;
-        self.inner.look_at(thread_id, Look::Quick).await;
-        Ok(path)
-    }
-
-    /// Reads again where a thread's change stands, closely. For when a person opens the thread.
-    pub async fn refresh_change(&self, thread_id: Uuid) {
-        self.inner.look_at(thread_id, Look::Thorough).await;
-    }
-
-    /// Opens a thread's copy in the file manager, or in the editor or terminal set up for it.
-    pub fn open_copy(&self, thread_id: Uuid, with: Opener) -> Result<(), WorkspaceError> {
-        let (_, thread) = self.inner.state().holding(thread_id)?;
-        let change = thread
-            .change
-            .ok_or(WorkspaceError::Busy("This thread has no changes to open."))?;
-        if !change.path.is_dir() {
-            return Err(WorkspaceError::Busy(
-                "This thread's copy was removed outside Teryon.",
-            ));
-        }
-        let open = &self.inner.setup.open;
-        let line = match with {
-            Opener::Folder => Some(file_manager(&change.path)),
-            Opener::Editor => open
-                .editor
-                .as_deref()
-                .and_then(|editor| command_line(editor, &change.path)),
-            Opener::Terminal => open
-                .terminal
-                .as_deref()
-                .and_then(|terminal| command_line(terminal, &change.path)),
-        }
-        .ok_or(WorkspaceError::Busy(
-            "Nothing is set up to open it with. Add it under [open] in Teryon's config.toml.",
-        ))?;
-        start_detached(&line, &change.path)
     }
 
     /// A thread's conversation so far.
@@ -703,209 +639,6 @@ impl Journal for WorkspaceJournal {
     fn look(&self, thread_id: Uuid, look: Look) -> Pending<'_> {
         Box::pin(self.0.look_at(thread_id, look))
     }
-}
-
-impl Inner {
-    /// Gives a thread a change, unless it got one meanwhile, and tells everyone.
-    fn adopt(&self, thread_id: Uuid, change: Change) -> Result<(), WorkspaceError> {
-        let mut state = self.state();
-        let (store, thread) = state.holding(thread_id)?;
-        if thread.change.is_some() {
-            return Ok(());
-        }
-        let thread = store.change(thread_id, |thread| thread.change = Some(Box::new(change)))?;
-        drop(state);
-        self.announce(Event::ThreadChanged { thread });
-        Ok(())
-    }
-
-    /// Reads where a thread's change stands and stores it when it differs.
-    ///
-    /// A thread without a change takes over a copy its agent made by hand,
-    /// when [`claimant`] says it is this thread's. Problems are logged: this
-    /// runs on its own, with nobody to tell, and the next look tries again.
-    async fn look_at(&self, thread_id: Uuid, look: Look) {
-        let found = {
-            let mut state = self.state();
-            let Ok((store, thread)) = state.holding(thread_id) else {
-                return;
-            };
-            let candidates: Vec<Candidate> = store
-                .threads()
-                .iter()
-                .filter(|other| other.change.is_none())
-                .map(|other| Candidate {
-                    thread_id: other.id,
-                    running: other.status == Status::Running,
-                })
-                .collect();
-            let taken: Vec<String> = store
-                .threads()
-                .iter()
-                .filter_map(|other| other.change.as_ref().map(|change| change.name.clone()))
-                .collect();
-            let Ok(project) = state.project(thread.project_id) else {
-                return;
-            };
-            (project.directory.clone(), thread, candidates, taken)
-        };
-        let (directory, thread, candidates, taken) = found;
-
-        let change = match thread.change {
-            Some(change) => *change,
-            None => {
-                self.claim_copies(thread.project_id, &directory, &candidates, &taken)
-                    .await;
-                let claimed = self
-                    .state()
-                    .holding(thread_id)
-                    .ok()
-                    .and_then(|(_, thread)| thread.change);
-                match claimed {
-                    Some(change) => *change,
-                    None => return,
-                }
-            }
-        };
-        let (state, branch) = match read_state(&directory, &change, look).await {
-            Ok(read) => read,
-            Err(problem) => {
-                warn!(
-                    "could not read where the change {} stands: {problem}",
-                    change.name
-                );
-                return;
-            }
-        };
-        let state = keep_known_fit(change.state.as_ref(), state, look);
-        if change.state.as_ref() == Some(&state) && change.branch == branch {
-            return;
-        }
-
-        let mut guarded = self.state();
-        let Ok((store, current)) = guarded.holding(thread_id) else {
-            return;
-        };
-        // Started, or taken over, since this look began: that look is the one to keep.
-        if current
-            .change
-            .as_ref()
-            .is_some_and(|known| known.name != change.name)
-        {
-            return;
-        }
-        let updated = Change {
-            state: Some(state),
-            branch,
-            ..change
-        };
-        match store.change(thread_id, |thread| thread.change = Some(Box::new(updated))) {
-            Ok(thread) => {
-                drop(guarded);
-                self.announce(Event::ThreadChanged { thread });
-            }
-            Err(problem) => error!("could not store where a change stands: {problem}"),
-        }
-    }
-
-    /// Gives the copies in `.teryon/worktrees/` that no thread has to the threads they belong to, see [`claimant`].
-    ///
-    /// The first look at a project after Teryon starts only notes the copies
-    /// already there: none of them is new, so only those named after a
-    /// thread are given to it.
-    async fn claim_copies(
-        &self,
-        project_id: Uuid,
-        directory: &Path,
-        candidates: &[Candidate],
-        taken: &[String],
-    ) {
-        let copies = match copies_in(directory).await {
-            Ok(copies) => copies,
-            Err(problem) => {
-                warn!(
-                    "could not list the copies of {}: {problem}",
-                    directory.display()
-                );
-                return;
-            }
-        };
-        let owned: Vec<(Uuid, FoundCopy)> = {
-            let mut noticed = self.noticed();
-            let project = noticed.entry(project_id).or_default();
-            let first_look = !project.looked;
-            project.looked = true;
-            copies
-                .into_iter()
-                .filter(|copy| !taken.contains(&copy.name))
-                .filter_map(|copy| {
-                    let new = project.names.insert(copy.name.clone()) && !first_look;
-                    claimant(&copy.name, new, candidates).map(|owner| (owner, copy))
-                })
-                .collect()
-        };
-        for (owner, copy) in owned {
-            let adopted = take_over(directory, &copy)
-                .await
-                .map_err(WorkspaceError::from)
-                .and_then(|change| self.adopt(owner, change));
-            if let Err(problem) = adopted {
-                warn!(
-                    "could not give the copy {} to its thread: {problem}",
-                    copy.name
-                );
-            }
-        }
-    }
-
-    /// Notes that a copy is not new, so it is never given to a thread by [`claimant`]'s guess.
-    fn notice(&self, project_id: Uuid, name: &str) {
-        self.noticed()
-            .entry(project_id)
-            .or_default()
-            .names
-            .insert(name.to_string());
-    }
-
-    fn noticed(&self) -> MutexGuard<'_, HashMap<Uuid, Noticed>> {
-        self.noticed.lock().unwrap_or_else(PoisonError::into_inner)
-    }
-}
-
-/// The copies Teryon has noticed in one project since it started.
-#[derive(Default)]
-struct Noticed {
-    /// Whether the project's copies have been listed at all yet.
-    looked: bool,
-    names: HashSet<String>,
-}
-
-/// What a quick look says, with whether the change applies kept from the last thorough look.
-///
-/// A quick look does not check that, and saying "unknown" every second of a
-/// turn would make the status line flicker.
-fn keep_known_fit(known: Option<&ChangeState>, mut state: ChangeState, look: Look) -> ChangeState {
-    if look == Look::Quick && state.copy_present && state.base_present {
-        if let Some(known) = known {
-            state.fit = known.fit;
-        }
-    }
-    state
-}
-
-/// Starts a program in `directory` and leaves it running on its own.
-fn start_detached(line: &CommandLine, directory: &Path) -> Result<(), WorkspaceError> {
-    Command::new(&line.program)
-        .args(&line.arguments)
-        .current_dir(directory)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map(|_| ())
-        .map_err(|problem| {
-            WorkspaceError::Invalid(format!("Could not start `{}`: {problem}.", line.program))
-        })
 }
 
 /// Marks every thread left as running as idle and unread, and says why in the thread.

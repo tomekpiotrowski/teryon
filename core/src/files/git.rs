@@ -74,6 +74,12 @@ impl Git {
         Ok((code == Some(0)).then_some(printed))
     }
 
+    /// How git ended and what it printed, for commands whose exit code is part of the answer.
+    pub async fn answer(&self, arguments: &[&str]) -> Result<(Option<i32>, Vec<u8>), GitError> {
+        let (code, printed, _) = self.run(arguments).await?;
+        Ok((code, printed))
+    }
+
     /// How git ended: its exit code, or nothing when a signal ended it.
     ///
     /// For the commands that answer with their exit code, such as

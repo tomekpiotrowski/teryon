@@ -17,6 +17,7 @@
 
 pub mod claim;
 pub mod create;
+pub mod finish;
 pub mod instruction;
 pub mod name;
 pub mod open;

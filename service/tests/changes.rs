@@ -20,12 +20,17 @@ use uuid::Uuid;
 use common::{git, program, project_id, repository, scene, scene_with, thread_id, wait_for};
 use teryon::client::{Client, ClientError};
 use teryon::session::{Origin, Session};
-use teryon_core::protocol::{Event, Opener, Opens, Request};
+use teryon_core::protocol::{Answer, Event, Opener, Opens, Request};
 use teryon_core::store::{Status, Thread};
 use teryon_core::workspace::{Setup, Workspace};
 
 /// A project in `folder` with one Claude thread, through `client`.
 async fn thread_in(client: &mut Client, folder: &TempDir) -> Uuid {
+    project_and_thread(client, folder).await.1
+}
+
+/// A project in `folder`, and one Claude thread in it.
+async fn project_and_thread(client: &mut Client, folder: &TempDir) -> (Uuid, Uuid) {
     let project = project_id(
         client
             .call(Request::AddProject {
@@ -35,6 +40,11 @@ async fn thread_in(client: &mut Client, folder: &TempDir) -> Uuid {
             .await
             .unwrap(),
     );
+    (project, another_thread(client, project).await)
+}
+
+/// Another Claude thread in a project.
+async fn another_thread(client: &mut Client, project: Uuid) -> Uuid {
     thread_id(
         client
             .call(Request::StartThread {
@@ -218,6 +228,40 @@ lets_expect! { #tokio_test
         let terminal = client.call(Request::OpenCopy { thread_id: thread, with: Opener::Terminal }).await;
         let check_terminal = matches!(terminal, Err(ClientError::Refused(ref message)) if message == "Nothing is set up to open it with. Add it under [open] in Teryon's config.toml.");
         expect(check_terminal) to be_true
+    }
+
+    // requirement: a change is drafted, applied, caught up and discarded over the connection
+    story a_change_is_finished_through_the_service {
+        let scene = scene().await;
+        let folder = repository();
+        let mut client = scene.client().await;
+        let (project, thread) = project_and_thread(&mut client, &folder).await;
+        turn(&mut client, thread, "start a change fix-login").await;
+
+        let draft = client.call(Request::DraftDescription { thread_id: thread }).await.unwrap();
+        let check_draft = matches!(draft, Answer::Draft { ref text } if text == "start a change fix-login");
+        expect(check_draft) to be_true
+        let up_to_date = client.call(Request::CatchUp { thread_id: thread }).await;
+        let check_up_to_date = matches!(up_to_date, Err(ClientError::Refused(ref message)) if message == "This change already has all the newer work in the project.");
+        expect(check_up_to_date) to be_true
+
+        let applied = client.call(Request::ApplyChange { thread_id: thread, description: "Fix the login".to_string() }).await;
+        let check_applied = matches!(applied, Ok(Answer::Nothing));
+        expect(check_applied) to be_true
+        expect(git(folder.path(), &["log", "-1", "--format=%s"])) to equal("Fix the login".to_string())
+        expect(folder.path().join("fix-login.txt").exists()) to be_true
+
+        let other = another_thread(&mut client, project).await;
+        turn(&mut client, other, "start a change second").await;
+        write(folder.path().join("README.md"), "newer work\n").unwrap();
+        git(folder.path(), &["commit", "-q", "-am", "newer"]);
+        let caught_up = client.call(Request::CatchUp { thread_id: other }).await;
+        let check_caught_up = matches!(caught_up, Ok(Answer::CaughtUp { overlaps: false }));
+        expect(check_caught_up) to be_true
+        let discarded = client.call(Request::DiscardChange { thread_id: other }).await;
+        let check_discarded = matches!(discarded, Ok(Answer::Nothing));
+        expect(check_discarded) to be_true
+        expect(copy_of(&folder, "second").exists()) to be_false
     }
 
     // requirement: a copy cannot be opened through a Teryon server, only on the machine itself

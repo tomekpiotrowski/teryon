@@ -35,7 +35,9 @@ import {
   type AgentName,
   agentLabel,
   barTitle,
+  CATCH_UP_REQUEST,
   changeStatus,
+  discardWarning,
   composerAction,
   type EntryLine,
   entryLine,
@@ -316,6 +318,12 @@ export class WorkspacePage implements OnDestroy {
         return this.theme.toggle();
       case 'stopAgent':
         return this.stop(action.thread);
+      case 'applyChange':
+        return this.applyChange(action.thread);
+      case 'catchUp':
+        return this.catchUp(action.thread);
+      case 'discardChange':
+        return void this.confirmDiscard(action.thread);
       case 'copyLocation':
         return this.copyLocation(action.path);
       case 'openCopy':
@@ -420,6 +428,76 @@ export class WorkspacePage implements OnDestroy {
   stop(thread: Thread): void {
     this.api.stop(thread.id).subscribe({
       error: (failure: unknown) => this.alerts.error(refusalText(failure, 'The agent could not be stopped.')),
+    });
+  }
+
+  /**
+   * Asks for the change's description, starting from what the agent wrote, then applies the change.
+   *
+   * The description becomes the one entry the change adds to the project's
+   * history, so the person gets the last word on it.
+   */
+  applyChange(thread: Thread): void {
+    this.api.draftDescription(thread.id).subscribe({
+      next: async (draft) => {
+        const alert = await this.alertController.create({
+          header: 'Apply to the project',
+          message: 'Describe the change. It becomes one entry in the project’s history.',
+          inputs: [{ name: 'description', type: 'textarea', value: draft, attributes: { 'aria-label': 'Description', rows: 6 } }],
+          buttons: [
+            { text: 'Cancel', role: 'cancel' },
+            {
+              text: 'Apply',
+              handler: (values: { description: string }) => this.sendApply(thread, values.description),
+            },
+          ],
+        });
+        await alert.present();
+      },
+      error: (failure: unknown) => this.alerts.error(refusalText(failure, 'The change could not be applied.')),
+    });
+  }
+
+  private sendApply(thread: Thread, description: string): void {
+    this.api.applyChange(thread.id, description).subscribe({
+      next: () => this.alerts.success('Applied to the project.'),
+      error: (failure: unknown) => this.alerts.error(refusalText(failure, 'The change could not be applied.')),
+    });
+  }
+
+  /**
+   * Brings the change up to date with newer work in the project.
+   *
+   * When the two overlap nothing changes, and a request for the agent to sort
+   * it out waits in the message box for the person to send.
+   */
+  catchUp(thread: Thread): void {
+    this.api.catchUp(thread.id).subscribe({
+      next: (overlaps) => {
+        if (!overlaps) return this.alerts.success('Caught up with the project.');
+        this.alerts.info('This change overlaps with newer work in the project. The message box has a request for the agent.');
+        this.draftAndReturn(CATCH_UP_REQUEST);
+      },
+      error: (failure: unknown) => this.alerts.error(refusalText(failure, 'The change could not catch up.')),
+    });
+  }
+
+  async confirmDiscard(thread: Thread): Promise<void> {
+    if (!thread.change) return;
+    const alert = await this.alertController.create({
+      header: 'Discard changes',
+      message: discardWarning(thread.change),
+      buttons: [
+        { text: 'Cancel', role: 'cancel' },
+        { text: 'Discard', role: 'destructive', handler: () => this.discard(thread) },
+      ],
+    });
+    await alert.present();
+  }
+
+  private discard(thread: Thread): void {
+    this.api.discardChange(thread.id).subscribe({
+      error: (failure: unknown) => this.alerts.error(refusalText(failure, 'The changes could not be discarded.')),
     });
   }
 

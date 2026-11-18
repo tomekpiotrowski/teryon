@@ -75,6 +75,23 @@ pub enum Request {
         name: String,
         from: Option<String>,
     },
+    /// A starting point for the description of a thread's change, for the person to edit.
+    DraftDescription {
+        thread_id: Uuid,
+    },
+    /// Applies a thread's change to the project as one entry in its history, and forgets it.
+    ApplyChange {
+        thread_id: Uuid,
+        description: String,
+    },
+    /// Brings a thread's change up to date with newer work in the project, unless they overlap.
+    CatchUp {
+        thread_id: Uuid,
+    },
+    /// Throws a thread's change away, stopping its agent first.
+    DiscardChange {
+        thread_id: Uuid,
+    },
     /// Opens a thread's copy in another program. Only from this machine.
     OpenCopy {
         thread_id: Uuid,
@@ -181,6 +198,14 @@ pub enum Answer {
     /// Where something is on this machine.
     Path {
         path: String,
+    },
+    /// A text for the person to edit.
+    Draft {
+        text: String,
+    },
+    /// How catching up went: done, or left as it was because the change overlaps with newer work.
+    CaughtUp {
+        overlaps: bool,
     },
 }
 

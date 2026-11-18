@@ -35,6 +35,9 @@ export type CommandAction =
   | { readonly kind: 'toggleAgent' }
   | { readonly kind: 'toggleTheme' }
   | { readonly kind: 'stopAgent'; readonly thread: Thread }
+  | { readonly kind: 'applyChange'; readonly thread: Thread }
+  | { readonly kind: 'catchUp'; readonly thread: Thread }
+  | { readonly kind: 'discardChange'; readonly thread: Thread }
   | { readonly kind: 'copyLocation'; readonly path: string }
   | { readonly kind: 'openCopy'; readonly thread: Thread; readonly opener: Opener }
   | { readonly kind: 'draft'; readonly text: string };
@@ -144,18 +147,26 @@ export function commandList(situation: Situation): Command[] {
 export const CHANGE_LEADER = 'w';
 
 /**
- * What can be done with the open thread's change: copy where its copy is, or open it.
+ * What can be done with the open thread's change: apply it, catch it up,
+ * discard it, copy where its copy is, or open it.
  *
- * Nothing is offered while there is no change, or once its copy is gone.
- * The editor and the terminal are only offered when set up, since Teryon
- * cannot guess which a person uses.
+ * Applying and catching up are offered whenever the copy is there, and say
+ * why when they cannot be done, rather than hiding: a hidden command teaches
+ * nothing. Once the copy is gone only discarding is left, which then just
+ * forgets the change. The editor and the terminal are only offered when set
+ * up, since Teryon cannot guess which a person uses.
  */
 function changeCommands(situation: Situation): Command[] {
   const thread = situation.thread;
   const change = thread?.change;
-  if (!thread || !change || change.state?.copy_present === false) return [];
+  if (!thread || !change) return [];
   const extra = (key: string) => ({ detail: change.name, key, leader: CHANGE_LEADER });
+  const discard = command('change:discard', 'Discard changes', 'change', { kind: 'discardChange', thread }, extra('d'));
+  if (change.state?.copy_present === false) return [discard];
   const commands = [
+    command('change:apply', 'Apply to the project', 'change', { kind: 'applyChange', thread }, extra('a')),
+    command('change:catchUp', 'Catch up with the project', 'change', { kind: 'catchUp', thread }, extra('u')),
+    discard,
     command('change:copyLocation', 'Copy location', 'change', { kind: 'copyLocation', path: change.path }, extra('y')),
     command('change:openFolder', 'Open folder', 'change', { kind: 'openCopy', thread, opener: 'folder' }, extra('f')),
   ];

@@ -12,6 +12,7 @@ use std::collections::HashSet;
 use tokio::spawn;
 use uuid::Uuid;
 
+use teryon_core::changes::finish::CaughtUp;
 use teryon_core::protocol::{Answer, Event, Request};
 use teryon_core::workspace::Workspace;
 
@@ -103,6 +104,31 @@ impl Session {
                 .map(|path| Answer::Path {
                     path: path.to_string_lossy().into_owned(),
                 })
+                .map_err(|problem| problem.to_string()),
+            Request::DraftDescription { thread_id } => workspace
+                .draft_description(thread_id)
+                .await
+                .map(|text| Answer::Draft { text })
+                .map_err(|problem| problem.to_string()),
+            Request::ApplyChange {
+                thread_id,
+                description,
+            } => workspace
+                .apply_change(thread_id, &description)
+                .await
+                .map(|()| Answer::Nothing)
+                .map_err(|problem| problem.to_string()),
+            Request::CatchUp { thread_id } => workspace
+                .catch_up(thread_id)
+                .await
+                .map(|caught_up| Answer::CaughtUp {
+                    overlaps: caught_up == CaughtUp::Overlaps,
+                })
+                .map_err(|problem| problem.to_string()),
+            Request::DiscardChange { thread_id } => workspace
+                .discard_change(thread_id)
+                .await
+                .map(|()| Answer::Nothing)
                 .map_err(|problem| problem.to_string()),
             Request::OpenCopy { thread_id, with } => workspace
                 .open_copy(thread_id, with)

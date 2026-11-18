@@ -48,6 +48,30 @@ export class WorkspaceApi {
     return this.ask({ type: 'stop', thread_id: threadId }, () => undefined as void);
   }
 
+  /** A starting point for the description of a thread's change, for the person to edit before applying. */
+  draftDescription(threadId: string): Observable<string> {
+    return this.ask({ type: 'draft_description', thread_id: threadId }, (answer) =>
+      answer.type === 'draft' ? answer.text : undefined,
+    );
+  }
+
+  /** Applies a thread's change to the project, as one entry in its history described by `description`. */
+  applyChange(threadId: string, description: string): Observable<void> {
+    return this.ask({ type: 'apply_change', thread_id: threadId, description }, () => undefined as void);
+  }
+
+  /** Brings a thread's change up to date with newer work in the project. True when the two overlap, so nothing changed. */
+  catchUp(threadId: string): Observable<boolean> {
+    return this.ask({ type: 'catch_up', thread_id: threadId }, (answer) =>
+      answer.type === 'caught_up' ? answer.overlaps : undefined,
+    );
+  }
+
+  /** Throws a thread's change away, stopping its agent first. */
+  discardChange(threadId: string): Observable<void> {
+    return this.ask({ type: 'discard_change', thread_id: threadId }, () => undefined as void);
+  }
+
   /** Opens a thread's copy in the file manager, or the editor or terminal set up for it. */
   openCopy(threadId: string, opener: Opener): Observable<void> {
     return this.ask({ type: 'open_copy', thread_id: threadId, with: opener }, () => undefined as void);
