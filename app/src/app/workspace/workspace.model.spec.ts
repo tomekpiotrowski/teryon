@@ -1,6 +1,9 @@
 import {
   agentLabel,
   barTitle,
+  type Change,
+  type ChangeState,
+  changeStatus,
   connectionText,
   composerAction,
   type ComposerPress,
@@ -27,13 +30,14 @@ import {
   type Thread,
   type ThreadEntry,
 } from './workspace.model';
+import { gitWordsIn } from './plain-words.testing';
 
 function project(id: string, created_at: string): Project {
   return { id, name: `Project ${id}`, directory: `/work/${id}`, created_at };
 }
 
 function thread(id: string, project_id: string, created_at: string, status: Thread['status'] = 'idle'): Thread {
-  return { id, project_id, title: '', agent: 'claude', status, unread: false, commands: [], branch: null, created_at };
+  return { id, project_id, title: '', agent: 'claude', status, unread: false, commands: [], change: null, created_at };
 }
 
 function press(overrides: Partial<KeyPress> = {}): KeyPress {
@@ -416,5 +420,69 @@ describe('connectionText', () => {
 
   it('says nothing once connected', () => {
     expect(connectionText('connected')).toBe('');
+  });
+});
+
+describe('changeStatus', () => {
+  function change(state: Partial<ChangeState> | null): Change {
+    const whole: ChangeState = { copy_present: true, base_present: true, files_changed: 2, fit: 'applies', unfinished: false };
+    return { name: 'fix-login', path: '/work/a/.teryon/worktrees/fix-login', base: 'main', start: 'abc', branch: 'fix-login', state: state && { ...whole, ...state } };
+  }
+
+  it('says nothing before Teryon has looked', () => {
+    expect(changeStatus(change(null))).toEqual([]);
+  });
+
+  it('counts the files changed and says it is ready to apply', () => {
+    expect(changeStatus(change({}))).toEqual(['2 files changed', 'ready to apply']);
+  });
+
+  it('counts one file as one', () => {
+    expect(changeStatus(change({ files_changed: 1 }))).toEqual(['1 file changed', 'ready to apply']);
+  });
+
+  it('has nothing to apply while no file has changed', () => {
+    expect(changeStatus(change({ files_changed: 0 }))).toEqual(['no files changed yet']);
+  });
+
+  it('says when it overlaps with newer work in the project', () => {
+    expect(changeStatus(change({ fit: 'overlaps' }))).toEqual(['2 files changed', 'overlaps with newer work in the project']);
+  });
+
+  it('leaves out whether it applies until that is known', () => {
+    expect(changeStatus(change({ fit: 'unknown' }))).toEqual(['2 files changed']);
+  });
+
+  it('says when the version of the project it started from is gone', () => {
+    expect(changeStatus(change({ base_present: false, fit: 'unknown' }))).toEqual(['2 files changed', 'the version of the project it started from is gone']);
+  });
+
+  it('says when the agent left it unfinished, and nothing else', () => {
+    expect(changeStatus(change({ unfinished: true, fit: 'overlaps' }))).toEqual(['the agent left this change unfinished']);
+  });
+
+  it('says when its copy was removed, and nothing else', () => {
+    expect(changeStatus(change({ copy_present: false, unfinished: true }))).toEqual(['its copy was removed outside Teryon']);
+  });
+
+  it('never uses a git word', () => {
+    const states: Partial<ChangeState>[] = [];
+    for (const copy_present of [true, false])
+      for (const base_present of [true, false])
+        for (const files_changed of [0, 1, 2])
+          for (const fit of ['applies', 'overlaps', 'unknown'] as const)
+            for (const unfinished of [true, false]) states.push({ copy_present, base_present, files_changed, fit, unfinished });
+    const words = states.flatMap((state) => changeStatus(change(state))).flatMap(gitWordsIn);
+    expect(words).toEqual([]);
+  });
+});
+
+describe('gitWordsIn', () => {
+  it('finds git words whole, in any case and form', () => {
+    expect(gitWordsIn('Merged into the Branch after two commits, then rebasing')).toEqual(['branch', 'commit', 'merge', 'rebase']);
+  });
+
+  it('leaves words that only contain one alone', () => {
+    expect(gitWordsIn('Pushover headline commitment')).toEqual([]);
   });
 });

@@ -11,12 +11,8 @@ use std::time::Duration;
 
 use lets_expect::lets_expect;
 use serde_json::json;
-use tokio::time::sleep;
 
-use common::{
-    git, invocations, kinds, mark_running, project_folder, repository, settings_with, unknown,
-    Scene,
-};
+use common::{invocations, kinds, mark_running, project_folder, settings_with, unknown, Scene};
 use teryon_core::protocol::{Event, ProjectState};
 use teryon_core::store::Status;
 
@@ -197,95 +193,7 @@ lets_expect! { #tokio_test
         expect(runs.len()) to equal(1)
         expect(runs[0].contains(&format!("--session-id {}", thread.conversation_id))) to be_true
         expect(runs[0].contains("--append-system-prompt")) to be_false
-        expect(scene.thread_now(&thread).branch) to equal(None)
-    }
-
-    // requirement: in a repository the agent is told where a worktree goes
-    // requirement: a question creates no worktree
-    story a_question_in_a_repository_creates_no_worktree {
-        let scene = Scene::new();
-        let folder = project_folder();
-        repository(&folder);
-        let project = scene.project(&folder);
-        let thread = scene.thread(&project, "claude");
-
-        scene.say(&thread, "hello").unwrap();
-        scene.wait_until_idle(&thread).await;
-        scene.say(&thread, "and again").unwrap();
-        scene.wait_until_idle(&thread).await;
-
-        expect(scene.thread_now(&thread).branch) to equal(None)
-        let runs = invocations(&folder);
-        expect(runs[0].contains(&format!(".teryon/worktrees/{}", thread.id))) to be_true
-        expect(runs[0].contains("--append-system-prompt")) to be_true
-        expect(runs[0].contains("the branch `main`")) to be_true
-        expect(runs[1].contains("--append-system-prompt")) to be_true
-        expect(git(folder.path(), &["status", "--porcelain", "--untracked-files=all"]).contains(".teryon")) to be_false
-    }
-
-    // requirement: grok is told the same thing, through its own option
-    story grok_is_told_where_a_worktree_goes {
-        let scene = Scene::new();
-        let folder = project_folder();
-        repository(&folder);
-        let project = scene.project(&folder);
-        let thread = scene.thread(&project, "grok");
-
-        scene.say(&thread, "hello").unwrap();
-        scene.wait_until_idle(&thread).await;
-
-        let runs = invocations(&folder);
-        expect(runs[0].contains("--rules")) to be_true
-        expect(runs[0].contains(&format!(".teryon/worktrees/{}", thread.id))) to be_true
-        expect(runs[0].contains("the branch `main`")) to be_true
-    }
-
-    // requirement: a worktree the agent creates at the instructed path is recorded, and its files can be read
-    // requirement: once that checkout is gone, the thread records no branch
-    story a_worktree_the_agent_creates_is_recorded {
-        let scene = Scene::new();
-        let folder = project_folder();
-        repository(&folder);
-        let project = scene.project(&folder);
-        let thread = scene.thread(&project, "claude");
-
-        scene.say(&thread, "make a worktree").unwrap();
-        scene.wait_until_idle(&thread).await;
-        expect(scene.thread_now(&thread).branch) to equal(Some("feature".to_string()))
-        expect(git(folder.path(), &["status", "--porcelain", "--untracked-files=all"]).contains(".teryon")) to be_false
-
-        let files = scene.workspace.files(project.id, Some("feature"), None).await.map(|listing| listing.branch);
-        expect(files.ok().flatten()) to equal(Some("feature".to_string()))
-
-        git(folder.path(), &["worktree", "remove", "--force", &format!(".teryon/worktrees/{}", thread.id)]);
-        scene.say(&thread, "hello").unwrap();
-        scene.wait_until_idle(&thread).await;
-        expect(scene.thread_now(&thread).branch) to equal(None)
-    }
-
-    // requirement: the branch is recorded while the agent is still working
-    story a_worktree_is_recorded_while_the_agent_is_working {
-        let scene = Scene::new();
-        let folder = project_folder();
-        repository(&folder);
-        let project = scene.project(&folder);
-        let thread = scene.thread(&project, "claude");
-
-        scene.say(&thread, "make a worktree and wait").unwrap();
-        let mut running = false;
-        for _ in 0..100 {
-            let current = scene.thread_now(&thread);
-            if current.status == Status::Running && current.branch.as_deref() == Some("feature") {
-                running = true;
-                break;
-            }
-            sleep(Duration::from_millis(50)).await;
-        }
-        expect(running) to be_true
-
-        scene.workspace.stop(thread.id).unwrap();
-        scene.wait_until_idle(&thread).await;
-        expect(scene.thread_now(&thread).branch) to equal(Some("feature".to_string()))
+        expect(scene.thread_now(&thread).change) to equal(None)
     }
 
     // requirement: later messages resume that conversation

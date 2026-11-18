@@ -13,7 +13,6 @@ pub mod grok;
 pub mod process;
 pub mod runner;
 mod summary;
-mod worktree;
 
 use serde_json::{json, Value};
 use thiserror::Error;

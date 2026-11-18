@@ -1,5 +1,5 @@
 import type { Event } from './protocol';
-import type { Project, Thread, ThreadEntry } from '../workspace/workspace.model';
+import { NO_OPENS, type Opens, type Project, type Thread, type ThreadEntry } from '../workspace/workspace.model';
 
 /**
  * The projects and threads as the service last described them.
@@ -9,19 +9,22 @@ import type { Project, Thread, ThreadEntry } from '../workspace/workspace.model'
 export interface WorkspaceLists {
   readonly projects: readonly Project[];
   readonly threads: readonly Thread[];
+  /** What a thread's copy can be opened in on the service's machine, besides the file manager. */
+  readonly opens: Opens;
 }
 
-export const NO_LISTS: WorkspaceLists = { projects: [], threads: [] };
+export const NO_LISTS: WorkspaceLists = { projects: [], threads: [], opens: NO_OPENS };
 
 /** The lists after one event. A snapshot replaces everything; changes replace or add one item. */
 export function applyEvent(lists: WorkspaceLists, event: Event): WorkspaceLists {
   switch (event.type) {
     case 'snapshot':
-      return { projects: event.projects as Project[], threads: event.threads as Thread[] };
+      return { projects: event.projects as Project[], threads: event.threads as Thread[], opens: event.opens };
     case 'project_added':
       return { ...lists, projects: upsert(lists.projects, event.project as Project) };
     case 'project_removed':
       return {
+        ...lists,
         projects: lists.projects.filter((project) => project.id !== event.project_id),
         threads: lists.threads.filter((thread) => thread.project_id !== event.project_id),
       };

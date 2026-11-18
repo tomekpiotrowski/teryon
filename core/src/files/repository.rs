@@ -23,7 +23,7 @@ use tokio::try_join;
 use crate::directory::existing_directory;
 use crate::files::diff::compare;
 use crate::files::git::{changes, checkouts, first_line, lines, zero_separated, Git};
-use crate::files::{Change, Content, FileEntry, FileView, FilesError, Listing};
+use crate::files::{Content, FileChange, FileEntry, FileView, FilesError, Listing};
 
 /// The largest file shown, in bytes.
 const LARGEST_SHOWN: u64 = 1024 * 1024;
@@ -398,10 +398,10 @@ fn gather(
     tracked: Vec<String>,
     untracked: Vec<String>,
     missing: Vec<String>,
-    changed: Vec<(String, Change)>,
+    changed: Vec<(String, FileChange)>,
 ) -> Vec<FileEntry> {
     let missing: BTreeSet<String> = missing.into_iter().collect();
-    let mut files: BTreeMap<String, Option<Change>> = tracked
+    let mut files: BTreeMap<String, Option<FileChange>> = tracked
         .into_iter()
         .filter(|path| !missing.contains(path))
         .map(|path| (path, None))
@@ -409,7 +409,7 @@ fn gather(
     files.extend(
         untracked
             .into_iter()
-            .map(|path| (path, Some(Change::Added))),
+            .map(|path| (path, Some(FileChange::Added))),
     );
     files.extend(
         changed
@@ -457,7 +457,7 @@ mod tests {
         paths.iter().map(|path| path.to_string()).collect()
     }
 
-    fn entry(path: &str, change: Option<Change>) -> FileEntry {
+    fn entry(path: &str, change: Option<FileChange>) -> FileEntry {
         FileEntry {
             path: path.to_string(),
             change,
@@ -535,24 +535,24 @@ mod tests {
                 equal(vec![entry("a.txt", None), entry("b.txt", None)])
             }
             when a_file_was_modified {
-                let changed = vec![("a.txt".to_string(), Change::Modified)];
-                to mark_it { equal(vec![entry("a.txt", Some(Change::Modified)), entry("b.txt", None)]) }
+                let changed = vec![("a.txt".to_string(), FileChange::Modified)];
+                to mark_it { equal(vec![entry("a.txt", Some(FileChange::Modified)), entry("b.txt", None)]) }
             }
             when a_file_is_not_tracked_yet {
                 let untracked = paths(&["new.txt"]);
                 to list_it_as_added {
-                    equal(vec![entry("a.txt", None), entry("b.txt", None), entry("new.txt", Some(Change::Added))])
+                    equal(vec![entry("a.txt", None), entry("b.txt", None), entry("new.txt", Some(FileChange::Added))])
                 }
             }
             when a_file_was_deleted_and_the_deletion_recorded {
                 let tracked = paths(&["b.txt"]);
-                let changed = vec![("a.txt".to_string(), Change::Deleted)];
-                to still_list_it { equal(vec![entry("a.txt", Some(Change::Deleted)), entry("b.txt", None)]) }
+                let changed = vec![("a.txt".to_string(), FileChange::Deleted)];
+                to still_list_it { equal(vec![entry("a.txt", Some(FileChange::Deleted)), entry("b.txt", None)]) }
             }
             when a_file_was_deleted_from_disk_only {
                 let missing = paths(&["a.txt"]);
-                let changed = vec![("a.txt".to_string(), Change::Deleted)];
-                to list_it_as_deleted { equal(vec![entry("a.txt", Some(Change::Deleted)), entry("b.txt", None)]) }
+                let changed = vec![("a.txt".to_string(), FileChange::Deleted)];
+                to list_it_as_deleted { equal(vec![entry("a.txt", Some(FileChange::Deleted)), entry("b.txt", None)]) }
             }
             when a_file_new_on_the_branch_is_gone_from_disk {
                 let missing = paths(&["a.txt"]);

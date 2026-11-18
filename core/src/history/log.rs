@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 
 use crate::files::git::zero_separated;
-use crate::files::Change;
+use crate::files::FileChange;
 use crate::history::ChangedFile;
 
 /// How `git log` is asked to print a commit, for `logged` to read.
@@ -100,7 +100,7 @@ pub fn counts(printed: &[u8]) -> BTreeMap<String, (u32, u32)> {
 
 /// Puts the files a commit changed together with their counts, sorted by path.
 pub fn changed_files(
-    changed: Vec<(String, Change)>,
+    changed: Vec<(String, FileChange)>,
     counts: &BTreeMap<String, (u32, u32)>,
 ) -> Vec<ChangedFile> {
     let mut files: Vec<ChangedFile> = changed
@@ -141,7 +141,12 @@ mod tests {
         (path.to_string(), (added, removed))
     }
 
-    fn file(path: &str, change: Change, added: Option<u32>, removed: Option<u32>) -> ChangedFile {
+    fn file(
+        path: &str,
+        change: FileChange,
+        added: Option<u32>,
+        removed: Option<u32>,
+    ) -> ChangedFile {
         ChangedFile {
             path: path.to_string(),
             change,
@@ -197,21 +202,21 @@ mod tests {
         }
 
         expect(changed_files(changed, &counts)) {
-            let changed = vec![("b.txt".to_string(), Change::Modified), ("a.txt".to_string(), Change::Added)];
+            let changed = vec![("b.txt".to_string(), FileChange::Modified), ("a.txt".to_string(), FileChange::Added)];
             let counts = counted(&[count("a.txt", 3, 0), count("b.txt", 1, 2)]);
 
             when every_file_is_counted to list_them_sorted_with_their_counts {
                 equal(vec![
-                    file("a.txt", Change::Added, Some(3), Some(0)),
-                    file("b.txt", Change::Modified, Some(1), Some(2)),
+                    file("a.txt", FileChange::Added, Some(3), Some(0)),
+                    file("b.txt", FileChange::Modified, Some(1), Some(2)),
                 ])
             }
             when a_file_has_no_count {
                 let counts = counted(&[count("a.txt", 3, 0)]);
                 to list_it_without_one {
                     equal(vec![
-                        file("a.txt", Change::Added, Some(3), Some(0)),
-                        file("b.txt", Change::Modified, None, None),
+                        file("a.txt", FileChange::Added, Some(3), Some(0)),
+                        file("b.txt", FileChange::Modified, None, None),
                     ])
                 }
             }

@@ -1,6 +1,6 @@
 import { inject, Injectable } from '@angular/core';
 import { map, type Observable } from 'rxjs';
-import type { Answer, Request } from '../service/protocol';
+import type { Answer, Opener, Request } from '../service/protocol';
 import { ServiceConnection } from '../service/service-connection';
 import type { FileView, Listing } from './files.model';
 import type { Changes, History } from './history.model';
@@ -46,6 +46,11 @@ export class WorkspaceApi {
 
   stop(threadId: string): Observable<void> {
     return this.ask({ type: 'stop', thread_id: threadId }, () => undefined as void);
+  }
+
+  /** Opens a thread's copy in the file manager, or the editor or terminal set up for it. */
+  openCopy(threadId: string, opener: Opener): Observable<void> {
+    return this.ask({ type: 'open_copy', thread_id: threadId, with: opener }, () => undefined as void);
   }
 
   /** Every file of a branch or a commit. Without either, the project's directory as it is. */

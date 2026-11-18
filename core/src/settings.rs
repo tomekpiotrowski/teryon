@@ -17,6 +17,10 @@
 //!
 //! [agents.grok]
 //! program = "grok"
+//!
+//! [open]
+//! editor = "code {path}"
+//! terminal = "alacritty --working-directory {path}"
 //! ```
 
 use std::fs::read_to_string;
@@ -51,6 +55,7 @@ pub enum SettingsError {
 pub struct Settings {
     pub service: ServiceSettings,
     pub agents: AgentSettings,
+    pub open: OpenSettings,
 }
 
 impl Settings {
@@ -108,6 +113,19 @@ impl Default for AgentSettings {
             grok: GrokSettings::default(),
         }
     }
+}
+
+/// The programs a thread's copy can be opened in, besides the file manager.
+///
+/// Each is a command split on spaces, with `{path}` standing for the copy's
+/// location. Nothing set means the menu does not offer it: editors and
+/// terminals differ from person to person, and guessing wrong is worse than
+/// not offering.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields)]
+pub struct OpenSettings {
+    pub editor: Option<String>,
+    pub terminal: Option<String>,
 }
 
 /// How the Claude Code program is started.
@@ -174,12 +192,18 @@ mod tests {
                     equal(Ok(Settings {
                         service: ServiceSettings { port: USUAL_PORT, allowed_origins: vec!["http://localhost:4200".to_string()] },
                         agents: AgentSettings::default(),
+                        open: OpenSettings::default(),
                     }))
                 }
             }
             when(text = Some("[agents.claude]\nprogram = \"/opt/claude\"\n")) as the_program_is_moved {
                 to keep_using_the_subscription {
                     have(as_ref().unwrap().agents.claude.clone()) equal(ClaudeSettings { program: "/opt/claude".to_string(), use_subscription: true })
+                }
+            }
+            when(text = Some("[open]\neditor = \"code {path}\"\n")) as an_editor_is_named {
+                to keep_the_terminal_unset {
+                    have(as_ref().unwrap().open.clone()) equal(OpenSettings { editor: Some("code {path}".to_string()), terminal: None })
                 }
             }
             when(text = Some("[service]\nprot = 1\n")) as a_name_is_misspelt to be_refused { be_err }

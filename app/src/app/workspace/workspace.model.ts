@@ -26,10 +26,47 @@ export interface Thread {
   readonly unread: boolean;
   /** The names of the slash commands the agent program last said it takes. Empty until it has run here. */
   readonly commands: readonly string[];
-  /** The branch checked out for this thread. Nothing when it has no worktree. */
-  readonly branch: string | null;
+  /** The change the thread's agent is working on, in its own copy of the project. Nothing until it starts one. */
+  readonly change: Change | null;
   readonly created_at: string;
 }
+
+/**
+ * The work a thread's agent is doing in its own copy of the project.
+ *
+ * Underneath it is a git worktree on a branch, but nothing shown on screen
+ * says so: a person sees the change, its name, and where it stands.
+ */
+export interface Change {
+  readonly name: string;
+  /** Where the thread's copy is on this machine. */
+  readonly path: string;
+  /** The branch the change started from. Nothing when the project was not on one. */
+  readonly base: string | null;
+  readonly start: string;
+  /** The branch checked out in the copy now. Usually the change's name. */
+  readonly branch: string | null;
+  /** Nothing until Teryon has looked. */
+  readonly state: ChangeState | null;
+}
+
+export interface ChangeState {
+  readonly copy_present: boolean;
+  readonly base_present: boolean;
+  /** Files that differ from where the change started, saved by the agent or not. */
+  readonly files_changed: number;
+  readonly fit: 'applies' | 'overlaps' | 'unknown';
+  /** The agent left the copy half way through something only it can sort out. */
+  readonly unfinished: boolean;
+}
+
+/** Which openers that need setting up are set up on the machine. */
+export interface Opens {
+  readonly editor: boolean;
+  readonly terminal: boolean;
+}
+
+export const NO_OPENS: Opens = { editor: false, terminal: false };
 
 export type EntryKind = 'user_message' | 'agent_message' | 'activity' | 'notice' | 'error' | 'turn_summary';
 
@@ -159,6 +196,27 @@ export function composerAction(press: ComposerPress): 'send' | 'leave' | null {
   if (press.key === 'Escape') return 'leave';
   if (press.key === 'Enter' && !press.shiftKey) return 'send';
   return null;
+}
+
+/**
+ * What the status line says about a change, after its name, one part each.
+ *
+ * In the person's words, never git's: files changed rather than commits,
+ * "ready to apply" rather than merging cleanly, newer work in the project
+ * rather than conflicts with a branch. How far the project has moved on is
+ * left out, since it only matters when it overlaps, and that is said.
+ */
+export function changeStatus(change: Change): string[] {
+  const state = change.state;
+  if (!state) return [];
+  if (!state.copy_present) return ['its copy was removed outside Teryon'];
+  if (state.unfinished) return ['the agent left this change unfinished'];
+  const files = state.files_changed;
+  const parts = [files === 0 ? 'no files changed yet' : files === 1 ? '1 file changed' : `${files} files changed`];
+  if (!state.base_present) return [...parts, 'the version of the project it started from is gone'];
+  if (files > 0 && state.fit === 'applies') parts.push('ready to apply');
+  if (state.fit === 'overlaps') parts.push('overlaps with newer work in the project');
+  return parts;
 }
 
 /** The screen to show once one is asked for. Asking for the screen already shown goes back to the thread. */

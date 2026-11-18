@@ -6,6 +6,7 @@
 //! business of whoever uses it.
 
 pub mod agents;
+pub mod changes;
 pub mod directory;
 pub mod files;
 pub mod history;

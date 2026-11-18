@@ -31,7 +31,7 @@ class FakeSocket implements Socket {
   }
 }
 
-const SNAPSHOT: ServiceMessage = { type: 'event', event: { type: 'snapshot', projects: [], threads: [] } };
+const SNAPSHOT: ServiceMessage = { type: 'event', event: { type: 'snapshot', projects: [], threads: [], opens: { editor: false, terminal: false } } };
 
 function setUp(addresses: (ServiceAddress | null)[]): { connection: ServiceConnection; sockets: FakeSocket[] } {
   const sockets: FakeSocket[] = [];

@@ -9,7 +9,7 @@ import {
   Output,
 } from '@angular/core';
 import { BehaviorSubject, combineLatest, map, type Observable } from 'rxjs';
-import { type Command, matching, type MenuRow, menuRows, stepped } from './commands.model';
+import { type Command, keyHint, matching, type MenuRow, menuRows, stepped } from './commands.model';
 
 /** A project a person asked to add: what to call it and where it is. */
 export interface NewProject {
@@ -59,6 +59,8 @@ export class CommandMenuComponent implements AfterViewInit {
   @Output() readonly chosen = new EventEmitter<Command>();
   @Output() readonly closed = new EventEmitter<void>();
   @Output() readonly projectAdded = new EventEmitter<NewProject>();
+
+  readonly keyHint = keyHint;
 
   readonly view$: Observable<MenuView> = combineLatest([this.commands$, this.typed$, this.marked$, this.adding$]).pipe(
     map(([commands, typed, marked, adding]) => menuView(commands, typed, marked, adding)),

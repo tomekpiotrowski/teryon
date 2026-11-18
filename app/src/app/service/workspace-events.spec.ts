@@ -15,7 +15,7 @@ function thread(id: string, projectId: string, title = ''): Thread {
     status: 'idle',
     unread: false,
     commands: [],
-    branch: null,
+    change: null,
     created_at: '2026-11-18T10:00:00Z',
   };
 }
@@ -24,16 +24,20 @@ function entry(id: string, position: number): ThreadEntry {
   return { id, thread_id: 't', position, kind: 'notice', body: { text: id }, created_at: '2026-11-18T10:00:00Z' };
 }
 
-const lists: WorkspaceLists = { projects: [project('a'), project('b')], threads: [thread('t1', 'a'), thread('t2', 'b')] };
+const lists: WorkspaceLists = {
+  projects: [project('a'), project('b')],
+  threads: [thread('t1', 'a'), thread('t2', 'b')],
+  opens: { editor: false, terminal: false },
+};
 
 function apply(event: unknown): WorkspaceLists {
   return applyEvent(lists, event as Event);
 }
 
 describe('applyEvent', () => {
-  it('replaces everything with a snapshot', () => {
-    const fresh = apply({ type: 'snapshot', projects: [project('c')], threads: [] });
-    expect(fresh).toEqual({ projects: [project('c')], threads: [] });
+  it('replaces everything with a snapshot, including what copies can be opened in', () => {
+    const fresh = apply({ type: 'snapshot', projects: [project('c')], threads: [], opens: { editor: true, terminal: false } });
+    expect(fresh).toEqual({ projects: [project('c')], threads: [], opens: { editor: true, terminal: false } });
   });
 
   it('adds a project at the end', () => {
@@ -46,7 +50,7 @@ describe('applyEvent', () => {
   });
 
   it('removes a project together with its threads', () => {
-    expect(apply({ type: 'project_removed', project_id: 'a' })).toEqual({ projects: [project('b')], threads: [thread('t2', 'b')] });
+    expect(apply({ type: 'project_removed', project_id: 'a' })).toEqual({ ...lists, projects: [project('b')], threads: [thread('t2', 'b')] });
   });
 
   it('ignores the removal of a project it does not know', () => {
@@ -67,7 +71,7 @@ describe('applyEvent', () => {
   });
 
   it('starts from nothing', () => {
-    expect(NO_LISTS).toEqual({ projects: [], threads: [] });
+    expect(NO_LISTS).toEqual({ projects: [], threads: [], opens: { editor: false, terminal: false } });
   });
 });
 

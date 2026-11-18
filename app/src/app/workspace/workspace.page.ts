@@ -26,7 +26,8 @@ import {
 } from 'rxjs';
 import { ThemeService } from '../theme.service';
 import { type NewProject } from './command-menu.component';
-import { boundCommand, type Command, commandList, menuAsked } from './commands.model';
+import type { Opener } from '../service/protocol';
+import { type Command, commandList, keyOutcome, menuAsked } from './commands.model';
 import { askDraft } from './files.model';
 import { type Commit, revertDraft } from './history.model';
 import { WorkspaceApi } from './workspace.api';
@@ -34,6 +35,7 @@ import {
   type AgentName,
   agentLabel,
   barTitle,
+  changeStatus,
   composerAction,
   type EntryLine,
   entryLine,
@@ -72,6 +74,8 @@ interface WorkspaceView {
   readonly projectThreads: readonly Thread[];
   /** The part of the selected project's repository the files and the history show. */
   readonly place: Place;
+  /** What the status line says about the open thread's change, after its name. */
+  readonly changeLine: readonly string[];
 }
 
 /**
@@ -116,6 +120,8 @@ export class WorkspacePage implements OnDestroy {
   readonly screen$ = new BehaviorSubject<Screen>('thread');
   /** The branch or commit the files and the history were last asked to show. */
   readonly place$ = new BehaviorSubject<Place>(NO_PLACE);
+  /** A leader key pressed, waiting for the key that picks a command of its family. */
+  readonly leader$ = new BehaviorSubject<string | null>(null);
 
   readonly view$: Observable<WorkspaceView> = combineLatest([
     combineLatest([this.store.projects$, this.store.threads$]).pipe(
@@ -138,6 +144,7 @@ export class WorkspacePage implements OnDestroy {
           liveAgents: projectThreads.filter((candidate) => candidate.status === 'running').length,
           projectThreads,
           place: project ? placeIn(place, project.id) : NO_PLACE,
+          changeLine: thread?.change ? changeStatus(thread.change) : [],
         })),
       );
     }),
@@ -149,8 +156,9 @@ export class WorkspacePage implements OnDestroy {
     this.view$,
     this.agent$,
     toObservable(this.theme.theme),
+    this.store.opens$,
   ]).pipe(
-    map(([view, agent, theme]) => commandList({ ...view, agent, theme })),
+    map(([view, agent, theme, opens]) => commandList({ ...view, agent, theme, opens })),
     shareReplay({ bufferSize: 1, refCount: true }),
   );
 
@@ -240,8 +248,9 @@ export class WorkspacePage implements OnDestroy {
    * Answers the keys that work anywhere on the screen.
    *
    * `/` and Ctrl+K open the menu, and Ctrl+K or Escape close it. A bare
-   * letter runs the command bound to it, as the hints on screen say. While
-   * the menu is open the letters are left alone.
+   * letter runs the command bound to it, as the hints on screen say, or
+   * waits for a second one when it leads a family, such as `w` for the
+   * thread's change. While the menu is open the letters are left alone.
    */
   @HostListener('document:keydown', ['$event'])
   handleShortcut(event: KeyboardEvent): void {
@@ -265,14 +274,17 @@ export class WorkspacePage implements OnDestroy {
       event.preventDefault();
       return this.openMenu(true);
     }
-    const bound = boundCommand(press, this.commands);
-    if (!bound) return;
+    const outcome = keyOutcome(press, this.commands, this.leader$.value);
+    if (!outcome) return;
     event.preventDefault();
-    this.run(bound);
+    if (outcome.kind === 'wait') return this.leader$.next(outcome.leader);
+    this.leader$.next(null);
+    if (outcome.kind === 'run') this.run(outcome.command);
   }
 
   /** Opens the menu. `byKey` tells a key press from a tap, which should not end with a keyboard raised. */
   openMenu(byKey = false): void {
+    this.leader$.next(null);
     this.menuOpenedByKey = byKey;
     this.menuOpen$.next(true);
   }
@@ -304,6 +316,10 @@ export class WorkspacePage implements OnDestroy {
         return this.theme.toggle();
       case 'stopAgent':
         return this.stop(action.thread);
+      case 'copyLocation':
+        return this.copyLocation(action.path);
+      case 'openCopy':
+        return this.openCopy(action.thread, action.opener);
       case 'draft':
         return this.draftAndReturn(action.text);
       case 'newProject':
@@ -332,7 +348,7 @@ export class WorkspacePage implements OnDestroy {
     this.place$.next({ projectId: project.id, branch, commit: null });
   }
 
-  /** Opens the files and the history on the branch a thread has checked out. */
+  /** Opens the files and the history on what a thread's agent changed. */
   explore(project: Project, branch: string): void {
     this.chooseBranch(project, branch);
     this.screen$.next('files');
@@ -404,6 +420,20 @@ export class WorkspacePage implements OnDestroy {
   stop(thread: Thread): void {
     this.api.stop(thread.id).subscribe({
       error: (failure: unknown) => this.alerts.error(refusalText(failure, 'The agent could not be stopped.')),
+    });
+  }
+
+  /** Puts where a thread's copy is on the clipboard, for a terminal or another program. */
+  copyLocation(path: string): void {
+    navigator.clipboard.writeText(path).then(
+      () => this.alerts.success('Location copied.'),
+      () => this.alerts.error('The location could not be copied.'),
+    );
+  }
+
+  openCopy(thread: Thread, opener: Opener): void {
+    this.api.openCopy(thread.id, opener).subscribe({
+      error: (failure: unknown) => this.alerts.error(refusalText(failure, 'The copy could not be opened.')),
     });
   }
 

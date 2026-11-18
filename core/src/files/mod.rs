@@ -40,7 +40,7 @@ pub enum FilesError {
 /// What happened to a file since the version it is compared with.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
-pub enum Change {
+pub enum FileChange {
     Added,
     Modified,
     Deleted,
@@ -52,7 +52,7 @@ pub struct FileEntry {
     /// Where the file is, from the top of the repository, with `/` between folders.
     pub path: String,
     /// Nothing for a file that did not change.
-    pub change: Option<Change>,
+    pub change: Option<FileChange>,
 }
 
 /// Every file of a branch or a commit, together with the branches there are to choose from.

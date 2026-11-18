@@ -8,11 +8,13 @@
  * Free of Angular and Ionic, like `workspace.model.ts`, so it can be tested on its own.
  */
 
+import type { Opener } from '../service/protocol';
 import {
   type AgentName,
   agentLabel,
   isBareLetter,
   type KeyPress,
+  type Opens,
   otherAgent,
   type Project,
   type ProjectGroup,
@@ -21,7 +23,7 @@ import {
 } from './workspace.model';
 
 /** The sections of the menu, in the order they are listed before anything is typed. */
-export type CommandGroup = 'attention' | 'thread' | 'project' | 'action' | 'agent';
+export type CommandGroup = 'attention' | 'thread' | 'project' | 'change' | 'action' | 'agent';
 
 /** What choosing a command does, as plain data for the screen to carry out. */
 export type CommandAction =
@@ -33,6 +35,8 @@ export type CommandAction =
   | { readonly kind: 'toggleAgent' }
   | { readonly kind: 'toggleTheme' }
   | { readonly kind: 'stopAgent'; readonly thread: Thread }
+  | { readonly kind: 'copyLocation'; readonly path: string }
+  | { readonly kind: 'openCopy'; readonly thread: Thread; readonly opener: Opener }
   | { readonly kind: 'draft'; readonly text: string };
 
 export interface Command {
@@ -43,6 +47,8 @@ export interface Command {
   readonly group: CommandGroup;
   /** The bare letter that runs the command without opening the menu. */
   readonly key: string | null;
+  /** A letter pressed before `key`, for commands that come in a family, such as `w` for a thread's change. */
+  readonly leader: string | null;
   /** Whether an agent is working in what the command opens. */
   readonly live: boolean;
   readonly action: CommandAction;
@@ -56,6 +62,8 @@ export interface Situation {
   /** The agent a new thread would be started with. */
   readonly agent: AgentName;
   readonly theme: 'light' | 'dark';
+  /** What a thread's copy can be opened in, besides the file manager. */
+  readonly opens: Opens;
 }
 
 /** One line of the menu: a command, under a heading when it starts a section. */
@@ -68,6 +76,7 @@ const HEADINGS: Readonly<Record<CommandGroup, string>> = {
   attention: 'Waiting for you',
   thread: 'Threads',
   project: 'Projects',
+  change: 'This thread’s changes',
   action: 'Actions',
   agent: 'Agent commands',
 };
@@ -128,7 +137,35 @@ export function commandList(situation: Situation): Command[] {
     command('action:toggleTheme', situation.theme === 'dark' ? 'Light theme' : 'Dark theme', 'action', { kind: 'toggleTheme' }),
   );
 
-  return [...threads, ...projects, ...actions, ...agentCommands(situation)];
+  return [...threads, ...projects, ...changeCommands(situation), ...actions, ...agentCommands(situation)];
+}
+
+/** The leader key for the commands about the open thread's change. */
+export const CHANGE_LEADER = 'w';
+
+/**
+ * What can be done with the open thread's change: copy where its copy is, or open it.
+ *
+ * Nothing is offered while there is no change, or once its copy is gone.
+ * The editor and the terminal are only offered when set up, since Teryon
+ * cannot guess which a person uses.
+ */
+function changeCommands(situation: Situation): Command[] {
+  const thread = situation.thread;
+  const change = thread?.change;
+  if (!thread || !change || change.state?.copy_present === false) return [];
+  const extra = (key: string) => ({ detail: change.name, key, leader: CHANGE_LEADER });
+  const commands = [
+    command('change:copyLocation', 'Copy location', 'change', { kind: 'copyLocation', path: change.path }, extra('y')),
+    command('change:openFolder', 'Open folder', 'change', { kind: 'openCopy', thread, opener: 'folder' }, extra('f')),
+  ];
+  if (situation.opens.editor) {
+    commands.push(command('change:openEditor', 'Open in editor', 'change', { kind: 'openCopy', thread, opener: 'editor' }, extra('e')));
+  }
+  if (situation.opens.terminal) {
+    commands.push(command('change:openTerminal', 'Open terminal', 'change', { kind: 'openCopy', thread, opener: 'terminal' }, extra('t')));
+  }
+  return commands;
 }
 
 /**
@@ -203,9 +240,46 @@ export function menuAsked(press: KeyPress, draft: string): boolean {
   return press.element.toUpperCase() === 'TEXTAREA' && !draft.trim();
 }
 
-/** The command a bare letter is bound to. Nothing for any other key press. */
-export function boundCommand(press: KeyPress, commands: readonly Command[]): Command | null {
-  return commands.find((candidate) => candidate.key !== null && isBareLetter(press, candidate.key)) ?? null;
+/** What a key press does with the keys bound to commands. */
+export type KeyOutcome =
+  | { readonly kind: 'run'; readonly command: Command }
+  /** A leader was pressed: the next key picks the command. */
+  | { readonly kind: 'wait'; readonly leader: string }
+  /** The key after a leader picks nothing, so the leader is forgotten. */
+  | { readonly kind: 'cancel' };
+
+/** Keys that change another key rather than mean something themselves. */
+const MODIFIERS = ['Shift', 'Control', 'Alt', 'Meta', 'CapsLock'];
+
+/**
+ * What a key press does, given the leader pressed just before it, if any.
+ *
+ * A bare letter runs the command bound to it alone, or waits for a second
+ * letter when it leads a family of commands. After a leader, the letter
+ * runs the family's command; anything else, Escape included, cancels. A
+ * modifier on its own changes nothing, so Shift can be held for a capital.
+ * Nothing means the key is not for the commands at all.
+ */
+export function keyOutcome(press: KeyPress, commands: readonly Command[], leader: string | null): KeyOutcome | null {
+  if (leader !== null) {
+    if (MODIFIERS.includes(press.key)) return null;
+    const command = commands.find(
+      (candidate) => candidate.leader === leader && candidate.key !== null && isBareLetter(press, candidate.key),
+    );
+    return command ? { kind: 'run', command } : { kind: 'cancel' };
+  }
+  const single = commands.find(
+    (candidate) => candidate.leader === null && candidate.key !== null && isBareLetter(press, candidate.key),
+  );
+  if (single) return { kind: 'run', command: single };
+  const led = commands.find((candidate) => candidate.leader !== null && isBareLetter(press, candidate.leader));
+  return led?.leader ? { kind: 'wait', leader: led.leader } : null;
+}
+
+/** The keys that run a command, as shown beside it: `C`, or `W Y` for one after a leader. */
+export function keyHint(command: Command): string | null {
+  if (command.key === null) return null;
+  return [command.leader, command.key].filter((key) => key !== null).join(' ').toUpperCase();
 }
 
 /** The line marked after moving up or down a list of the given length, going round at either end. */
@@ -219,9 +293,18 @@ function command(
   title: string,
   group: CommandGroup,
   action: CommandAction,
-  extra: { readonly detail?: string; readonly key?: string; readonly live?: boolean } = {},
+  extra: { readonly detail?: string; readonly key?: string; readonly leader?: string; readonly live?: boolean } = {},
 ): Command {
-  return { id, title, group, action, detail: extra.detail ?? '', key: extra.key ?? null, live: extra.live ?? false };
+  return {
+    id,
+    title,
+    group,
+    action,
+    detail: extra.detail ?? '',
+    key: extra.key ?? null,
+    leader: extra.leader ?? null,
+    live: extra.live ?? false,
+  };
 }
 
 /** How well a command fits a query: lower is better, nothing when it does not fit at all. */

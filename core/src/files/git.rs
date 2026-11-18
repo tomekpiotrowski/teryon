@@ -4,7 +4,8 @@
 //! files there are, which branches, and what changed. Starting the program
 //! keeps Teryon's answers identical to what a person sees in a terminal.
 //!
-//! Git is started so that it only reads. It takes no optional locks, because
+//! The file browser and the history only read; changes, see `crate::changes`,
+//! also create worktrees. Git takes no optional locks, because
 //! an agent may be using the same repository at that moment, and it never
 //! looks above the directory it is given, so a plain folder that happens to
 //! sit inside some other repository is not mistaken for one.
@@ -16,7 +17,7 @@ use std::process::Stdio;
 use thiserror::Error;
 use tokio::process::Command;
 
-use crate::files::Change;
+use crate::files::FileChange;
 
 #[derive(Debug, Error)]
 pub enum GitError {
@@ -30,13 +31,21 @@ pub enum GitError {
 #[derive(Clone, Debug)]
 pub struct Git {
     directory: PathBuf,
+    environment: Vec<(String, String)>,
 }
 
 impl Git {
     pub fn at(directory: impl Into<PathBuf>) -> Self {
         Self {
             directory: directory.into(),
+            environment: Vec::new(),
         }
+    }
+
+    /// The same, with an environment variable set for every run.
+    pub fn with_env(mut self, name: &str, value: impl Into<String>) -> Self {
+        self.environment.push((name.to_string(), value.into()));
+        self
     }
 
     pub fn directory(&self) -> &Path {
@@ -45,8 +54,8 @@ impl Git {
 
     /// What git printed. A run that ends in failure is an error.
     pub async fn output(&self, arguments: &[&str]) -> Result<Vec<u8>, GitError> {
-        let (succeeded, printed, complaint) = self.run(arguments).await?;
-        if succeeded {
+        let (code, printed, complaint) = self.run(arguments).await?;
+        if code == Some(0) {
             Ok(printed)
         } else {
             Err(GitError::Failed {
@@ -61,11 +70,20 @@ impl Git {
     /// Git reports a missing branch, file or repository by ending in failure,
     /// which for a question is an answer rather than an error.
     pub async fn attempt(&self, arguments: &[&str]) -> Result<Option<Vec<u8>>, GitError> {
-        let (succeeded, printed, _) = self.run(arguments).await?;
-        Ok(succeeded.then_some(printed))
+        let (code, printed, _) = self.run(arguments).await?;
+        Ok((code == Some(0)).then_some(printed))
     }
 
-    async fn run(&self, arguments: &[&str]) -> Result<(bool, Vec<u8>, String), GitError> {
+    /// How git ended: its exit code, or nothing when a signal ended it.
+    ///
+    /// For the commands that answer with their exit code, such as
+    /// `merge-tree`, where 1 means conflicts and anything else above 0 a failure.
+    pub async fn exit_code(&self, arguments: &[&str]) -> Result<Option<i32>, GitError> {
+        let (code, _, _) = self.run(arguments).await?;
+        Ok(code)
+    }
+
+    async fn run(&self, arguments: &[&str]) -> Result<(Option<i32>, Vec<u8>, String), GitError> {
         let mut command = Command::new("git");
         command
             // A repository can name a program to watch its files. Reading must
@@ -76,6 +94,7 @@ impl Git {
             .env("GIT_OPTIONAL_LOCKS", "0")
             .env("GIT_TERMINAL_PROMPT", "0")
             .env("LC_ALL", "C")
+            .envs(self.environment.iter().map(|(name, value)| (name, value)))
             .stdin(Stdio::null())
             .kill_on_drop(true);
         if let Some(parent) = self.directory.parent() {
@@ -84,7 +103,7 @@ impl Git {
 
         let output = command.output().await?;
         Ok((
-            output.status.success(),
+            output.status.code(),
             output.stdout,
             String::from_utf8_lossy(&output.stderr).trim().to_string(),
         ))
@@ -126,16 +145,16 @@ pub fn zero_separated(printed: &[u8]) -> Vec<String> {
 /// Renames are switched off where this is asked for, so every letter is
 /// followed by exactly one file. Anything that is neither an addition nor a
 /// removal counts as a modification.
-pub fn changes(printed: &[u8]) -> Vec<(String, Change)> {
+pub fn changes(printed: &[u8]) -> Vec<(String, FileChange)> {
     let parts = zero_separated(printed);
     let (pairs, _) = parts.as_chunks::<2>();
     pairs
         .iter()
         .map(|[letter, path]| {
             let change = match letter.chars().next() {
-                Some('A') => Change::Added,
-                Some('D') => Change::Deleted,
-                _ => Change::Modified,
+                Some('A') => FileChange::Added,
+                Some('D') => FileChange::Deleted,
+                _ => FileChange::Modified,
             };
             (path.clone(), change)
         })
@@ -218,15 +237,15 @@ mod tests {
         expect(changes(printed)) {
             when(printed = "M\0a.txt\0A\0b.txt\0D\0c.txt\0".as_bytes()) as each_letter to name_its_change {
                 equal(vec![
-                    ("a.txt".to_string(), Change::Modified),
-                    ("b.txt".to_string(), Change::Added),
-                    ("c.txt".to_string(), Change::Deleted),
+                    ("a.txt".to_string(), FileChange::Modified),
+                    ("b.txt".to_string(), FileChange::Added),
+                    ("c.txt".to_string(), FileChange::Deleted),
                 ])
             }
             when(printed = "T\0link\0U\0clash.txt\0".as_bytes()) as other_letters to count_as_modified {
                 equal(vec![
-                    ("link".to_string(), Change::Modified),
-                    ("clash.txt".to_string(), Change::Modified),
+                    ("link".to_string(), FileChange::Modified),
+                    ("clash.txt".to_string(), FileChange::Modified),
                 ])
             }
             when(printed = "M\0".as_bytes()) as a_letter_without_a_file to be_skipped { equal(Vec::new()) }

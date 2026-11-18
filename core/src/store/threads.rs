@@ -292,7 +292,7 @@ mod tests {
             status: Status::Idle,
             unread: false,
             commands: Vec::new(),
-            branch: None,
+            change: None,
             created_at: Utc::now(),
         }
     }

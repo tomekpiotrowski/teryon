@@ -431,7 +431,8 @@ a:hover {
 .menu-button svg { width: 18px; fill: none; stroke: currentColor; stroke-linecap: square; stroke-width: 1.5; }
 
 .bar-running,
-.bar-waiting {
+.bar-waiting,
+.bar-leader {
   flex: none;
   color: var(--color-accent-700);
   font: 400 11.5px/1 var(--font-code);
@@ -926,6 +927,10 @@ a:hover {
 .thread-meta > div { display: flex; min-width: 0; align-items: center; gap: 14px; }
 .thread-meta > div:first-child { overflow: hidden; }
 .thread-meta button { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The open thread's change: its name, then where it stands, quieter. */
+.change-line { display: flex; min-width: 0; align-items: center; gap: 6px; overflow: hidden; white-space: nowrap; }
+.change-part { overflow: hidden; color: var(--color-neutral-600); text-overflow: ellipsis; }
 
 .settings-backdrop {
   position: fixed;

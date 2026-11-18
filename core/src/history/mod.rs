@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 use uuid::Uuid;
 
-use crate::files::Change;
+use crate::files::FileChange;
 
 /// The commits of a branch, newest first, with the branches there are to choose from.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -80,7 +80,7 @@ pub struct Changes {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct ChangedFile {
     pub path: String,
-    pub change: Change,
+    pub change: FileChange,
     /// How many lines were added and removed. Nothing for a file that is not text.
     pub added: Option<u32>,
     pub removed: Option<u32>,

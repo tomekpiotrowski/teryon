@@ -11,8 +11,11 @@
 
 use std::collections::HashMap;
 use std::env::current_dir;
+use std::ffi::OsString;
+use std::future::Future;
 use std::io::Error as IoError;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::process::{ExitStatus, Stdio};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
@@ -26,13 +29,14 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::agents::process::{ProcessTree, Signal};
-use crate::agents::worktree::{instruction_for, observed_branch};
 use crate::agents::{driver_for, Agent, AgentDriver, EntryDraft, EntryKind, Invocation, Turn};
+use crate::changes::instruction::instruction_for;
+use crate::changes::status::Look;
 use crate::settings::AgentSettings;
 use crate::store::Thread;
 
-/// How often a running turn looks for the worktree its agent may have created.
-const CHECK_WORKTREE_EVERY: Duration = Duration::from_secs(1);
+/// How often a running turn has its thread's change looked at.
+const LOOK_AT_CHANGE_EVERY: Duration = Duration::from_secs(1);
 
 /// How much of a failed program's complaints is shown.
 const LONGEST_COMPLAINT: usize = 2000;
@@ -46,6 +50,9 @@ enum Stop {
     Shutdown,
 }
 
+/// Work that finishes later, handed back by a [`Journal`].
+pub type Pending<'a> = Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
+
 /// Where a turn's results go.
 ///
 /// Storing can fail; the journal logs that itself, because a turn has no one
@@ -56,6 +63,11 @@ pub trait Journal: Send + Sync + 'static {
 
     /// Changes a fact about a thread.
     fn note(&self, thread_id: Uuid, change: ThreadChange);
+
+    /// Reads where the thread's change stands, or finds the copy its agent made by hand.
+    ///
+    /// Knowing that takes the whole project's threads, which the runner does not have.
+    fn look(&self, thread_id: Uuid, look: Look) -> Pending<'_>;
 }
 
 /// A fact about a thread that a turn learns.
@@ -65,8 +77,6 @@ pub enum ThreadChange {
     ConversationStarted,
     /// The slash commands the program says it takes.
     Commands(Vec<String>),
-    /// The branch checked out in the thread's worktree, or nothing once it is gone.
-    Branch(Option<String>),
     /// The program has ended, however it ended. The thread takes messages again
     /// and needs the person's attention.
     Finished,
@@ -77,12 +87,21 @@ pub struct TurnRequest {
     pub thread: Thread,
     pub directory: PathBuf,
     pub message: String,
+    /// Environment variables for the program, on top of Teryon's own.
+    pub environment: Vec<(String, OsString)>,
+}
+
+/// An agent program that is running.
+struct Running {
+    stop: Sender<Option<Stop>>,
+    /// Identifies this turn to Teryon when the agent calls `teryon` itself.
+    turn: Uuid,
 }
 
 /// Keeps track of the agents that are running, so they can be stopped.
 #[derive(Clone, Default)]
 pub struct Runner {
-    running: Arc<Mutex<HashMap<Uuid, Sender<Option<Stop>>>>>,
+    running: Arc<Mutex<HashMap<Uuid, Running>>>,
 }
 
 impl Runner {
@@ -93,11 +112,12 @@ impl Runner {
     pub fn start(&self, journal: Arc<dyn Journal>, settings: AgentSettings, request: TurnRequest) {
         let (stop, stopped) = channel(None);
         let thread_id = request.thread.id;
-        self.running().insert(thread_id, stop);
+        let turn = Uuid::new_v4();
+        self.running().insert(thread_id, Running { stop, turn });
 
         let runner = self.clone();
         tokio::spawn(async move {
-            run_turn(journal.as_ref(), &settings, request, stopped).await;
+            run_turn(journal.as_ref(), &settings, request, turn, stopped).await;
             // Forget the run before the thread accepts messages again, so a
             // new run for the same thread is never forgotten in its place.
             runner.running().remove(&thread_id);
@@ -107,15 +127,20 @@ impl Runner {
 
     /// Asks the agent of a thread to stop. Does nothing when none is running.
     pub fn stop(&self, thread_id: Uuid) {
-        if let Some(stop) = self.running().get(&thread_id) {
-            let _ = stop.send(Some(Stop::ByUser));
+        if let Some(running) = self.running().get(&thread_id) {
+            let _ = running.stop.send(Some(Stop::ByUser));
         }
+    }
+
+    /// The turn a thread's agent is running now, if it is running.
+    pub fn turn_of(&self, thread_id: Uuid) -> Option<Uuid> {
+        self.running().get(&thread_id).map(|running| running.turn)
     }
 
     /// Stops every agent because Teryon is shutting down.
     pub fn stop_all(&self) {
-        for stop in self.running().values() {
-            let _ = stop.send(Some(Stop::Shutdown));
+        for running in self.running().values() {
+            let _ = running.stop.send(Some(Stop::Shutdown));
         }
     }
 
@@ -124,7 +149,7 @@ impl Runner {
         !self.running().is_empty()
     }
 
-    fn running(&self) -> MutexGuard<'_, HashMap<Uuid, Sender<Option<Stop>>>> {
+    fn running(&self) -> MutexGuard<'_, HashMap<Uuid, Running>> {
         self.running.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
@@ -134,13 +159,17 @@ async fn run_turn(
     journal: &dyn Journal,
     settings: &AgentSettings,
     request: TurnRequest,
+    turn: Uuid,
     stopped: Receiver<Option<Stop>>,
 ) {
     let TurnRequest {
         thread,
         directory,
         message,
+        mut environment,
     } = request;
+    environment.push(("TERYON_THREAD".to_string(), thread.id.to_string().into()));
+    environment.push(("TERYON_TURN".to_string(), turn.to_string().into()));
 
     let Some(agent) = Agent::parse(&thread.agent) else {
         journal.add(
@@ -151,15 +180,15 @@ async fn run_turn(
     };
 
     let driver = driver_for(agent, settings);
-    let brief = instruction_for(&directory, thread.id).await;
-    let watch_worktree = brief.is_some();
+    let brief = instruction_for(&directory, thread.change.as_deref()).await;
+    let watch_change = brief.is_some();
     let invocation = driver.invocation(&Turn {
         message,
         conversation: thread.conversation_id,
         first: !thread.conversation_started,
         brief,
     });
-    let tree = match spawn(&invocation, &directory) {
+    let tree = match spawn(&invocation, &directory, &environment) {
         Ok(tree) => tree,
         Err(problem) => {
             let text = format!("Could not start `{}`: {problem}.", invocation.program);
@@ -169,17 +198,7 @@ async fn run_turn(
     };
 
     let grace = Duration::from_secs(settings.stop_grace_seconds);
-    let outcome = follow(
-        journal,
-        &thread,
-        &directory,
-        watch_worktree,
-        driver,
-        tree,
-        stopped,
-        grace,
-    )
-    .await;
+    let outcome = follow(journal, &thread, watch_change, driver, tree, stopped, grace).await;
 
     match outcome.stop {
         Some(Stop::ByUser) => journal.add(thread.id, EntryDraft::notice("Stopped by you.")),
@@ -209,8 +228,7 @@ struct Outcome {
 async fn follow(
     journal: &dyn Journal,
     thread: &Thread,
-    directory: &Path,
-    watch_worktree: bool,
+    watch_change: bool,
     mut driver: Box<dyn AgentDriver>,
     mut tree: ProcessTree,
     mut stopped: Receiver<Option<Stop>>,
@@ -227,17 +245,16 @@ async fn follow(
     let mut summarised = false;
     let mut conversation_started = thread.conversation_started;
     let mut known_commands = thread.commands.clone();
-    let mut known_branch = thread.branch.clone();
     let mut stop = None;
     let mut listening = true;
     let mut kill_at: Option<TokioInstant> = None;
-    let mut ticks = interval(CHECK_WORKTREE_EVERY);
+    let mut ticks = interval(LOOK_AT_CHANGE_EVERY);
     ticks.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
     while let Some(report) = lines.as_mut() {
         tokio::select! {
-            _ = ticks.tick(), if watch_worktree => {
-                remember_branch(journal, thread.id, directory, &mut known_branch).await;
+            _ = ticks.tick(), if watch_change => {
+                journal.look(thread.id, Look::Quick).await;
             }
             line = report.next_line() => {
                 let Ok(Some(line)) = line else { break };
@@ -287,8 +304,8 @@ async fn follow(
         }
     }
 
-    if watch_worktree {
-        remember_branch(journal, thread.id, directory, &mut known_branch).await;
+    if watch_change {
+        journal.look(thread.id, Look::Thorough).await;
     }
 
     let status = match timeout(grace, tree.child().wait()).await {
@@ -311,10 +328,15 @@ async fn follow(
 }
 
 /// Starts the program in the project directory, at the head of a process tree.
-fn spawn(invocation: &Invocation, directory: &Path) -> Result<ProcessTree, IoError> {
+fn spawn(
+    invocation: &Invocation,
+    directory: &Path,
+    environment: &[(String, OsString)],
+) -> Result<ProcessTree, IoError> {
     let mut command = Command::new(program_path(&invocation.program));
     command
         .args(&invocation.arguments)
+        .envs(environment.iter().map(|(name, value)| (name, value)))
         .current_dir(directory)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -406,29 +428,6 @@ async fn read_end(output: Option<ChildStderr>) -> String {
         text = text.chars().skip(length - LONGEST_COMPLAINT).collect();
     }
     text
-}
-
-/// Notes the branch checked out for a thread when it has changed.
-///
-/// A failure to read the worktrees leaves the branch as it was: not being
-/// able to ask git is different from the checkout being gone.
-async fn remember_branch(
-    journal: &dyn Journal,
-    thread_id: Uuid,
-    directory: &Path,
-    known: &mut Option<String>,
-) {
-    let found = match observed_branch(directory, thread_id).await {
-        Ok(found) => found,
-        Err(problem) => {
-            warn!("could not read worktrees: {problem}");
-            return;
-        }
-    };
-    if found != *known {
-        *known = found.clone();
-        journal.note(thread_id, ThreadChange::Branch(found));
-    }
 }
 
 #[cfg(test)]

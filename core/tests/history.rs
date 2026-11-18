@@ -15,7 +15,7 @@ use uuid::Uuid;
 
 use common::{git, git_at, project_folder, put, unknown, Scene};
 use teryon_core::files::diff::LineChange;
-use teryon_core::files::{Change, Content, FileView};
+use teryon_core::files::{Content, FileChange, FileView};
 use teryon_core::history::{Changes, Commit, History};
 
 /// The moment of the first commit of every repository here. Later commits come a minute apart.
@@ -181,9 +181,9 @@ fn changed(changes: &Changes) -> Vec<String> {
         .iter()
         .map(|file| {
             let letter = match file.change {
-                Change::Added => "A",
-                Change::Modified => "M",
-                Change::Deleted => "D",
+                FileChange::Added => "A",
+                FileChange::Modified => "M",
+                FileChange::Deleted => "D",
             };
             let counts = match (file.added, file.removed) {
                 (Some(added), Some(removed)) => format!(" +{added} -{removed}"),

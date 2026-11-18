@@ -4,6 +4,9 @@
 // Each test has a Teryon service of its own, which starts a script that
 // replays recordings in place of the agent programs. Nothing here reaches a model provider.
 
+import { realpathSync } from "node:fs";
+import { join } from "node:path";
+
 import { addProject, choose, commit, expect, git, menu, openWorkspace, put, test } from "./support";
 
 test.beforeEach(openWorkspace);
@@ -28,23 +31,44 @@ test("an agent works in a project and the thread fills in live", async ({ page }
   await expect(page.getByLabel("Reply")).toHaveValue("");
 });
 
-test("a thread's worktree can be explored on its branch", async ({ page }) => {
-  await addProject(page, "Sample", (folder) => {
+test("an agent's change shows where it stands, and its copy can be found", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  const directory = await addProject(page, "Sample", (folder) => {
     git(folder, "init", "-q", "-b", "main");
     put(folder, "README.md", "# Sample\n");
     commit(folder);
   });
 
-  await page.getByLabel("New thread").fill("make a worktree");
+  await page.getByLabel("New thread").fill("start a change fix-login");
   await page.getByRole("button", { name: "Run ↵" }).click();
 
   const thread = page.getByLabel("Thread");
   await expect(thread.getByText("ready", { exact: true })).toBeVisible();
-  await expect(thread.getByText(/\.teryon\/worktrees/)).toHaveCount(0);
+  const changes = page.getByLabel("Changes");
+  await expect(changes).toContainText("fix-login");
+  await expect(changes).toContainText("· 1 file changed");
+  await expect(changes).toContainText("· ready to apply");
+  await expect(page.getByText(/\.teryon\/worktrees/)).toHaveCount(0);
 
-  await page.getByRole("button", { name: "Explore feature" }).click();
-  await expect(page.getByLabel("Branch")).toHaveValue("feature");
-  await expect(page.getByLabel("Repository files").getByRole("button", { name: "README.md" })).toBeVisible();
+  // W, then Y, copies where the thread's copy is, saying so in the bar while waiting for the second key.
+  await page.getByLabel("Reply").press("Escape");
+  await page.keyboard.press("w");
+  await expect(page.locator(".bar-leader")).toHaveText("W …");
+  await page.keyboard.press("y");
+  await expect(page.locator(".bar-leader")).toHaveCount(0);
+  await expect(page.getByText("Location copied.")).toBeVisible();
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copied).toBe(join(realpathSync(directory), ".teryon", "worktrees", "fix-login"));
+
+  // The menu lists the same, with its keys.
+  await page.keyboard.press("Control+k");
+  await expect(menu(page).getByRole("option", { name: /^Copy location fix-login W Y$/ })).toBeVisible();
+  await expect(menu(page).getByRole("option", { name: /^Open folder fix-login W F$/ })).toBeVisible();
+  await expect(menu(page).getByRole("option", { name: /^Open in editor/ })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
+  await page.getByRole("button", { name: "Explore fix-login" }).click();
+  await expect(page.getByLabel("Repository files").getByRole("button", { name: "fix-login.txt" })).toBeVisible();
   await expect(page.getByText(/\.teryon\/worktrees/)).toHaveCount(0);
 });
 

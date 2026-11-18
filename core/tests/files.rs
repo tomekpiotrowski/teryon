@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use common::{commit, git, project_folder, put, unknown, Scene};
 use teryon_core::files::diff::LineChange;
-use teryon_core::files::{Change, Content, FileView, Listing};
+use teryon_core::files::{Content, FileChange, FileView, Listing};
 
 /// What the screen is told when the project's directory is not a git repository.
 const NOT_A_REPOSITORY: &str =
@@ -83,9 +83,9 @@ fn listed(listing: &Listing) -> Vec<String> {
         .iter()
         .map(|file| {
             let letter = match file.change {
-                Some(Change::Added) => "A",
-                Some(Change::Modified) => "M",
-                Some(Change::Deleted) => "D",
+                Some(FileChange::Added) => "A",
+                Some(FileChange::Modified) => "M",
+                Some(FileChange::Deleted) => "D",
                 None => " ",
             };
             format!("{letter} {}", file.path)

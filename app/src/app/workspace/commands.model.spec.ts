@@ -1,21 +1,23 @@
 import {
-  boundCommand,
   type Command,
   commandList,
+  keyHint,
+  keyOutcome,
   matching,
   menuAsked,
   menuRows,
   type Situation,
   stepped,
 } from './commands.model';
-import { groupThreads, type KeyPress, type Project, type Thread } from './workspace.model';
+import { gitWordsIn } from './plain-words.testing';
+import { type Change, groupThreads, type KeyPress, type Project, type Thread } from './workspace.model';
 
 function project(id: string, name = `Project ${id}`): Project {
   return { id, name, directory: `/work/${id}`, created_at: `2026-11-0${id.length}T10:00:00` };
 }
 
 function thread(id: string, project_id: string, created_at: string, overrides: Partial<Thread> = {}): Thread {
-  return { id, project_id, title: `Thread ${id}`, agent: 'claude', status: 'idle', unread: false, commands: [], branch: null, created_at, ...overrides };
+  return { id, project_id, title: `Thread ${id}`, agent: 'claude', status: 'idle', unread: false, commands: [], change: null, created_at, ...overrides };
 }
 
 function press(overrides: Partial<KeyPress> = {}): KeyPress {
@@ -23,11 +25,11 @@ function press(overrides: Partial<KeyPress> = {}): KeyPress {
 }
 
 function situation(overrides: Partial<Situation> = {}): Situation {
-  return { groups: [], project: null, thread: null, agent: 'claude', theme: 'light', ...overrides };
+  return { groups: [], project: null, thread: null, agent: 'claude', theme: 'light', opens: { editor: false, terminal: false }, ...overrides };
 }
 
 function entry(title: string, detail = '', overrides: Partial<Command> = {}): Command {
-  return { id: title, title, detail, group: 'action', key: null, live: false, action: { kind: 'toggleTheme' }, ...overrides };
+  return { id: title, title, detail, group: 'action', key: null, leader: null, live: false, action: { kind: 'toggleTheme' }, ...overrides };
 }
 
 const first = project('a', 'Payments');
@@ -326,32 +328,78 @@ describe('menuAsked', () => {
   });
 });
 
-describe('boundCommand', () => {
+describe('keyOutcome', () => {
   const files = entry('Files', '', { key: 'c' });
   const history = entry('History', '', { key: 'h' });
-  const commands = [entry('Settings'), files, history];
+  const copy = entry('Copy location', '', { key: 'y', leader: 'w' });
+  const folder = entry('Open folder', '', { key: 'f', leader: 'w' });
+  const commands = [entry('Settings'), files, history, copy, folder];
 
-  it.each([
-    ['c', files],
-    ['C', files],
-    ['h', history],
-  ])('takes %s for its command', (key, expected) => {
-    expect(boundCommand(press({ key }), commands)).toBe(expected);
+  describe('without a leader pressed', () => {
+    it.each([
+      ['c', files],
+      ['C', files],
+      ['h', history],
+    ])('runs the command bound to %s', (key, expected) => {
+      expect(keyOutcome(press({ key }), commands, null)).toEqual({ kind: 'run', command: expected });
+    });
+
+    it('waits for a second key after a leader', () => {
+      expect(keyOutcome(press({ key: 'w' }), commands, null)).toEqual({ kind: 'wait', leader: 'w' });
+      expect(keyOutcome(press({ key: 'W' }), commands, null)).toEqual({ kind: 'wait', leader: 'w' });
+    });
+
+    it.each(['x', 'y', 'f', '/', 'Enter', 'Escape'])('takes %s for nothing, even the second key of a family', (key) => {
+      expect(keyOutcome(press({ key }), commands, null)).toBeNull();
+    });
+
+    it('takes a letter typed as text, or held with Ctrl, for nothing', () => {
+      expect(keyOutcome(press({ key: 'c', element: 'TEXTAREA' }), commands, null)).toBeNull();
+      expect(keyOutcome(press({ key: 'c', element: 'INPUT' }), commands, null)).toBeNull();
+      expect(keyOutcome(press({ key: 'c', ctrlKey: true }), commands, null)).toBeNull();
+      expect(keyOutcome(press({ key: 'w', element: 'TEXTAREA' }), commands, null)).toBeNull();
+    });
+
+    it('takes a letter for nothing when its command is not offered', () => {
+      expect(keyOutcome(press({ key: 'c' }), [entry('Settings')], null)).toBeNull();
+      expect(keyOutcome(press({ key: 'w' }), [files], null)).toBeNull();
+      expect(keyOutcome(press({ key: 'c' }), [], null)).toBeNull();
+    });
   });
 
-  it.each(['x', '/', 'Enter'])('takes %s for nothing', (key) => {
-    expect(boundCommand(press({ key }), commands)).toBeNull();
+  describe('after a leader', () => {
+    it.each([
+      ['y', copy],
+      ['F', folder],
+    ])('runs the command of the family bound to %s', (key, expected) => {
+      expect(keyOutcome(press({ key }), commands, 'w')).toEqual({ kind: 'run', command: expected });
+    });
+
+    it.each(['c', 'x', 'w', 'Escape', 'Enter'])('gives up on %s, a key outside the family', (key) => {
+      expect(keyOutcome(press({ key }), commands, 'w')).toEqual({ kind: 'cancel' });
+    });
+
+    it('gives up on a letter held with Ctrl', () => {
+      expect(keyOutcome(press({ key: 'y', ctrlKey: true }), commands, 'w')).toEqual({ kind: 'cancel' });
+    });
+
+    it.each(['Shift', 'Control', 'Alt', 'Meta', 'CapsLock'])('keeps waiting through %s on its own', (key) => {
+      expect(keyOutcome(press({ key }), commands, 'w')).toBeNull();
+    });
+  });
+});
+
+describe('keyHint', () => {
+  it('shows a key on its own', () => {
+    expect(keyHint(entry('Files', '', { key: 'c' }))).toBe('C');
   });
 
-  it('takes a letter typed as text, or held with Ctrl, for nothing', () => {
-    expect(boundCommand(press({ key: 'c', element: 'TEXTAREA' }), commands)).toBeNull();
-    expect(boundCommand(press({ key: 'c', element: 'INPUT' }), commands)).toBeNull();
-    expect(boundCommand(press({ key: 'c', ctrlKey: true }), commands)).toBeNull();
+  it('shows the leader before the key', () => {
+    expect(keyHint(entry('Copy location', '', { key: 'y', leader: 'w' }))).toBe('W Y');
   });
 
-  it('takes a letter for nothing when its command is not offered', () => {
-    expect(boundCommand(press({ key: 'c' }), [entry('Settings')])).toBeNull();
-    expect(boundCommand(press({ key: 'c' }), [])).toBeNull();
+  it('shows nothing for a command without a key', () => {
+    expect(keyHint(entry('Settings'))).toBeNull();
   });
 });
 
@@ -369,5 +417,100 @@ describe('stepped', () => {
     [0, -1, 0, 0],
   ])('from line %i by %i in a list of %i lands on %i', (index, step, length, landed) => {
     expect(stepped(index, step, length)).toBe(landed);
+  });
+});
+
+describe('the commands for a thread\'s change', () => {
+  function change(overrides: Partial<Change> = {}): Change {
+    return {
+      name: 'fix-login',
+      path: '/work/a/.teryon/worktrees/fix-login',
+      base: 'main',
+      start: 'abc',
+      branch: 'fix-login',
+      state: { copy_present: true, base_present: true, files_changed: 1, fit: 'applies', unfinished: false },
+      ...overrides,
+    };
+  }
+
+  function offered(thread: Thread | null, opens = { editor: false, terminal: false }): Command[] {
+    const groupsWith = thread ? groupThreads([first], [thread]) : groups;
+    return commandList(situation({ groups: groupsWith, project: first, thread, opens })).filter(
+      (candidate) => candidate.group === 'change',
+    );
+  }
+
+  const changed = thread('t9', 'a', '2026-11-06T10:00:00', { change: change() });
+
+  it('offers nothing without an open thread, or for a thread with no change', () => {
+    expect(offered(null)).toEqual([]);
+    expect(offered(older)).toEqual([]);
+  });
+
+  it('offers copying the location and opening the folder, after the projects and before the actions', () => {
+    const commands = commandList(situation({ groups: groupThreads([first], [changed]), project: first, thread: changed }));
+    expect(ids(commands)).toEqual([
+      'thread:t9',
+      'project:a',
+      'change:copyLocation',
+      'change:openFolder',
+      'action:newThread',
+      'action:files',
+      'action:history',
+      'action:toggleAgent',
+      'action:newProject',
+      'action:removeProject',
+      'action:toggleTheme',
+    ]);
+  });
+
+  it('names the change beside each command, with keys after W', () => {
+    expect(offered(changed).map((candidate) => [candidate.title, candidate.detail, keyHint(candidate)])).toEqual([
+      ['Copy location', 'fix-login', 'W Y'],
+      ['Open folder', 'fix-login', 'W F'],
+    ]);
+  });
+
+  it('copies the copy\'s full location and opens the open thread\'s copy', () => {
+    const [copy, folder] = offered(changed);
+    expect(copy.action).toEqual({ kind: 'copyLocation', path: '/work/a/.teryon/worktrees/fix-login' });
+    expect(folder.action).toEqual({ kind: 'openCopy', thread: changed, opener: 'folder' });
+  });
+
+  it.each([
+    [{ editor: true, terminal: false }, ['change:copyLocation', 'change:openFolder', 'change:openEditor']],
+    [{ editor: false, terminal: true }, ['change:copyLocation', 'change:openFolder', 'change:openTerminal']],
+    [{ editor: true, terminal: true }, ['change:copyLocation', 'change:openFolder', 'change:openEditor', 'change:openTerminal']],
+  ])('offers the editor and the terminal only when set up: %o', (opens, expected) => {
+    expect(ids(offered(changed, opens))).toEqual(expected);
+  });
+
+  it('offers the editor and the terminal on W E and W T', () => {
+    const [, , editor, terminal] = offered(changed, { editor: true, terminal: true });
+    expect([keyHint(editor), keyHint(terminal)]).toEqual(['W E', 'W T']);
+    expect(editor.action).toEqual({ kind: 'openCopy', thread: changed, opener: 'editor' });
+  });
+
+  it('offers nothing once the copy is gone', () => {
+    const gone = { ...changed, change: change({ state: { copy_present: false, base_present: false, files_changed: 0, fit: 'unknown', unfinished: false } }) };
+    expect(offered(gone, { editor: true, terminal: true })).toEqual([]);
+  });
+
+  it('offers them before Teryon has looked at the change', () => {
+    const unread = { ...changed, change: change({ state: null }) };
+    expect(ids(offered(unread))).toEqual(['change:copyLocation', 'change:openFolder']);
+  });
+
+  it('heads them as the thread\'s changes', () => {
+    const rows = menuRows(offered(changed), '');
+    expect(rows[0].heading).toBe('This thread’s changes');
+  });
+
+  it('never puts a git word in a title or a heading', () => {
+    const everything = commandList(
+      situation({ groups: groupThreads([first], [changed]), project: first, thread: changed, opens: { editor: true, terminal: true } }),
+    );
+    const texts = [...everything.map((candidate) => candidate.title), ...menuRows(everything, '').map((row) => row.heading ?? '')];
+    expect(texts.flatMap(gitWordsIn)).toEqual([]);
   });
 });

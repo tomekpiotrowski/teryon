@@ -5,15 +5,15 @@ export type JsonValue = number | string | boolean | null | JsonValue[] | { [key:
 
 export type ClientMessage = { "type": "hello", token: string, } | { "type": "call", id: number, request: Request, };
 
-export type Request = { "type": "add_project", name: string, directory: string, } | { "type": "remove_project", project_id: string, } | { "type": "start_thread", project_id: string, agent: string, title: string, } | { "type": "send_message", thread_id: string, text: string, } | { "type": "stop", thread_id: string, } | { "type": "mark_seen", thread_id: string, } | { "type": "follow_thread", thread_id: string, } | { "type": "unfollow_thread", thread_id: string, } | { "type": "files", project_id: string, branch: string | null, commit: string | null, } | { "type": "file", project_id: string, branch: string | null, commit: string | null, path: string, } | { "type": "history", project_id: string, branch: string | null, } | { "type": "changes", project_id: string, commit: string, from: string | null, } | { "type": "change", project_id: string, commit: string, from: string | null, path: string, } | { "type": "shutdown" };
+export type Request = { "type": "add_project", name: string, directory: string, } | { "type": "remove_project", project_id: string, } | { "type": "start_thread", project_id: string, agent: string, title: string, } | { "type": "send_message", thread_id: string, text: string, } | { "type": "stop", thread_id: string, } | { "type": "mark_seen", thread_id: string, } | { "type": "start_change", thread_id: string, turn: string, name: string, from: string | null, } | { "type": "open_copy", thread_id: string, with: Opener, } | { "type": "follow_thread", thread_id: string, } | { "type": "unfollow_thread", thread_id: string, } | { "type": "files", project_id: string, branch: string | null, commit: string | null, } | { "type": "file", project_id: string, branch: string | null, commit: string | null, path: string, } | { "type": "history", project_id: string, branch: string | null, } | { "type": "changes", project_id: string, commit: string, from: string | null, } | { "type": "change", project_id: string, commit: string, from: string | null, path: string, } | { "type": "shutdown" };
 
 export type ServiceMessage = { "type": "reply", id: number, outcome: Outcome, } | { "type": "event", event: Event, };
 
 export type Outcome = { "type": "done", answer: Answer, } | { "type": "failed", message: string, };
 
-export type Answer = { "type": "nothing" } | { "type": "project", project: ProjectView, } | { "type": "thread", thread: Thread, } | { "type": "entry", entry: Entry, } | { "type": "entries", entries: Array<Entry>, } | { "type": "listing", listing: Listing, } | { "type": "file", file: FileView, } | { "type": "history", history: History, } | { "type": "changes", changes: Changes, };
+export type Answer = { "type": "nothing" } | { "type": "project", project: ProjectView, } | { "type": "thread", thread: Thread, } | { "type": "entry", entry: Entry, } | { "type": "entries", entries: Array<Entry>, } | { "type": "listing", listing: Listing, } | { "type": "file", file: FileView, } | { "type": "history", history: History, } | { "type": "changes", changes: Changes, } | { "type": "path", path: string, };
 
-export type Event = { "type": "snapshot", projects: Array<ProjectView>, threads: Array<Thread>, } | { "type": "project_added", project: ProjectView, } | { "type": "project_removed", project_id: string, } | { "type": "thread_changed", thread: Thread, } | { "type": "entry_added", entry: Entry, };
+export type Event = { "type": "snapshot", projects: Array<ProjectView>, threads: Array<Thread>, opens: Opens, } | { "type": "project_added", project: ProjectView, } | { "type": "project_removed", project_id: string, } | { "type": "thread_changed", thread: Thread, } | { "type": "entry_added", entry: Entry, };
 
 export type ProjectView = { id: string, name: string, directory: string, created_at: string, state: ProjectState, };
 
@@ -49,14 +49,69 @@ unread: boolean,
  */
 commands: Array<string>, 
 /**
- * The branch checked out in this thread's worktree.
+ * The change the thread's agent is working on, in a copy of the project of its own.
  *
- * Nothing until the agent creates `.teryon/worktrees/<thread id>`, and
- * nothing again once that checkout is gone.
+ * Nothing until the agent starts one. Threads stored before changes had
+ * names have none either, and their copy is taken over, see
+ * `crate::changes::claim`. Boxed, because it is large next to the rest,
+ * and a thread travels in most messages.
  */
-branch: string | null, created_at: string, };
+change: Change | null, created_at: string, };
 
 export type Status = "idle" | "running";
+
+export type Change = { 
+/**
+ * The worktree folder's name in `.teryon/worktrees/`, also its branch.
+ */
+name: string, 
+/**
+ * The worktree's full path.
+ */
+path: string, 
+/**
+ * The branch the change started from, and is applied to. Nothing when
+ * the project was not on a branch when the change started.
+ */
+base: string | null, 
+/**
+ * The commit the change started from.
+ */
+start: string, 
+/**
+ * The branch checked out in the worktree now, read from git. Usually `name`.
+ */
+branch: string | null, 
+/**
+ * Nothing until first read.
+ */
+state: ChangeState | null, };
+
+export type ChangeState = { 
+/**
+ * Whether the worktree is still there.
+ */
+copy_present: boolean, 
+/**
+ * Whether the branch the change started from is still there.
+ */
+base_present: boolean, 
+/**
+ * Files differing between the worktree as it is now and where the change
+ * started, whether the agent committed them or not.
+ */
+files_changed: number, fit: Fit, 
+/**
+ * The agent left the worktree in the middle of a rebase or a merge, or
+ * switched it to another branch. Something only the agent can sort out.
+ */
+unfinished: boolean, };
+
+export type Fit = "applies" | "overlaps" | "unknown";
+
+export type Opener = "folder" | "editor" | "terminal";
+
+export type Opens = { editor: boolean, terminal: boolean, };
 
 export type Entry = { id: string, thread_id: string, 
 /**
@@ -90,9 +145,9 @@ path: string,
 /**
  * Nothing for a file that did not change.
  */
-change: Change | null, };
+change: FileChange | null, };
 
-export type Change = "added" | "modified" | "deleted";
+export type FileChange = "added" | "modified" | "deleted";
 
 export type FileView = { path: string, content: Content, };
 
@@ -183,7 +238,7 @@ from: string | null,
  */
 body: string, files: Array<ChangedFile>, };
 
-export type ChangedFile = { path: string, change: Change, 
+export type ChangedFile = { path: string, change: FileChange, 
 /**
  * How many lines were added and removed. Nothing for a file that is not text.
  */

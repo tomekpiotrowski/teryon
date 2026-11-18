@@ -24,6 +24,8 @@ use thiserror::Error;
 use ts_rs::TS;
 use uuid::Uuid;
 
+use crate::changes::Change;
+
 /// Why something could not be read or stored.
 #[derive(Debug, Error)]
 pub enum StoreError {
@@ -101,11 +103,14 @@ pub struct Thread {
     ///
     /// Empty until the program has run once for this thread.
     pub commands: Vec<String>,
-    /// The branch checked out in this thread's worktree.
+    /// The change the thread's agent is working on, in a copy of the project of its own.
     ///
-    /// Nothing until the agent creates `.teryon/worktrees/<thread id>`, and
-    /// nothing again once that checkout is gone.
-    pub branch: Option<String>,
+    /// Nothing until the agent starts one. Threads stored before changes had
+    /// names have none either, and their copy is taken over, see
+    /// `crate::changes::claim`. Boxed, because it is large next to the rest,
+    /// and a thread travels in most messages.
+    #[serde(default)]
+    pub change: Option<Box<Change>>,
     pub created_at: DateTime<Utc>,
 }
 

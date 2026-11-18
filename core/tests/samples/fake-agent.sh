@@ -14,13 +14,34 @@ shift
 samples="$(dirname "$0")/agents"
 printf '%s\n' "$(printf '%s' "$*" | tr '\n' ' ')" >> .fake-agent-invocations
 
-# Creates the worktree the instruction names, on the branch `feature`.
-# The path is taken out of the arguments, punctuation and all.
-make_worktree() {
-  path=$(printf '%s\n' "$1" | sed -n 's/.*\(\.teryon\/worktrees\/[0-9a-f][-0-9a-f]*\).*/\1/p')
-  if [ -n "$path" ]; then
-    git worktree add -q -b feature "$path" HEAD
+# The word after `$1` in the message, such as the name in "start a change fix-login".
+word_after() {
+  printf '%s\n' "$*" | tr '\n' ' ' | sed -n "s/.*$1 \([a-z0-9-]*\).*/\1/p"
+}
+
+# Starts a change through Teryon, as agents are told to, and leaves an
+# uncommitted file in it. What `teryon` printed, on either output, goes to
+# `.fake-agent-worktree`, so tests can see the path or the refusal.
+start_change() {
+  name=$(word_after "start a change" "$*")
+  if path=$(teryon worktree create "$name" 2>.fake-agent-worktree-error); then
+    printf '%s\n' "$path" > .fake-agent-worktree
+    printf 'made by the fake agent\n' > "$path/$name.txt"
+  else
+    cat .fake-agent-worktree-error > .fake-agent-worktree
   fi
+  rm -f .fake-agent-worktree-error
+}
+
+# Makes a worktree by hand, ignoring the instruction, as an agent might.
+make_worktree() {
+  name=$(word_after "make a worktree called" "$*")
+  git worktree add -q -b "$name" ".teryon/worktrees/$name" HEAD
+}
+
+# Notes the thread and turn Teryon started it for, and where `teryon` is.
+remember_turn() {
+  printf '%s %s %s %s\n' "$TERYON_THREAD" "$TERYON_TURN" "${TERYON_DATA:-none}" "$(command -v teryon || echo none)" > .fake-agent-turn
 }
 
 case "$*" in
@@ -47,14 +68,23 @@ case "$*" in
   *"use tools"*)
     cat "$samples/$agent-tools.jsonl"
     ;;
-  *"make a worktree and wait"*)
+  *"start a change"*)
+    start_change "$*"
+    cat "$samples/$agent-first.jsonl"
+    ;;
+  *"make a worktree called"*"and wait"*)
     make_worktree "$*"
     head -n 1 "$samples/$agent-first.jsonl"
     exec sleep 30
     ;;
-  *"make a worktree"*)
+  *"make a worktree called"*)
     make_worktree "$*"
     cat "$samples/$agent-first.jsonl"
+    ;;
+  *"remember the turn and wait"*)
+    remember_turn
+    head -n 1 "$samples/$agent-first.jsonl"
+    exec sleep 30
     ;;
   *"write markdown"*)
     # Not a recording as such: the first one with the answer replaced by hand

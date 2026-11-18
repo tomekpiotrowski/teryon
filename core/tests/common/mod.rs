@@ -20,7 +20,7 @@ use uuid::Uuid;
 use teryon_core::protocol::{Event, ProjectView};
 use teryon_core::settings::{AgentSettings, ClaudeSettings, GrokSettings};
 use teryon_core::store::{Entry, Status, Thread};
-use teryon_core::workspace::Workspace;
+use teryon_core::workspace::{Setup, Workspace};
 
 /// Settings that start the fake agents, and give a stopped agent one second.
 pub fn fake_agents() -> AgentSettings {
@@ -44,6 +44,14 @@ pub fn settings_with(program: &str) -> AgentSettings {
             use_subscription: true,
         },
         ..fake_agents()
+    }
+}
+
+/// What a workspace in tests is opened with: the given agents, nothing to open copies with, and no `teryon` program.
+fn setup(settings: &AgentSettings) -> Setup {
+    Setup {
+        agents: settings.clone(),
+        ..Setup::default()
     }
 }
 
@@ -139,7 +147,7 @@ impl Scene {
     pub fn with(settings: AgentSettings) -> Self {
         let home = tempdir().expect("a data folder");
         let workspace =
-            Workspace::open(home.path(), settings.clone()).expect("the workspace opens");
+            Workspace::open(home.path(), setup(&settings)).expect("the workspace opens");
         Self {
             home,
             settings,
@@ -157,7 +165,7 @@ impl Scene {
         drop(workspace);
         meanwhile(home.path());
         let workspace =
-            Workspace::open(home.path(), settings.clone()).expect("the workspace opens again");
+            Workspace::open(home.path(), setup(&settings)).expect("the workspace opens again");
         Self {
             home,
             settings,
@@ -235,6 +243,21 @@ impl Scene {
         panic!("the agent did not end in time");
     }
 
+    /// Waits until a thread is as `wanted` says, and returns it. Fails when it takes too long.
+    pub async fn wait_for(&self, thread: &Thread, wanted: impl Fn(&Thread) -> bool) -> Thread {
+        for _ in 0..200 {
+            let current = self.thread_now(thread);
+            if wanted(&current) {
+                return current;
+            }
+            sleep(Duration::from_millis(50)).await;
+        }
+        panic!(
+            "the thread did not get there in time: {:?}",
+            self.thread_now(thread)
+        );
+    }
+
     /// Waits for the agent of a thread to report its first line.
     ///
     /// Stopping an agent before it has got going proves little, so tests that
@@ -268,4 +291,24 @@ pub fn mark_running(folder: &TempDir, thread: &Thread) {
 
 pub fn unknown() -> Uuid {
     Uuid::new_v4()
+}
+
+/// What a file the fake agent writes in a project folder holds, once it is there. Fails when it takes too long.
+pub async fn written_by_agent(folder: &TempDir, name: &str) -> String {
+    for _ in 0..200 {
+        if let Ok(text) = read_to_string(folder.path().join(name)) {
+            if text.ends_with('\n') {
+                return text.trim().to_string();
+            }
+        }
+        sleep(Duration::from_millis(50)).await;
+    }
+    panic!("the fake agent did not write {name} in time");
+}
+
+/// The turn the fake agent noted when told to "remember the turn".
+pub async fn noted_turn(folder: &TempDir) -> Uuid {
+    let noted = written_by_agent(folder, ".fake-agent-turn").await;
+    let turn = noted.split(' ').nth(1).expect("the turn is noted");
+    Uuid::parse_str(turn).expect("the turn is an identifier")
 }

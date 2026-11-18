@@ -5,23 +5,21 @@
 //! rules for projects and threads are covered by the core library's specs;
 //! these cover who may connect, and the conversation on top.
 
-use std::fs::{create_dir_all, write};
-use std::future::pending;
+mod common;
+
 use std::path::PathBuf;
 use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use lets_expect::lets_expect;
-use tempfile::{tempdir, TempDir};
-use tokio::net::TcpListener;
-use tokio::task::{spawn, JoinHandle};
+use tempfile::tempdir;
 use tokio::time::timeout;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::Message;
-use uuid::Uuid;
 
+use common::{program, project_id, scene, thread_id, wait_for, Scene, DEVELOPMENT};
 use teryon::client::{Client, ClientError};
 use teryon::service::{Service, ServiceError};
 use teryon::service_file::ServiceFile;
@@ -30,54 +28,7 @@ use teryon_core::paths::Folders;
 use teryon_core::protocol::{Answer, Event, Request};
 use teryon_core::store::Status;
 
-/// The development app's address, listed as allowed in the test configuration.
-const DEVELOPMENT: &str = "http://localhost:4200";
-
-/// A running service in a home folder of its own.
-struct Scene {
-    home: TempDir,
-    file: ServiceFile,
-    stopped: JoinHandle<()>,
-}
-
-async fn scene() -> Scene {
-    let home = tempdir().unwrap();
-    let folders = Folders::inside(home.path());
-    create_dir_all(&folders.config).unwrap();
-    write(
-        folders.config.join("config.toml"),
-        format!(
-            "[service]\nport = {}\nallowed_origins = [\"{DEVELOPMENT}\"]\n\n\
-             [agents]\nstop_grace_seconds = 1\n\n\
-             [agents.claude]\nprogram = \"../core/tests/samples/fake-claude.sh\"\n\n\
-             [agents.grok]\nprogram = \"../core/tests/samples/fake-grok.sh\"\n",
-            free_port().await
-        ),
-    )
-    .unwrap();
-    let service = Service::start(folders).await.expect("the service starts");
-    let file = service.file().clone();
-    let stopped = spawn(service.run(pending()));
-    Scene {
-        home,
-        file,
-        stopped,
-    }
-}
-
-/// A port nobody listens on right now, so tests running at once do not meet.
-async fn free_port() -> u16 {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    listener.local_addr().unwrap().port()
-}
-
 impl Scene {
-    async fn client(&self) -> Client {
-        Client::connect_to(&self.file)
-            .await
-            .expect("the client connects")
-    }
-
     /// Opens a WebSocket with the given headers and says whether it was accepted.
     async fn opens_with(&self, host: Option<&str>, origin: Option<&str>) -> bool {
         let mut request = format!("ws://127.0.0.1:{}/", self.file.port)
@@ -120,20 +71,6 @@ impl Scene {
     }
 }
 
-/// Waits for the next event that `wanted` accepts.
-async fn wait_for(client: &mut Client, wanted: impl Fn(&Event) -> bool) -> Event {
-    timeout(Duration::from_secs(10), async {
-        loop {
-            let event = client.event().await.expect("an event");
-            if wanted(&event) {
-                return event;
-            }
-        }
-    })
-    .await
-    .expect("the event arrived in time")
-}
-
 /// The token with its last character changed, so it is wrong in one place only.
 fn nearly(token: &str) -> String {
     let last = if token.ends_with('0') { '1' } else { '0' };
@@ -143,20 +80,6 @@ fn nearly(token: &str) -> String {
 fn no_entries() -> Answer {
     Answer::Entries {
         entries: Vec::new(),
-    }
-}
-
-fn project_id(answer: Answer) -> Uuid {
-    match answer {
-        Answer::Project { project } => project.id,
-        other => panic!("not a project: {other:?}"),
-    }
-}
-
-fn thread_id(answer: Answer) -> Uuid {
-    match answer {
-        Answer::Thread { thread } => thread.id,
-        other => panic!("not a thread: {other:?}"),
     }
 }
 
@@ -220,7 +143,7 @@ lets_expect! { #tokio_test
     // requirement: a second service for the same person sees the first one running and ends
     story a_second_service_is_refused {
         let scene = scene().await;
-        let second = Service::start(Folders::inside(scene.home.path())).await;
+        let second = Service::start(Folders::inside(scene.home.path()), program()).await;
         let check_1 = matches!(second, Err(ServiceError::AlreadyRunning));
         expect(check_1) to be_true
     }
@@ -310,11 +233,6 @@ lets_expect! { #tokio_test
         expect(stopped.is_ok()) to be_true
         expect(ServiceFile::read(&Folders::inside(scene.home.path()).data).unwrap()) to equal(None)
     }
-}
-
-/// The `teryon` program cargo built for these tests.
-fn program() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_teryon"))
 }
 
 lets_expect! { #tokio_test

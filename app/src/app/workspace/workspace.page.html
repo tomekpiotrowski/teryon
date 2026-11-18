@@ -38,6 +38,7 @@
           <span class="files-mark">TERYON</span>
           <span class="files-muted files-project">{{ barTitle(view.project, view.thread) }}</span>
           <span class="files-spacer"></span>
+          @if (leader$ | async; as leader) { <span class="bar-leader" role="status">{{ leader.toUpperCase() }} …</span> }
           @if (waitingText(view.groups); as waiting) { <span class="bar-waiting">{{ waiting }}</span> }
           @if (runningText(view.groups); as running) { <span class="bar-running">● {{ running }}</span> }
         </header>
@@ -124,8 +125,15 @@
                   <div class="composer-meta thread-meta">
                     <div>
                       <span>{{ agentLabel(view.thread.agent) }}</span>
-                      @if (view.thread.branch) {
-                        <button type="button" class="code-link" [attr.aria-label]="'Explore ' + view.thread.branch" (click)="explore(view.project, view.thread.branch)">{{ view.thread.branch }}</button>
+                      @if (view.thread.change; as change) {
+                        <span class="change-line" aria-label="Changes">
+                          @if (change.state?.copy_present !== false) {
+                            <button type="button" class="code-link" [attr.aria-label]="'Explore ' + change.name" (click)="explore(view.project, change.branch ?? change.name)">{{ change.name }}</button>
+                          } @else {
+                            <span>{{ change.name }}</span>
+                          }
+                          @for (part of view.changeLine; track part) { <span class="change-part">· {{ part }}</span> }
+                        </span>
                       }
                       <button type="button" class="code-link" aria-keyshortcuts="/" (click)="openMenu()">menu <kbd>/</kbd></button>
                     <button type="button" class="code-link" aria-keyshortcuts="h" (click)="screen$.next('history')">history <kbd>H</kbd></button>

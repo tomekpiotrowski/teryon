@@ -9,6 +9,7 @@
 
 use std::collections::HashSet;
 
+use tokio::spawn;
 use uuid::Uuid;
 
 use teryon_core::protocol::{Answer, Event, Request};
@@ -54,7 +55,10 @@ impl Session {
         let workspace = &self.workspace;
         let local = self.origin == Origin::Local;
         let answer = match request {
-            Request::AddProject { .. } | Request::RemoveProject { .. } | Request::Shutdown
+            Request::AddProject { .. }
+            | Request::RemoveProject { .. }
+            | Request::OpenCopy { .. }
+            | Request::Shutdown
                 if !local =>
             {
                 Err("This can only be done on the machine itself.".to_string())
@@ -88,6 +92,22 @@ impl Session {
                 .mark_seen(thread_id)
                 .map(|()| Answer::Nothing)
                 .map_err(|problem| problem.to_string()),
+            Request::StartChange {
+                thread_id,
+                turn,
+                name,
+                from,
+            } => workspace
+                .start_change(thread_id, turn, &name, from.as_deref())
+                .await
+                .map(|path| Answer::Path {
+                    path: path.to_string_lossy().into_owned(),
+                })
+                .map_err(|problem| problem.to_string()),
+            Request::OpenCopy { thread_id, with } => workspace
+                .open_copy(thread_id, with)
+                .map(|()| Answer::Nothing)
+                .map_err(|problem| problem.to_string()),
             Request::FollowThread { thread_id } => {
                 // Followed before reading, so no entry added in between is missed.
                 // One may then arrive twice; clients keep entries by identifier.
@@ -95,6 +115,11 @@ impl Session {
                 let entries = self.workspace.entries(thread_id);
                 if entries.is_err() {
                     self.following.remove(&thread_id);
+                } else {
+                    // Someone is looking: anything done to the copy outside
+                    // Teryon shows up now. The answer does not wait for it.
+                    let workspace = self.workspace.clone();
+                    spawn(async move { workspace.refresh_change(thread_id).await });
                 }
                 entries
                     .map(|entries| Answer::Entries { entries })

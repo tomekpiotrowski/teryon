@@ -67,6 +67,19 @@ pub enum Request {
     MarkSeen {
         thread_id: Uuid,
     },
+    /// Starts a change for a thread: sent by `teryon worktree create`, run by
+    /// the thread's agent during `turn`. Answers with where the copy is.
+    StartChange {
+        thread_id: Uuid,
+        turn: Uuid,
+        name: String,
+        from: Option<String>,
+    },
+    /// Opens a thread's copy in another program. Only from this machine.
+    OpenCopy {
+        thread_id: Uuid,
+        with: Opener,
+    },
     /// Answers with the thread's entries so far; new ones follow as events.
     FollowThread {
         thread_id: Uuid,
@@ -165,6 +178,29 @@ pub enum Answer {
     Changes {
         changes: Changes,
     },
+    /// Where something is on this machine.
+    Path {
+        path: String,
+    },
+}
+
+/// What a thread's copy can be opened in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum Opener {
+    /// The system's file manager.
+    Folder,
+    /// The editor set up in `config.toml`.
+    Editor,
+    /// The terminal set up in `config.toml`.
+    Terminal,
+}
+
+/// Which of the openers that need setting up are set up on this machine.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct Opens {
+    pub editor: bool,
+    pub terminal: bool,
 }
 
 /// Something that happened, pushed to clients as it happens.
@@ -175,6 +211,7 @@ pub enum Event {
     Snapshot {
         projects: Vec<ProjectView>,
         threads: Vec<Thread>,
+        opens: Opens,
     },
     ProjectAdded {
         project: ProjectView,
@@ -236,8 +273,9 @@ mod tests {
     use ts_rs::Config;
 
     use super::*;
+    use crate::changes::{Change, ChangeState, Fit};
     use crate::files::diff::{Line, LineChange};
-    use crate::files::{Change, Content, FileEntry};
+    use crate::files::{Content, FileChange, FileEntry};
     use crate::history::{ChangedFile, Commit};
     use crate::store::Status;
 
@@ -258,10 +296,15 @@ mod tests {
             ProjectState::decl(&config),
             Thread::decl(&config),
             Status::decl(&config),
+            Change::decl(&config),
+            ChangeState::decl(&config),
+            Fit::decl(&config),
+            Opener::decl(&config),
+            Opens::decl(&config),
             Entry::decl(&config),
             Listing::decl(&config),
             FileEntry::decl(&config),
-            Change::decl(&config),
+            FileChange::decl(&config),
             FileView::decl(&config),
             Content::decl(&config),
             Line::decl(&config),

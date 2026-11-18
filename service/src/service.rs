@@ -6,6 +6,7 @@
 //! listening, and on the way out stops every agent and removes the file.
 
 use std::fs::{create_dir_all, File, OpenOptions, TryLockError};
+use std::path::PathBuf;
 use std::process::id;
 use std::sync::Arc;
 use std::time::Duration;
@@ -16,7 +17,7 @@ use tracing::info;
 
 use teryon_core::paths::Folders;
 use teryon_core::settings::{Settings, SettingsError};
-use teryon_core::workspace::{Workspace, WorkspaceError};
+use teryon_core::workspace::{AgentTools, Setup, Workspace, WorkspaceError};
 
 use crate::local::{bind, router, Listener};
 use crate::service_file::{ServiceFile, ServiceFileError};
@@ -52,7 +53,10 @@ pub struct Service {
 
 impl Service {
     /// Takes the lock, opens the workspace, listens and writes `service.json`.
-    pub async fn start(folders: Folders) -> Result<Self, ServiceError> {
+    ///
+    /// `program` is the `teryon` program agents call to start a change: the
+    /// one running this service, in practice.
+    pub async fn start(folders: Folders, program: PathBuf) -> Result<Self, ServiceError> {
         create_dir_all(&folders.data).map_err(ServiceError::DataFolder)?;
         let lock = OpenOptions::new()
             .create(true)
@@ -67,7 +71,17 @@ impl Service {
         }
 
         let settings = Settings::read(&folders.config)?;
-        let workspace = Workspace::open(&folders.data, settings.agents)?;
+        let workspace = Workspace::open(
+            &folders.data,
+            Setup {
+                agents: settings.agents,
+                open: settings.open,
+                tools: Some(AgentTools {
+                    program,
+                    data: folders.data.clone(),
+                }),
+            },
+        )?;
         let listener = bind(settings.service.port)
             .await
             .map_err(ServiceError::Listen)?;

@@ -1,5 +1,6 @@
 //! The `teryon` program.
 
+use std::env::{current_exe, var};
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
@@ -12,7 +13,8 @@ use teryon::logging;
 use teryon::service::{Service, ServiceError};
 use teryon::service_file::ServiceFile;
 use teryon_core::paths::Folders;
-use teryon_core::protocol::Request;
+use teryon_core::protocol::{Answer, Request};
+use uuid::Uuid;
 
 /// Teryon: agents working on your projects.
 #[derive(Parser)]
@@ -35,6 +37,23 @@ enum Command {
     },
     /// Stop the running service, after stopping every agent.
     Stop,
+    /// For agents working in Teryon: their own copy of the project to change files in.
+    Worktree {
+        #[command(subcommand)]
+        command: WorktreeCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum WorktreeCommand {
+    /// Create a git worktree on a new branch for this thread, and print its path.
+    Create {
+        /// The name of the worktree and of its branch, such as `fix-login-redirect`.
+        name: String,
+        /// The branch to start from. Without it, the branch the project is on.
+        #[arg(long, value_name = "BRANCH")]
+        from: Option<String>,
+    },
 }
 
 #[tokio::main]
@@ -53,6 +72,9 @@ async fn main() -> ExitCode {
     match arguments.command {
         Some(Command::Service { print_address }) => serve(folders, print_address).await,
         Some(Command::Stop) => stop(folders).await,
+        Some(Command::Worktree {
+            command: WorktreeCommand::Create { name, from },
+        }) => create_worktree(folders, name, from).await,
         None => {
             eprintln!(
                 "The terminal app is not there yet. Run `teryon service`, or `teryon --help`."
@@ -64,7 +86,14 @@ async fn main() -> ExitCode {
 
 async fn serve(folders: Folders, print_address: Option<String>) -> ExitCode {
     let _log = logging::start(&folders.logs);
-    let service = match Service::start(folders).await {
+    let program = match current_exe() {
+        Ok(program) => program,
+        Err(problem) => {
+            eprintln!("Could not tell where the teryon program is: {problem}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let service = match Service::start(folders, program).await {
         Ok(service) => service,
         Err(ServiceError::AlreadyRunning) => {
             println!("Teryon is already running.");
@@ -120,6 +149,61 @@ async fn stop(folders: Folders) -> ExitCode {
     }
     eprintln!("Teryon is taking long to stop.");
     ExitCode::FAILURE
+}
+
+/// Asks the service for a worktree for the thread whose agent runs this, and prints its path.
+///
+/// The service sets `TERYON_THREAD` and `TERYON_TURN` for the agents it
+/// starts, and `TERYON_DATA` to the folder with its `service.json`.
+async fn create_worktree(folders: Folders, name: String, from: Option<String>) -> ExitCode {
+    let (Some(thread_id), Some(turn)) = (identifier("TERYON_THREAD"), identifier("TERYON_TURN"))
+    else {
+        eprintln!("This command is for agents working in Teryon, which sets TERYON_THREAD and TERYON_TURN for them.");
+        return ExitCode::FAILURE;
+    };
+    let data = var("TERYON_DATA").map_or(folders.data, PathBuf::from);
+    let file = match ServiceFile::read(&data) {
+        Ok(Some(file)) => file,
+        Ok(None) => {
+            eprintln!("Teryon is not running.");
+            return ExitCode::FAILURE;
+        }
+        Err(problem) => {
+            eprintln!("{problem}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let request = Request::StartChange {
+        thread_id,
+        turn,
+        name,
+        from,
+    };
+    let answer = match Client::connect_to(&file).await {
+        Ok(mut client) => client.call(request).await,
+        Err(problem) => Err(problem),
+    };
+    match answer {
+        Ok(Answer::Path { path }) => {
+            println!("{path}");
+            ExitCode::SUCCESS
+        }
+        Ok(_) => {
+            eprintln!("Teryon answered with something other than a path.");
+            ExitCode::FAILURE
+        }
+        Err(problem) => {
+            eprintln!("{problem}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// An identifier from an environment variable, when it is set to one.
+fn identifier(name: &str) -> Option<Uuid> {
+    var(name)
+        .ok()
+        .and_then(|value| Uuid::parse_str(&value).ok())
 }
 
 /// Resolves when the person presses Ctrl+C, or the system asks the program to end.

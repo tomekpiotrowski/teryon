@@ -16,7 +16,7 @@ import {
 } from 'rxjs';
 import { ServiceConnection } from '../service/service-connection';
 import { applyEvent, NO_LISTS, withEntries, type WorkspaceLists } from '../service/workspace-events';
-import type { Project, Thread, ThreadEntry } from './workspace.model';
+import type { Opens, Project, Thread, ThreadEntry } from './workspace.model';
 
 /**
  * The workspace as the screen sees it: live lists of projects, threads and entries.
@@ -39,6 +39,11 @@ export class WorkspaceStore {
   );
   readonly threads$: Observable<readonly Thread[]> = this.lists$.pipe(
     map((lists) => lists.threads),
+    distinctUntilChanged(),
+  );
+  /** What a thread's copy can be opened in, besides the file manager. */
+  readonly opens$: Observable<Opens> = this.lists$.pipe(
+    map((lists) => lists.opens),
     distinctUntilChanged(),
   );
   /** How the connection to the service stands, for the screen to explain a wait. */
