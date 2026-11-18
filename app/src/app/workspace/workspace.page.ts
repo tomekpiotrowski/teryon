@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, ElementRef, HostListener, inject, OnDestroy, ViewChild } from '@angular/core';
 import { toObservable } from '@angular/core/rxjs-interop';
 import { AlertController } from '@ionic/angular/alert-controller';
-import { ErnoAlertsService, ErnoAuthService } from 'erno-angular';
+import { ErnoAlertsService } from 'erno-angular';
 import {
   BehaviorSubject,
   catchError,
@@ -46,6 +46,7 @@ import {
   type Project,
   type ProjectGroup,
   refusalText,
+  connectionText,
   resolveSelection,
   runningText,
   type Screen,
@@ -91,7 +92,6 @@ interface WorkspaceView {
   standalone: false,
 })
 export class WorkspacePage implements OnDestroy {
-  readonly auth = inject(ErnoAuthService);
   readonly theme = inject(ThemeService);
   private readonly store = inject(WorkspaceStore);
   private readonly api = inject(WorkspaceApi);
@@ -104,12 +104,12 @@ export class WorkspacePage implements OnDestroy {
   readonly barTitle = barTitle;
   readonly runningText = runningText;
   readonly waitingText = waitingText;
+  readonly connectionText = connectionText;
 
   readonly selection$ = new BehaviorSubject<Selection>(NOTHING_SELECTED);
   readonly draft$ = new BehaviorSubject('');
   readonly agent$ = new BehaviorSubject<AgentName>('claude');
   readonly menuOpen$ = new BehaviorSubject(false);
-  readonly settingsOpen$ = new BehaviorSubject(false);
   /** True while a request is on its way, so a second press does not send it twice. */
   readonly sending$ = new BehaviorSubject(false);
   /** Whether the selected project's threads, files or history fill the screen. */
@@ -222,8 +222,11 @@ export class WorkspacePage implements OnDestroy {
     )
     .subscribe(() => requestAnimationFrame(() => this.thread?.nativeElement.scrollTo({ top: Number.MAX_SAFE_INTEGER })));
 
+  /** How the connection to the local service stands, to explain an empty screen. */
+  readonly connection$ = this.store.connection$;
+
   constructor() {
-    void this.store.start();
+    this.store.start();
   }
 
   ngOnDestroy(): void {
@@ -238,7 +241,7 @@ export class WorkspacePage implements OnDestroy {
    *
    * `/` and Ctrl+K open the menu, and Ctrl+K or Escape close it. A bare
    * letter runs the command bound to it, as the hints on screen say. While
-   * the menu or the settings are open the letters are left alone.
+   * the menu is open the letters are left alone.
    */
   @HostListener('document:keydown', ['$event'])
   handleShortcut(event: KeyboardEvent): void {
@@ -252,10 +255,6 @@ export class WorkspacePage implements OnDestroy {
       editable: target?.isContentEditable ?? false,
     };
 
-    if (this.settingsOpen$.value) {
-      if (event.key === 'Escape') this.settingsOpen$.next(false);
-      return;
-    }
     if (this.menuOpen$.value) {
       const closing = event.key === 'Escape' || (press.key.toLowerCase() === 'k' && menuAsked(press, ''));
       if (!closing) return;
@@ -303,10 +302,6 @@ export class WorkspacePage implements OnDestroy {
         return this.toggleAgent();
       case 'toggleTheme':
         return this.theme.toggle();
-      case 'openSettings':
-        return this.settingsOpen$.next(true);
-      case 'signOut':
-        return this.logout();
       case 'stopAgent':
         return this.stop(action.thread);
       case 'draft':
@@ -390,16 +385,12 @@ export class WorkspacePage implements OnDestroy {
     const thread$ = view.thread
       ? of(view.thread)
       : this.api.createThread(view.project.id, this.agent$.value).pipe(
-          tap((thread) => {
-            void this.store.remember({ thread });
-            this.selection$.next({ projectId: thread.project_id, threadId: thread.id });
-          }),
+          tap((thread) => this.selection$.next({ projectId: thread.project_id, threadId: thread.id })),
         );
 
     this.sending$.next(true);
     thread$.pipe(switchMap((thread) => this.api.sendMessage(thread.id, text))).subscribe({
-      next: (entry) => {
-        void this.store.remember({ entry });
+      next: () => {
         this.draft$.next('');
         this.sending$.next(false);
       },
@@ -420,7 +411,6 @@ export class WorkspacePage implements OnDestroy {
   addProject({ name, directory }: NewProject): void {
     this.api.createProject(name, directory).subscribe({
       next: (project) => {
-        void this.store.remember({ project });
         this.selectProject(project);
         this.screen$.next('thread');
         this.closeMenu();
@@ -436,27 +426,6 @@ export class WorkspacePage implements OnDestroy {
       buttons: [
         { text: 'Cancel', role: 'cancel' },
         { text: 'Remove', role: 'destructive', handler: () => this.removeProject(project) },
-      ],
-    });
-    await alert.present();
-  }
-
-  logout(): void {
-    this.auth.logout().subscribe({ error: () => undefined });
-  }
-
-  async confirmDeleteAccount(): Promise<void> {
-    const alert = await this.alertController.create({
-      header: 'Delete account',
-      message: 'This permanently deletes your account and all your data. Enter your password to confirm.',
-      inputs: [{ name: 'password', type: 'password', placeholder: 'Current password' }],
-      buttons: [
-        { text: 'Cancel', role: 'cancel' },
-        {
-          text: 'Delete',
-          role: 'destructive',
-          handler: (data: { password: string }) => this.deleteAccount(data.password),
-        },
       ],
     });
     await alert.present();
@@ -479,12 +448,4 @@ export class WorkspacePage implements OnDestroy {
       error: (failure: unknown) => this.alerts.error(refusalText(failure, 'The project could not be removed.')),
     });
   }
-
-  private deleteAccount(password: string): void {
-    this.auth.deleteAccount(password).subscribe({
-      error: (error) =>
-        this.alerts.error(error?.status === 403 ? 'Incorrect password.' : 'Could not delete account.'),
-    });
-  }
 }
-

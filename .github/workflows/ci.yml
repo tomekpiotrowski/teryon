@@ -95,29 +95,66 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run build
 
-  e2e:
-    needs: api
+  local:
+    # The core library and the local service run on every developer machine,
+    # so they are built and tested on all three systems. The tests that start
+    # the fake agents need a shell script to run, which Windows cannot start
+    # directly, so Windows runs the unit tests only.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Format
+        if: runner.os == 'Linux'
+        run: cargo fmt --all --check
+      - name: Clippy
+        run: cargo clippy -p teryon-core -p teryon --all-targets -- -D warnings
+      - name: Test
+        if: runner.os != 'Windows'
+        run: cargo test -p teryon-core -p teryon
+      - name: Unit tests
+        if: runner.os == 'Windows'
+        run: cargo test -p teryon-core -p teryon --lib
+
+  desktop:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: teryon
-          POSTGRES_PASSWORD: teryon
-          POSTGRES_DB: teryon_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U teryon"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: oven-sh/setup-bun@v2
+      - name: Install the libraries Tauri needs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - name: Build the app
+        working-directory: app
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+      - name: Build teryon and place it for the bundle
+        run: |
+          cargo build -p teryon
+          cd app && node ../desktop/scripts/copy-teryon.mjs debug
+      - name: Clippy
+        run: cargo clippy -p teryon-desktop --features tauri/custom-protocol -- -D warnings
+
+  e2e:
+    # Every test starts a `teryon service` of its own; nothing else is needed.
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: api
       - uses: oven-sh/setup-bun@v2
       - name: Install app
         working-directory: app
@@ -128,41 +165,10 @@ jobs:
       - name: Install Playwright
         working-directory: e2e
         run: bunx playwright install --with-deps chromium
-      - name: Build API
-        working-directory: api
-        run: cargo build
-      - name: Start API
-        working-directory: api
-        run: |
-          set -euo pipefail
-          # The same settings `erno test` gives the API: the workspace tests
-          # sign in through the browser, which needs the application's address
-          # allowed as an origin.
-          APP_ENVIRONMENT=test \
-          APP__API_URL=http://127.0.0.1:3001 \
-          APP__APP_URL=http://127.0.0.1:4200 \
-          ERNO_DEV_CORS_ORIGINS=http://127.0.0.1:4200,http://localhost:4200 \
-            ./target/debug/teryon >"$RUNNER_TEMP/api.log" 2>&1 &
-          echo $! >"$RUNNER_TEMP/api.pid"
-          for i in $(seq 1 60); do
-            if ! kill -0 "$(cat "$RUNNER_TEMP/api.pid")" 2>/dev/null; then
-              echo "API process exited before /liveness answered"
-              cat "$RUNNER_TEMP/api.log"
-              exit 1
-            fi
-            if curl -sf "http://127.0.0.1:3001/liveness" >/dev/null; then
-              echo "API is ready"
-              exit 0
-            fi
-            sleep 1
-          done
-          echo "API did not become ready"
-          cat "$RUNNER_TEMP/api.log"
-          exit 1
+      - name: Build teryon
+        run: cargo build -p teryon
       - name: Playwright
         working-directory: e2e
         env:
           CI: true
-          API_URL: http://127.0.0.1:3001
-          APP_URL: http://127.0.0.1:4200
         run: bunx playwright test

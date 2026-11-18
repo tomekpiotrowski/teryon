@@ -20,7 +20,7 @@
         [branch]="view.place.branch"
         [threads]="view.projectThreads"
         [openThread]="view.thread?.id ?? null"
-        [ownEmail]="(auth.currentUser$ | async)?.email ?? null"
+        [ownEmail]="null"
         (closed)="screen$.next('thread')"
         (filesOpened)="screen$.next('files')"
         (branchChosen)="chooseBranch(view.project, $event)"
@@ -44,7 +44,11 @@
 
         <div class="workspace-body">
           <main class="project-view">
-            @if (!view.project) {
+            @if ((connection$ | async) !== 'connected') {
+              <section class="empty-project">
+                <p class="empty-workspace" role="status">{{ connectionText((connection$ | async) ?? 'connecting') }}</p>
+              </section>
+            } @else if (!view.project) {
               <section class="empty-project">
                 <p class="empty-workspace">Add a project to get started. A project is a directory on this machine that agents work in. Press <kbd>/</kbd> or the menu button and choose New project.</p>
               </section>
@@ -159,17 +163,4 @@
     ></app-command-menu>
   }
 
-  @if (settingsOpen$ | async) {
-    <div class="settings-backdrop" role="presentation" (click)="settingsOpen$.next(false)">
-      <section class="settings-dialog blueprint" role="dialog" aria-modal="true" aria-labelledby="settings-title" (click)="$event.stopPropagation()">
-        <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
-        <header><h1 id="settings-title">Account</h1><button type="button" aria-label="Close settings" (click)="settingsOpen$.next(false)">×</button></header>
-        <p>Signed in as <strong>{{ auth.currentUser()?.email }}</strong></p>
-        <div class="settings-actions">
-          <button class="technical-button" type="button" (click)="logout()">Sign out</button>
-          <button class="technical-button danger" type="button" (click)="confirmDeleteAccount()">Delete account</button>
-        </div>
-      </section>
-    </div>
-  }
 </ion-content>

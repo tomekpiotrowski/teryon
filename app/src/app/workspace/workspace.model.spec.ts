@@ -1,6 +1,7 @@
 import {
   agentLabel,
   barTitle,
+  connectionText,
   composerAction,
   type ComposerPress,
   durationText,
@@ -205,11 +206,20 @@ describe('durationText', () => {
 });
 
 describe('refusalText', () => {
-  it('uses the reason the server gave', () => {
-    expect(refusalText({ error: { error: 'A project needs a name.' } }, 'Fallback')).toBe('A project needs a name.');
+  it('uses the reason the service gave', () => {
+    expect(refusalText({ name: 'ServiceRefusal', message: 'A project needs a name.' }, 'Fallback')).toBe('A project needs a name.');
   });
 
-  it.each([[null], [undefined], ['text'], [{}], [{ error: 'text' }], [{ error: {} }], [{ error: { error: '  ' } }], [{ error: { error: 5 } }]])(
+  it.each([
+    [null],
+    [undefined],
+    ['text'],
+    [{}],
+    [new Error('a programming mistake')],
+    [{ name: 'ServiceRefusal', message: '  ' }],
+    [{ name: 'ServiceRefusal', message: 5 }],
+    [{ name: 'TypeError', message: 'A project needs a name.' }],
+  ])(
     'falls back for %j',
     (failure) => {
       expect(refusalText(failure, 'Fallback')).toBe('Fallback');
@@ -392,5 +402,19 @@ describe('placeIn', () => {
 
   it('starts from the directory as it is when nothing was chosen', () => {
     expect(placeIn(NO_PLACE, 'a')).toEqual({ projectId: 'a', branch: null, commit: null });
+  });
+});
+
+describe('connectionText', () => {
+  it('says Teryon is being reached', () => {
+    expect(connectionText('connecting')).toBe('Connecting to Teryon…');
+  });
+
+  it('says how to open Teryon when this window cannot know where it is', () => {
+    expect(connectionText('no_address')).toContain('teryon service --print-address');
+  });
+
+  it('says nothing once connected', () => {
+    expect(connectionText('connected')).toBe('');
   });
 });

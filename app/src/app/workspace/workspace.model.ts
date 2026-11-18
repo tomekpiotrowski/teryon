@@ -12,6 +12,8 @@ export interface Project {
   readonly name: string;
   readonly directory: string;
   readonly created_at: string;
+  /** Whether it can be worked in: its directory may have gone, or another Teryon may have it open. */
+  readonly state?: 'ready' | 'missing' | 'in_use';
 }
 
 export interface Thread {
@@ -259,17 +261,43 @@ export function durationText(milliseconds: number): string {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
+/** The name a refusal from the service carries, see `ServiceRefusal`. */
+export const REFUSAL = 'ServiceRefusal';
+
 /**
- * The reason the server gave for refusing a request, or a fallback.
+ * The reason the service gave for refusing a request, or a fallback.
  *
- * The server answers a refused request with `{ "error": "…" }`.
+ * A refusal arrives as an error named `ServiceRefusal` whose message is
+ * meant for the person. Any other failure gets the fallback, because its
+ * message is meant for programmers.
  */
 export function refusalText(failure: unknown, fallback: string): string {
-  const body = (failure as { error?: unknown } | null)?.error;
-  const reason = (body as { error?: unknown } | null)?.error;
+  const refusal = failure as { name?: unknown; message?: unknown } | null;
+  const reason = refusal?.name === REFUSAL ? refusal.message : undefined;
   return typeof reason === 'string' && reason.trim() ? reason : fallback;
 }
 
 function textOf(value: unknown): string {
   return typeof value === 'string' ? value : '';
+}
+
+/**
+ * How the connection to the local service stands.
+ *
+ * - `connecting`: on the way, or waiting to try again
+ * - `connected`: the token was accepted and changes are arriving
+ * - `no_address`: this window does not know where the service is
+ */
+export type ConnectionState = 'connecting' | 'connected' | 'no_address';
+
+/** What the empty screen says while the workspace cannot be shown. */
+export function connectionText(state: ConnectionState): string {
+  switch (state) {
+    case 'connecting':
+      return 'Connecting to Teryon…';
+    case 'no_address':
+      return 'This window does not know where Teryon is running. Open Teryon from the desktop app, or from the address `teryon service --print-address` prints.';
+    case 'connected':
+      return '';
+  }
 }

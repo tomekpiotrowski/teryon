@@ -1,0 +1,17 @@
+[package]
+name = "teryon-desktop"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "teryon-desktop"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+teryon = { path = "../../service" }
+teryon-core.workspace = true
+tauri = { version = "2", features = [] }
+serde.workspace = true

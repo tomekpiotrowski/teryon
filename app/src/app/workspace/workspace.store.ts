@@ -1,97 +1,112 @@
-import { DOCUMENT } from '@angular/common';
 import { inject, Injectable } from '@angular/core';
-import { liveQuery, type Table } from 'dexie';
-import { ErnoAuthService, ErnoSyncService, type SyncDeltaItem } from 'erno-angular';
-import { from, type Observable } from 'rxjs';
-import { WorkspaceDatabase } from './workspace.database';
+import {
+  BehaviorSubject,
+  catchError,
+  defer,
+  distinctUntilChanged,
+  EMPTY,
+  filter,
+  finalize,
+  map,
+  Observable,
+  of,
+  scan,
+  share,
+  switchMap,
+} from 'rxjs';
+import { ServiceConnection } from '../service/service-connection';
+import { applyEvent, NO_LISTS, withEntries, type WorkspaceLists } from '../service/workspace-events';
 import type { Project, Thread, ThreadEntry } from './workspace.model';
-
-/** Where the browser remembers whose workspace its copy holds. */
-const OWNER_KEY = 'teryon-workspace-owner';
-
-/** The synchronised tables, by the name the server knows them by. */
-const TABLES = ['projects', 'threads', 'thread_entries'] as const;
 
 /**
  * The workspace as the screen sees it: live lists of projects, threads and entries.
  *
- * The lists come from the browser's copy and change whenever synchronisation
- * delivers something, so the screen never asks for a one-time answer.
- *
- * The copy belongs to one person. Erno keeps a position per table saying how
- * far synchronisation has got, and does not reset it at sign-out, so when
- * someone else signs in the copy is emptied and the positions start over.
+ * Everything comes from the local service, which sends every project and
+ * thread when the connection is made and every change after that. The lists
+ * are kept from the moment the store exists, so a screen opened later still
+ * starts from the latest snapshot. A thread's entries are only sent while
+ * someone follows it, which `entries$` does for as long as it is watched.
  */
 @Injectable({ providedIn: 'root' })
 export class WorkspaceStore {
-  private readonly database = inject(WorkspaceDatabase);
-  private readonly sync = inject(ErnoSyncService);
-  private readonly auth = inject(ErnoAuthService);
-  private readonly storage = inject(DOCUMENT).defaultView?.localStorage;
-  private started: Promise<void> | null = null;
+  private readonly connection = inject(ServiceConnection);
+  private readonly lists$ = new BehaviorSubject<WorkspaceLists>(NO_LISTS);
+  private readonly following = new Map<string, Observable<ThreadEntry[]>>();
 
-  readonly projects$: Observable<Project[]> = from(liveQuery(() => this.database.projects.toArray()));
-  readonly threads$: Observable<Thread[]> = from(liveQuery(() => this.database.threads.toArray()));
+  readonly projects$: Observable<readonly Project[]> = this.lists$.pipe(
+    map((lists) => lists.projects),
+    distinctUntilChanged(),
+  );
+  readonly threads$: Observable<readonly Thread[]> = this.lists$.pipe(
+    map((lists) => lists.threads),
+    distinctUntilChanged(),
+  );
+  /** How the connection to the service stands, for the screen to explain a wait. */
+  readonly connection$ = this.connection.state$.asObservable();
 
-  entries$(threadId: string): Observable<ThreadEntry[]> {
-    return from(liveQuery(() => this.database.entries.where('thread_id').equals(threadId).sortBy('position')));
+  constructor() {
+    this.connection.events$.subscribe((event) => this.lists$.next(applyEvent(this.lists$.value, event)));
   }
 
-  /** Starts synchronisation. Safe to call every time the screen opens. */
-  start(): Promise<void> {
-    this.started ??= this.begin();
-    return this.started;
+  /** Connects to the service. Safe to call every time the screen opens. */
+  start(): void {
+    this.connection.start();
   }
 
   /**
-   * Puts rows the server just answered with into the copy.
+   * A thread's entries, in order, as they arrive.
    *
-   * Synchronisation would deliver them a moment later; this makes what the
-   * person just did show up at once.
+   * Following starts with the first watcher and stops with the last. Each time
+   * the connection is made again the thread is followed again, because the
+   * service forgets what a closed connection followed.
    */
-  async remember(rows: { project?: Project; thread?: Thread; entry?: ThreadEntry }): Promise<void> {
-    if (rows.project) await this.database.projects.put(rows.project);
-    if (rows.thread) await this.database.threads.put(rows.thread);
-    if (rows.entry) await this.database.entries.put(rows.entry);
-  }
-
-  private async begin(): Promise<void> {
-    this.sync.register('projects', '/api/projects/sync', (item) => this.apply(this.database.projects, item));
-    this.sync.register('threads', '/api/threads/sync', (item) => this.apply(this.database.threads, item));
-    this.sync.register('thread_entries', '/api/thread-entries/sync', (item) => this.apply(this.database.entries, item));
-    await this.sync.start();
-
-    // One change of hands at a time: emptying the copy must not overlap with
-    // refilling it for the next person.
-    let settled = Promise.resolve();
-    this.auth.currentUser$.subscribe((user) => {
-      if (user) settled = settled.then(() => this.adopt(user.id));
-    });
-    this.auth.authState$.subscribe((state) => {
-      if (state !== 'anonymous') return;
-      this.storage?.removeItem(OWNER_KEY);
-      settled = settled.then(() => this.empty());
-    });
-  }
-
-  /** Makes the copy the given person's, starting over when it held someone else's. */
-  private async adopt(owner: string): Promise<void> {
-    if (owner === this.storage?.getItem(OWNER_KEY)) return;
-    await this.empty();
-    for (const table of TABLES) await this.sync.resetCursor(table);
-    this.storage?.setItem(OWNER_KEY, owner);
-  }
-
-  private async apply<Row extends { id: string }>(table: Table<Row, string>, item: SyncDeltaItem): Promise<void> {
-    const row = item.data as (Row & { deleted_at?: string | null }) | null | undefined;
-    if (item.deleted || row?.deleted_at) {
-      await table.delete(item.id);
-    } else if (row) {
-      await table.put(row);
+  entries$(threadId: string): Observable<ThreadEntry[]> {
+    let entries = this.following.get(threadId);
+    if (!entries) {
+      entries = this.connection.state$.pipe(
+        filter((state) => state === 'connected'),
+        switchMap(() => this.follow(threadId)),
+        finalize(() => {
+          this.following.delete(threadId);
+          this.connection
+            .request({ type: 'unfollow_thread', thread_id: threadId })
+            .pipe(catchError(() => EMPTY))
+            .subscribe();
+        }),
+        share({ resetOnRefCountZero: true }),
+      );
+      this.following.set(threadId, entries);
     }
+    return entries;
   }
 
-  private async empty(): Promise<void> {
-    await Promise.all([this.database.projects.clear(), this.database.threads.clear(), this.database.entries.clear()]);
+  private follow(threadId: string): Observable<ThreadEntry[]> {
+    const added$ = this.connection.events$.pipe(
+      filter((event) => event.type === 'entry_added' && event.entry.thread_id === threadId),
+      map((event) => (event.type === 'entry_added' ? [event.entry as ThreadEntry] : [])),
+    );
+    const first$ = defer(() => this.connection.request({ type: 'follow_thread', thread_id: threadId })).pipe(
+      map((answer) => (answer.type === 'entries' ? (answer.entries as ThreadEntry[]) : [])),
+      catchError(() => of([] as ThreadEntry[])),
+    );
+    // Entries that arrive while the first list is on its way are kept and merged in.
+    return new Observable<ThreadEntry[]>((subscriber) => {
+      let early: ThreadEntry[] = [];
+      let ready = false;
+      const listening = added$.subscribe((added) => {
+        if (ready) subscriber.next(added);
+        else early = early.concat(added);
+      });
+      const reading = first$.subscribe((all) => {
+        ready = true;
+        subscriber.next(withEntries(all, early));
+      });
+      return () => {
+        listening.unsubscribe();
+        reading.unsubscribe();
+      };
+    }).pipe(
+      scan((entries, change) => withEntries(entries, change), [] as ThreadEntry[]),
+    );
   }
 }

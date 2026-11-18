@@ -6,22 +6,6 @@ app_url = "http://localhost:4200"
 # Erno falls back to a plain unstyled body for any file that is missing.
 email_templates_dir = "emails"
 
-# Where projects may live and which agent programs are started.
-#
-# Paths are relative to api/, where the server runs. `../..` is the folder that
-# holds this repository, so Teryon and its neighbours can become projects.
-[agents]
-allowed_folders = ["../.."]
-
-[agents.claude]
-program = "claude"
-# Use the subscription Claude Code is signed in with. Set to false to pass the
-# environment through unchanged, for example to use an API key instead.
-use_subscription = true
-
-[agents.grok]
-program = "grok"
-
 [tracing]
 log_level = "debug"
 
@@ -76,7 +60,7 @@ backoff_multiplier = 2.0
 allowed_origins = ["http://localhost:4200", "http://localhost:4300"]
 
 [metrics]
-table_counts = ["users", "job", "job_execution", "files", "file_attachments", "stripe_subscriptions", "email_messages", "admin_event", "projects", "threads", "thread_entries"]
+table_counts = ["users", "job", "job_execution", "files", "file_attachments", "stripe_subscriptions", "email_messages", "admin_event"]
 
 # Operator admin API. Dev password: admin
 [admin]

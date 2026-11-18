@@ -32,8 +32,6 @@ export type CommandAction =
   | { readonly kind: 'removeProject'; readonly project: Project }
   | { readonly kind: 'toggleAgent' }
   | { readonly kind: 'toggleTheme' }
-  | { readonly kind: 'openSettings' }
-  | { readonly kind: 'signOut' }
   | { readonly kind: 'stopAgent'; readonly thread: Thread }
   | { readonly kind: 'draft'; readonly text: string };
 
@@ -128,8 +126,6 @@ export function commandList(situation: Situation): Command[] {
   }
   actions.push(
     command('action:toggleTheme', situation.theme === 'dark' ? 'Light theme' : 'Dark theme', 'action', { kind: 'toggleTheme' }),
-    command('action:openSettings', 'Settings', 'action', { kind: 'openSettings' }),
-    command('action:signOut', 'Sign out', 'action', { kind: 'signOut' }),
   );
 
   return [...threads, ...projects, ...actions, ...agentCommands(situation)];

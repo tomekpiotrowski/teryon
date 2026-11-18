@@ -27,7 +27,7 @@ function situation(overrides: Partial<Situation> = {}): Situation {
 }
 
 function entry(title: string, detail = '', overrides: Partial<Command> = {}): Command {
-  return { id: title, title, detail, group: 'action', key: null, live: false, action: { kind: 'openSettings' }, ...overrides };
+  return { id: title, title, detail, group: 'action', key: null, live: false, action: { kind: 'toggleTheme' }, ...overrides };
 }
 
 const first = project('a', 'Payments');
@@ -47,8 +47,6 @@ describe('commandList', () => {
       'action:toggleAgent',
       'action:newProject',
       'action:toggleTheme',
-      'action:openSettings',
-      'action:signOut',
     ]);
   });
 
@@ -66,8 +64,6 @@ describe('commandList', () => {
       'action:newProject',
       'action:removeProject',
       'action:toggleTheme',
-      'action:openSettings',
-      'action:signOut',
     ]);
   });
 

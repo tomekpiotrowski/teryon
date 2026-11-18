@@ -1,5 +1,5 @@
 use erno::boot::boot;
-use teryon::{boot_config, Migrator, Settings};
+use teryon_server::{boot_config, Migrator, Settings};
 
 #[tokio::main]
 async fn main() {

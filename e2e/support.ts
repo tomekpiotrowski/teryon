@@ -1,67 +1,93 @@
-// What the end-to-end specs share: a signed-in person, a way to use the menu,
-// a way to add a project, and a way to make its directory a git repository.
+// What the end-to-end specs share: a Teryon service of their own, a way to
+// use the menu, a way to add a project, and a way to make its directory a git
+// repository.
 //
-// The API runs with the test configuration, which replaces the agent programs
-// with a script that replays recordings. Nothing here reaches a model provider.
+// Every test starts `teryon service` in a temporary home folder, configured
+// to let the app under test connect and to start a script that replays
+// recordings in place of the agent programs. Nothing here reaches a model
+// provider, and nothing touches the projects of whoever runs the tests.
 
-import { expect, type APIRequestContext, type Locator, type Page } from "@playwright/test";
-import { execFileSync } from "node:child_process";
+import { expect, test as base, type Locator, type Page } from "@playwright/test";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { createInterface } from "node:readline";
 
-const api = process.env.API_URL ?? "http://127.0.0.1:3001";
+const root = join(__dirname, "..");
 
-/** The one folder the test configuration allows projects in. */
-const projectsFolder = join(__dirname, "..", "api", "target", "test-projects");
+/** The `teryon` program, built before the tests run. */
+const program = process.env.TERYON_PROGRAM ?? join(root, "target", "debug", "teryon");
 
-const password = "a long password";
+/** The recordings the fake agents replay. */
+const samples = join(root, "core", "tests", "samples");
 
-interface MockEmail {
-  to: string;
-  body_html: string | null;
-  body_text: string | null;
+/** The app under test, as the service sees it. */
+function appOrigin(baseURL: string | undefined): string {
+  return new URL(baseURL ?? "http://127.0.0.1:4310").origin;
 }
 
-/**
- * Registers a person and confirms their address the way they would: with the
- * link from the verification email, read from the API's development inbox.
- */
-async function registeredPerson(request: APIRequestContext): Promise<string> {
-  const email = `person-${Date.now()}-${Math.floor(Math.random() * 1e6)}@example.com`;
-  const registration = await request.post(`${api}/api/auth/register`, { data: { email, password } });
-  expect(registration.ok()).toBeTruthy();
-
-  let token: string | undefined;
-  await expect
-    .poll(
-      async () => {
-        const inbox: MockEmail[] = await (await request.get(`${api}/dev/emails`)).json();
-        const message = inbox.find((candidate) => candidate.to === email);
-        token = `${message?.body_html ?? ""} ${message?.body_text ?? ""}`.match(/verify-email\?token=([\w.-]+)/)?.[1];
-        return token;
-      },
-      { timeout: 20_000 },
-    )
-    .toBeTruthy();
-
-  const verification = await request.post(`${api}/api/auth/email/verify`, { data: { token } });
-  expect(verification.ok()).toBeTruthy();
-  return email;
+/** A running service, and the address that opens the app connected to it. */
+interface Service {
+  readonly address: string;
+  readonly home: string;
+  readonly process: ChildProcess;
 }
 
-async function collapseDevtools(page: Page): Promise<void> {
-  const minimize = page.getByRole("dialog", { name: "Erno Devtools" }).getByRole("button", { name: "—" });
-  if (await minimize.isVisible()) await minimize.click();
+/** Starts a service in a fresh home folder and waits for the address it prints. */
+async function startService(origin: string): Promise<Service> {
+  const home = mkdtempSync(join(tmpdir(), "teryon-e2e-"));
+  mkdirSync(join(home, "config"), { recursive: true });
+  writeFileSync(
+    join(home, "config", "config.toml"),
+    [
+      "[service]",
+      "port = 7400",
+      `allowed_origins = ["${origin}"]`,
+      "",
+      "[agents]",
+      "stop_grace_seconds = 1",
+      "",
+      "[agents.claude]",
+      `program = "${join(samples, "fake-claude.sh")}"`,
+      "",
+      "[agents.grok]",
+      `program = "${join(samples, "fake-grok.sh")}"`,
+      "",
+    ].join("\n"),
+  );
+  const child = spawn(program, ["--home", home, "service", "--print-address", `${origin}/`], {
+    stdio: ["ignore", "pipe", "inherit"],
+  });
+  const lines = createInterface({ input: child.stdout! });
+  const address = await new Promise<string>((resolve, reject) => {
+    child.once("exit", (code) => reject(new Error(`teryon service ended early (${code})`)));
+    lines.once("line", resolve);
+  });
+  return { address, home, process: child };
 }
 
-async function signIn(page: Page, email: string): Promise<void> {
-  await page.goto("/login");
-  await collapseDevtools(page);
-  await page.getByLabel("Work email").fill(email);
-  await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: /Sign in/ }).click();
-  await expect(page.getByText("Add a project to get started.")).toBeVisible();
+/** Stops a service and waits for it to end. */
+async function stopService(service: Service): Promise<void> {
+  if (service.process.exitCode !== null) return;
+  const ended = new Promise((resolve) => service.process.once("exit", resolve));
+  service.process.kill("SIGTERM");
+  await ended;
 }
+
+/** Playwright's `test`, with a service of its own for every test. */
+export const test = base.extend<{ service: Service }>({
+  service: async ({ baseURL }, use) => {
+    const service = await startService(appOrigin(baseURL));
+    await use(service);
+    await stopService(service);
+  },
+});
+
+export { expect };
+
+/** Where a test's project directories go. */
+const projectsFolder = join(tmpdir(), "teryon-e2e-projects");
 
 /**
  * Adds a project in a fresh directory and returns the directory once the
@@ -91,15 +117,13 @@ export async function choose(page: Page, command: string): Promise<void> {
   await menu(page).getByRole("option", { name: new RegExp(`^${command}`) }).click();
 }
 
-/** Signs a new person in and leaves them on the empty workspace. For `test.beforeEach`. */
-export async function openWorkspace({ page, request }: { page: Page; request: APIRequestContext }): Promise<void> {
-  // The API under test listens on a port chosen for this run; the application
-  // would otherwise look for it where the development server usually is.
-  await page.addInitScript((url) => {
-    (window as { __ERNO_API_URL__?: string }).__ERNO_API_URL__ = url;
-  }, api);
+/** Opens the app connected to the test's service, on the empty workspace. For `test.beforeEach`. */
+export async function openWorkspace({ page, service }: { page: Page; service: Service }): Promise<void> {
   await page.setViewportSize({ width: 1280, height: 800 });
-  await signIn(page, await registeredPerson(request));
+  await page.goto(service.address);
+  const minimize = page.getByRole("dialog", { name: "Erno Devtools" }).getByRole("button", { name: "—" });
+  if (await minimize.isVisible()) await minimize.click();
+  await expect(page.getByText("Add a project to get started.")).toBeVisible();
 }
 
 /**

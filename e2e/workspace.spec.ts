@@ -1,11 +1,10 @@
-// End-to-end specs for the workspace: a person signs in, adds a project and
+// End-to-end specs for the workspace: a person adds a project and
 // has an agent work in it.
 //
-// The API runs with the test configuration, which replaces the agent programs
-// with a script that replays recordings. Nothing here reaches a model provider.
+// Each test has a Teryon service of its own, which starts a script that
+// replays recordings in place of the agent programs. Nothing here reaches a model provider.
 
-import { expect, test } from "@playwright/test";
-import { addProject, choose, commit, git, menu, openWorkspace, put } from "./support";
+import { addProject, choose, commit, expect, git, menu, openWorkspace, put, test } from "./support";
 
 test.beforeEach(openWorkspace);
 
@@ -126,12 +125,12 @@ test("a running agent can be stopped", async ({ page }) => {
 
 test("a refused project says why, and can be corrected", async ({ page }) => {
   await choose(page, "New project");
-  await page.getByLabel("Project name").fill("Outside");
-  await page.getByLabel("Project directory").fill("/");
+  await page.getByLabel("Project name").fill("Nowhere");
+  await page.getByLabel("Project directory").fill("/a/directory/nobody/has");
   await page.getByRole("button", { name: "Add project" }).click();
 
-  await expect(page.getByText("The directory is not inside a folder Teryon is allowed to use.")).toBeVisible();
-  await expect(page.getByLabel("Project directory")).toHaveValue("/");
+  await expect(page.getByText("The directory does not exist.")).toBeVisible();
+  await expect(page.getByLabel("Project directory")).toHaveValue("/a/directory/nobody/has");
   await expect(page.getByText("Add a project to get started.")).toBeVisible();
 
   await page.getByRole("button", { name: "Cancel" }).click();
@@ -341,22 +340,14 @@ test("the agent's own slash commands are listed and go to the message box", asyn
   await expect(page.getByLabel("New thread")).toHaveValue("/review ");
 });
 
-test("the settings, the theme and signing out are reached from the menu", async ({ page }) => {
+test("the theme is changed from the menu, which offers nothing about accounts", async ({ page }) => {
   const before = await page.locator("html").getAttribute("data-theme");
   await choose(page, before === "dark" ? "Light theme" : "Dark theme");
   await expect(page.locator("html")).not.toHaveAttribute("data-theme", before ?? "");
 
-  await choose(page, "Settings");
-  await expect(page.getByRole("dialog", { name: "Account" })).toBeVisible();
-
-  // While the settings are open the menu stays out of the way, and Escape closes them.
-  await page.keyboard.press("/");
-  await expect(menu(page)).toHaveCount(0);
-  await page.keyboard.press("Escape");
-  await expect(page.getByRole("dialog", { name: "Account" })).toHaveCount(0);
-
-  await choose(page, "Sign out");
-  await expect(page.getByLabel("Work email")).toBeVisible();
+  await page.keyboard.press("Control+k");
+  await expect(menu(page).getByRole("option", { name: /^Settings/ })).toHaveCount(0);
+  await expect(menu(page).getByRole("option", { name: /^Sign out/ })).toHaveCount(0);
 });
 
 test("the phone layout brings the menu up from the bottom, to be tapped", async ({ page }) => {

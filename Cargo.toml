@@ -1,0 +1,28 @@
+# The programs that run on a developer's machine.
+#
+# `api/` is the Teryon server. It stays a crate of its own so erno's tooling
+# finds it where it expects, and shares nothing with these yet.
+[workspace]
+resolver = "2"
+members = ["core", "service", "desktop/src-tauri"]
+# The desktop app needs the app's web build and a copy of `teryon` before it
+# compiles, so plain `cargo build` and `cargo test` leave it out. Build it with
+# `cargo tauri build` in `desktop/src-tauri`, or `cargo build -p teryon-desktop`.
+default-members = ["core", "service"]
+exclude = ["api"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+[workspace.dependencies]
+teryon-core = { path = "core" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util", "time", "sync", "fs", "net", "signal"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "2"
+tracing = "0.1"
+lets_expect = { version = "0.5", features = ["tokio"] }
+tempfile = "3"

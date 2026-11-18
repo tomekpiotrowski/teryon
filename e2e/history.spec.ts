@@ -5,8 +5,8 @@
 // where the history is read from. Every commit is made at a moment the test
 // chooses, so the times on screen are known.
 
-import { expect, test, type Page } from "@playwright/test";
-import { addProject, git, gitAt, openWorkspace, put } from "./support";
+import type { Page } from "@playwright/test";
+import { addProject, expect, git, gitAt, openWorkspace, put, test } from "./support";
 
 /** The start of the hour before this one, in seconds since 1970. Commits come minutes after it. */
 const start = Math.floor(Date.now() / 3_600_000) * 3600 - 3600;

@@ -4,8 +4,7 @@
 // Each project is a real git repository made for the test, because that is
 // where the file browser reads from.
 
-import { expect, test } from "@playwright/test";
-import { addProject, commit, git, openWorkspace, put } from "./support";
+import { expect, test, addProject, commit, git, openWorkspace, put } from "./support";
 
 const adapterBefore = `import type { LegacyTxn } from "../legacy/types";
 
