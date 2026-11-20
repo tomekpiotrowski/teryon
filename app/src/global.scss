@@ -650,6 +650,19 @@ a:hover {
 .hero-input:focus-visible,
 .composer-field textarea:focus-visible { outline: none; }
 
+/*
+ * The message boxes show no scroll bar.
+ *
+ * A message box grows with its text, but WebKit, which runs the desktop app,
+ * sizes it a pixel short at some line counts, so a scroll bar appeared on
+ * short messages and vanished as they grew.
+ *
+ * Only the bar is hidden: past its maximum height the box still scrolls with
+ * the wheel, the touchpad, touch and the caret.
+ */
+.hero-input,
+.composer-field textarea { scrollbar-width: none; }
+
 .hero-input::placeholder,
 .composer-field textarea::placeholder { color: var(--color-neutral-500); opacity: 1; }
 
