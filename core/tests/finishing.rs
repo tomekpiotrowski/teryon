@@ -349,7 +349,7 @@ lets_expect! { #tokio_test
         expect(state.map(|state| state.unfinished)) to equal(Some(false))
     }
 
-    // requirement: the description starts from what the agent said when it committed, or the thread's title
+    // requirement: the description starts from what the agent last committed, or the thread's title
     story the_description_is_drafted {
         let project = project(|_| {});
         let (thread, copy) = project.change("fix-login", None).await;
@@ -361,8 +361,8 @@ lets_expect! { #tokio_test
         git(&copy, &["commit", "-q", "-m", "Fix the login\n\nIt redirected twice."]);
         put(&copy, "tests.txt", "tested\n");
         git(&copy, &["add", "-A"]);
-        git(&copy, &["commit", "-q", "-m", "Test the login"]);
+        git(&copy, &["commit", "-q", "-m", "Fix and test the login"]);
         let drafted = project.scene.workspace.draft_description(thread.id).await.unwrap();
-        expect(drafted) to equal("Test the login\n\n- Fix the login".to_string())
+        expect(drafted) to equal("Fix and test the login".to_string())
     }
 }

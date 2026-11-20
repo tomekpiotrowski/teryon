@@ -163,10 +163,10 @@ pub async fn discard(project: &Path, change: &Change) -> Result<(), FinishError>
 
 /// A starting point for the person's description of `change`: what the agent said about its work.
 ///
-/// The agent's own description when it committed once. When it committed
-/// several times, the newest description, followed by the first lines of the
-/// others, newest first. Commits Teryon made of leftovers are skipped.
-/// Nothing when the agent committed nothing.
+/// The newest description the agent committed. Agents are told to describe
+/// the whole change in every commit, see [`crate::changes::instruction`], so
+/// older descriptions would only repeat it. Commits Teryon made of leftovers
+/// are skipped. Nothing when the agent committed nothing.
 pub async fn draft_description(
     project: &Path,
     change: &Change,
@@ -191,20 +191,11 @@ pub async fn draft_description(
 
 /// The draft from what `git log --format=%B%x00` printed, newest first.
 fn draft_from(printed: &str) -> Option<String> {
-    let mut messages = printed
+    printed
         .split('\0')
         .map(str::trim)
-        .filter(|message| !message.is_empty() && *message != LEFTOVERS);
-    let newest = messages.next()?.to_string();
-    let others: Vec<String> = messages
-        .filter_map(|message| message.lines().next())
-        .map(|line| format!("- {line}"))
-        .collect();
-    if others.is_empty() {
-        Some(newest)
-    } else {
-        Some(format!("{newest}\n\n{}", others.join("\n")))
-    }
+        .find(|message| !message.is_empty() && *message != LEFTOVERS)
+        .map(str::to_string)
 }
 
 /// Commits everything uncommitted in a copy, so the change is the copy as it is. Says whether there was anything.
@@ -456,10 +447,11 @@ mod tests {
             when(printed = "Fix the login\n\nIt redirected twice.\n\0") as one_commit to give_its_description {
                 equal(Some("Fix the login\n\nIt redirected twice.".to_string()))
             }
-            when(printed = "Add tests\n\nFor the redirect.\n\0Work in progress\n\0Fix the login\n\nIt redirected twice.\n\0") as several_commits {
-                to give_the_newest_then_the_first_lines_of_the_others {
-                    equal(Some("Add tests\n\nFor the redirect.\n\n- Fix the login".to_string()))
-                }
+            when(printed = "Fix and test the login\n\nIt redirected twice.\n\0Fix the login\n\0") as several_commits to give_the_newest {
+                equal(Some("Fix and test the login\n\nIt redirected twice.".to_string()))
+            }
+            when(printed = "Work in progress\n\0Fix the login\n\0") as leftovers_on_top to give_the_newest_of_the_agent {
+                equal(Some("Fix the login".to_string()))
             }
         }
 
