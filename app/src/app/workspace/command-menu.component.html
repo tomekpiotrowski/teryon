@@ -3,15 +3,7 @@
     <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
     @if (view$ | async; as view) {
       @if (view.adding) {
-        <form class="menu-form" (submit)="addProject($event, projectName.value, projectDirectory.value)">
-          <h1>New project</h1>
-          <input #projectName type="text" aria-label="Project name" placeholder="Name" autocomplete="off" required />
-          <input #projectDirectory type="text" aria-label="Project directory" placeholder="/path/to/directory" autocomplete="off" required />
-          <div>
-            <button type="button" (click)="closed.emit()">Cancel</button>
-            <button type="submit">Add project</button>
-          </div>
-        </form>
+        <app-new-project (added)="projectAdded.emit($event)" (cancelled)="closed.emit()"></app-new-project>
       } @else {
         <div class="menu-search">
           <span aria-hidden="true">/</span>

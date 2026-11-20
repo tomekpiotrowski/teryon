@@ -266,7 +266,7 @@ lets_expect! { #tokio_test
         expect(copy_of(&folder, "second").exists()) to be_false
     }
 
-    // requirement: a copy or a review cannot be opened through a Teryon server, only on the machine itself
+    // requirement: a copy, a review or this machine's directories cannot be opened through a Teryon server, only on the machine itself
     story a_copy_is_not_opened_from_afar {
         let home = tempdir().unwrap();
         let workspace = Workspace::open(home.path(), Setup::default()).unwrap();
@@ -275,5 +275,7 @@ lets_expect! { #tokio_test
         expect(answer) to equal(Err("This can only be done on the machine itself.".to_string()))
         let (review, _) = session.answer(Request::OpenReview { thread_id: Uuid::new_v4() }).await;
         expect(review) to equal(Err("This can only be done on the machine itself.".to_string()))
+        let (directories, _) = session.answer(Request::Directories { path: "/".to_string() }).await;
+        expect(directories) to equal(Err("This can only be done on the machine itself.".to_string()))
     }
 }

@@ -24,6 +24,7 @@ use uuid::Uuid;
 
 use crate::agents::Voice;
 use crate::changes::{Change, ChangeState, Finish, Fit, Review, ReviewState};
+use crate::directory::DirectoryListing;
 use crate::files::diff::{Line, LineChange};
 use crate::files::{Content, FileChange, FileEntry, FileView, Listing};
 use crate::history::{ChangedFile, Changes, Commit, History};
@@ -50,6 +51,14 @@ pub enum Request {
     AddProject {
         name: String,
         directory: String,
+    },
+    /// The directories inside a directory, for choosing where a project lives.
+    ///
+    /// Only from this machine: someone signed in elsewhere must not see this
+    /// machine's folders. An empty path is the home directory. A path that is
+    /// only partly typed lists the nearest directory that exists.
+    Directories {
+        path: String,
     },
     /// Forgets a project. Its directory, threads and worktrees stay.
     RemoveProject {
@@ -195,6 +204,10 @@ pub enum Answer {
     Project {
         project: ProjectView,
     },
+    /// The directories inside one directory.
+    Directories {
+        listing: DirectoryListing,
+    },
     Thread {
         thread: Thread,
     },
@@ -326,6 +339,7 @@ pub fn typescript() -> String {
         Event::decl(&config),
         ProjectView::decl(&config),
         ProjectState::decl(&config),
+        DirectoryListing::decl(&config),
         Thread::decl(&config),
         Status::decl(&config),
         Change::decl(&config),

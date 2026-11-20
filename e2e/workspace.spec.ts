@@ -4,7 +4,8 @@
 // Each test has a Teryon service of its own, which starts a script that
 // replays recordings in place of the agent programs. Nothing here reaches a model provider.
 
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { Page } from "@playwright/test";
@@ -258,6 +259,67 @@ test("a running agent can be stopped", async ({ page }) => {
 
   await expect(page.getByText("Stopped by you.")).toBeVisible();
   await expect(page.getByRole("button", { name: "send ↵" })).toBeVisible();
+});
+
+test("a new project's name starts as its directory's name", async ({ page }) => {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), "teryon-e2e-named-")));
+  const name = directory.split("/").pop() ?? directory;
+
+  await choose(page, "New project");
+  await page.getByLabel("Project directory").fill(directory);
+  await expect(page.getByLabel("Project name")).toHaveValue(name);
+
+  await page.getByRole("button", { name: "Add project" }).click();
+  await expect(page.getByPlaceholder(`What should Claude do in ${name}?`)).toBeVisible();
+});
+
+test("a project directory can be picked from the list, and typed text narrows it", async ({ page }) => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "teryon-e2e-pick-")));
+  mkdirSync(join(root, "payments"));
+  mkdirSync(join(root, "website"));
+  mkdirSync(join(root, ".hidden"));
+
+  await choose(page, "New project");
+  const directory = page.getByLabel("Project directory");
+  const list = page.getByRole("listbox", { name: "Directories" });
+  await directory.fill(root);
+
+  await expect(list.getByRole("option", { name: "payments", exact: true })).toBeVisible();
+  await expect(list.getByRole("option", { name: "website", exact: true })).toBeVisible();
+  await expect(list.getByRole("option", { name: ".hidden", exact: true })).toHaveCount(0);
+
+  await directory.fill(`${root}/.h`);
+  await expect(list.getByRole("option", { name: ".hidden", exact: true })).toBeVisible();
+  await expect(list.getByRole("option", { name: "payments", exact: true })).toHaveCount(0);
+
+  await directory.fill(`${root}/pay`);
+  await expect(list.getByRole("option", { name: "payments", exact: true })).toBeVisible();
+  await expect(list.getByRole("option", { name: "website", exact: true })).toHaveCount(0);
+  await directory.press("Enter");
+
+  await expect(directory).toHaveValue(join(root, "payments"));
+  await expect(page.getByLabel("Project name")).toHaveValue("payments");
+
+  await page.getByLabel("Project name").fill("Custom");
+  await list.getByRole("option", { name: "..", exact: true }).click();
+  await expect(directory).toHaveValue(root);
+  await expect(page.getByLabel("Project name")).toHaveValue("Custom");
+});
+
+test("enter on a directory name that matches nothing does not add the project", async ({ page }) => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "teryon-e2e-none-")));
+  mkdirSync(join(root, "payments"));
+
+  await choose(page, "New project");
+  await page.getByLabel("Project name").fill("Nope");
+  const directory = page.getByLabel("Project directory");
+  await directory.fill(`${root}/zzz`);
+  await expect(page.getByText("No directory matches.")).toBeVisible();
+  await directory.press("Enter");
+
+  await expect(page.getByText("The directory does not exist.")).toHaveCount(0);
+  await expect(directory).toHaveValue(`${root}/zzz`);
+  await expect(page.getByRole("heading", { name: "New project" })).toBeVisible();
 });
 
 test("a refused project says why, and can be corrected", async ({ page }) => {

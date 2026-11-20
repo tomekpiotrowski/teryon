@@ -13,6 +13,7 @@ use tokio::spawn;
 use uuid::Uuid;
 
 use teryon_core::changes::finish::CaughtUp;
+use teryon_core::directory::browse;
 use teryon_core::protocol::{Answer, Event, Request};
 use teryon_core::workspace::Workspace;
 
@@ -58,6 +59,7 @@ impl Session {
         let answer = match request {
             Request::AddProject { .. }
             | Request::RemoveProject { .. }
+            | Request::Directories { .. }
             | Request::OpenCopy { .. }
             | Request::OpenReview { .. }
             | Request::Shutdown
@@ -69,6 +71,9 @@ impl Session {
             Request::AddProject { name, directory } => workspace
                 .add_project(&name, &directory)
                 .map(|project| Answer::Project { project })
+                .map_err(|problem| problem.to_string()),
+            Request::Directories { path } => browse(&path)
+                .map(|listing| Answer::Directories { listing })
                 .map_err(|problem| problem.to_string()),
             Request::RemoveProject { project_id } => workspace
                 .remove_project(project_id)

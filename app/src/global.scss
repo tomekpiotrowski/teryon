@@ -609,10 +609,75 @@ a:hover {
 }
 
 .menu-form input:focus-visible { border-color: var(--color-accent); outline: none; }
-.menu-form > div { display: flex; justify-content: flex-end; gap: 18px; }
+.menu-actions { display: flex; flex: none; justify-content: flex-end; gap: 18px; }
 .menu-form button { min-height: 32px; color: var(--color-neutral-500); font-size: 13px; }
 .menu-form button[type='submit'] { color: var(--color-accent-700); }
 .menu-form button:hover { color: var(--color-text); }
+
+/* The new-project form fills the menu so its directory list can scroll. */
+.menu:has(.picker-form) { height: min(100%, 520px); }
+
+.picker-form { flex: 1; min-height: 0; }
+
+.picker-field {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.picker-field > span {
+  color: var(--color-neutral-500);
+  font: 600 10.5px/1 var(--font-heading);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.picker-field input[aria-label='Project directory'] { font: 400 14px/1.4 var(--font-code); }
+.picker-field input[aria-label='Project name'] { font-weight: 600; font-family: var(--font-heading); }
+
+.picker-list {
+  min-height: 160px;
+  flex: 1;
+  overflow-y: auto;
+  border: 1px solid var(--color-divider);
+  padding: 4px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.menu-form .picker-row {
+  display: flex;
+  width: 100%;
+  min-height: 32px;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 10px;
+  text-align: left;
+  font: 400 13px/1.5 var(--font-code);
+}
+
+.menu-form .picker-row.marked { background: color-mix(in srgb, var(--color-accent) 15%, transparent); }
+
+.picker-mark {
+  width: 1em;
+  flex: none;
+  color: var(--color-neutral-500);
+  text-align: center;
+}
+
+.menu-form .picker-row span:last-child {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-notice {
+  margin: 0;
+  padding: 8px 10px;
+  color: var(--color-neutral-500);
+}
 
 .project-view {
   display: flex;
@@ -1809,6 +1874,7 @@ ion-alert {
   .menu-row kbd { display: none; }
   .menu-row { min-height: 44px; align-items: center; padding: 9px 10px; }
   .menu-form button { min-height: 44px; }
+  .menu-form .picker-row { min-height: 44px; align-items: center; }
 
   .empty-project { padding: 0 22px; }
   .hero-input { font-size: 17px; }

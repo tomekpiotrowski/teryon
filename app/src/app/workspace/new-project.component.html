@@ -1,0 +1,63 @@
+<form class="menu-form picker-form" (submit)="add($event)">
+  <h1>New project</h1>
+  @if (view$ | async; as view) {
+    <label class="picker-field">
+      <span>Directory</span>
+      <input
+        type="text"
+        aria-label="Project directory"
+        role="combobox"
+        aria-autocomplete="list"
+        aria-controls="directory-list"
+        aria-expanded="true"
+        [attr.aria-activedescendant]="view.active"
+        autocomplete="off"
+        autocapitalize="off"
+        spellcheck="false"
+        placeholder="/path/to/directory"
+        [value]="view.path"
+        (input)="typePath($event)"
+        (keydown)="move($event, view)"
+        required
+      />
+    </label>
+    <div id="directory-list" class="picker-list" role="listbox" aria-label="Directories">
+      @for (row of view.rows; track row.path) {
+        <button
+          type="button"
+          role="option"
+          class="picker-row"
+          tabindex="-1"
+          [id]="'directory-option-' + $index"
+          [class.marked]="$index === view.marked"
+          [attr.aria-selected]="$index === view.marked"
+          (pointermove)="mark($index)"
+          (click)="go(row.path)"
+        >
+          <span class="picker-mark" aria-hidden="true">{{ row.label === '..' ? '↑' : '▸' }}</span>
+          <span>{{ row.label }}</span>
+        </button>
+      }
+      @if (view.empty) { <p class="picker-notice">{{ view.empty }}</p> }
+    </div>
+    @if (view.notice) { <p class="picker-notice">{{ view.notice }}</p> }
+    <label class="picker-field">
+      <span>Name</span>
+      <input
+        type="text"
+        aria-label="Project name"
+        autocomplete="off"
+        autocapitalize="off"
+        spellcheck="false"
+        placeholder="Name"
+        [value]="view.name"
+        (input)="typeName($event)"
+        required
+      />
+    </label>
+    <div class="menu-actions">
+      <button type="button" (click)="cancelled.emit()">Cancel</button>
+      <button type="submit">Add project</button>
+    </div>
+  }
+</form>

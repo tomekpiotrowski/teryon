@@ -10,12 +10,9 @@ import {
 } from '@angular/core';
 import { BehaviorSubject, combineLatest, map, type Observable } from 'rxjs';
 import { type Command, keyHint, matching, type MenuRow, menuRows, stepped } from './commands.model';
+import { type NewProject } from './new-project.component';
 
-/** A project a person asked to add: what to call it and where it is. */
-export interface NewProject {
-  readonly name: string;
-  readonly directory: string;
-}
+export type { NewProject };
 
 /** Everything the menu's template needs at one moment. */
 interface MenuView {
@@ -33,8 +30,8 @@ interface MenuView {
  * settings corner: a box in the middle of a wide screen, a sheet from the
  * bottom of a narrow one. It only shows the commands it is given and says
  * which was chosen; the page carries them out. The one thing it does
- * itself is ask for a new project's name and directory, because those need
- * typing that a list cannot take.
+ * itself is ask for a new project's name and directory, on a form that
+ * lists the directories on this machine.
  *
  * It exists only while open, so each opening starts with nothing typed.
  */
@@ -107,12 +104,6 @@ export class CommandMenuComponent implements AfterViewInit {
   choose(command: Command): void {
     if (command.action.kind !== 'newProject') return this.chosen.emit(command);
     this.adding$.next(true);
-    requestAnimationFrame(() => this.focusFirstField());
-  }
-
-  addProject(event: Event, name: string, directory: string): void {
-    event.preventDefault();
-    this.projectAdded.emit({ name, directory });
   }
 
   private focusFirstField(): void {

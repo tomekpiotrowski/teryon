@@ -1,6 +1,6 @@
 import { inject, Injectable } from '@angular/core';
 import { map, type Observable } from 'rxjs';
-import type { Answer, Opener, Request } from '../service/protocol';
+import type { Answer, DirectoryListing, Opener, Request } from '../service/protocol';
 import { ServiceConnection } from '../service/service-connection';
 import type { FileView, Listing } from './files.model';
 import type { Changes, History } from './history.model';
@@ -16,6 +16,11 @@ import type { AgentName, Project, Thread, ThreadEntry, Voice } from './workspace
 @Injectable({ providedIn: 'root' })
 export class WorkspaceApi {
   private readonly connection = inject(ServiceConnection);
+
+  /** The directories inside a path, for choosing where a project lives. An empty path is the home directory. */
+  directories(path: string): Observable<DirectoryListing> {
+    return this.ask({ type: 'directories', path }, (answer) => (answer.type === 'directories' ? answer.listing : undefined));
+  }
 
   createProject(name: string, directory: string): Observable<Project> {
     return this.ask({ type: 'add_project', name, directory }, (answer) =>

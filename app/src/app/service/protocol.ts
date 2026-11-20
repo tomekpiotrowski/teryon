@@ -5,13 +5,13 @@ export type JsonValue = number | string | boolean | null | JsonValue[] | { [key:
 
 export type ClientMessage = { "type": "hello", token: string, } | { "type": "call", id: number, request: Request, };
 
-export type Request = { "type": "add_project", name: string, directory: string, } | { "type": "remove_project", project_id: string, } | { "type": "start_thread", project_id: string, agent: string, title: string, } | { "type": "send_message", thread_id: string, text: string, to: Voice, } | { "type": "review_change", thread_id: string, } | { "type": "stop", thread_id: string, } | { "type": "mark_seen", thread_id: string, } | { "type": "start_change", thread_id: string, turn: string, name: string, from: string | null, } | { "type": "draft_description", thread_id: string, } | { "type": "apply_change", thread_id: string, description: string, } | { "type": "catch_up", thread_id: string, } | { "type": "discard_change", thread_id: string, } | { "type": "send_for_review", thread_id: string, description: string, } | { "type": "open_review", thread_id: string, } | { "type": "open_copy", thread_id: string, with: Opener, } | { "type": "follow_thread", thread_id: string, } | { "type": "unfollow_thread", thread_id: string, } | { "type": "files", project_id: string, branch: string | null, commit: string | null, } | { "type": "file", project_id: string, branch: string | null, commit: string | null, path: string, } | { "type": "history", project_id: string, branch: string | null, } | { "type": "changes", project_id: string, commit: string, from: string | null, } | { "type": "change", project_id: string, commit: string, from: string | null, path: string, } | { "type": "shutdown" };
+export type Request = { "type": "add_project", name: string, directory: string, } | { "type": "directories", path: string, } | { "type": "remove_project", project_id: string, } | { "type": "start_thread", project_id: string, agent: string, title: string, } | { "type": "send_message", thread_id: string, text: string, to: Voice, } | { "type": "review_change", thread_id: string, } | { "type": "stop", thread_id: string, } | { "type": "mark_seen", thread_id: string, } | { "type": "start_change", thread_id: string, turn: string, name: string, from: string | null, } | { "type": "draft_description", thread_id: string, } | { "type": "apply_change", thread_id: string, description: string, } | { "type": "catch_up", thread_id: string, } | { "type": "discard_change", thread_id: string, } | { "type": "send_for_review", thread_id: string, description: string, } | { "type": "open_review", thread_id: string, } | { "type": "open_copy", thread_id: string, with: Opener, } | { "type": "follow_thread", thread_id: string, } | { "type": "unfollow_thread", thread_id: string, } | { "type": "files", project_id: string, branch: string | null, commit: string | null, } | { "type": "file", project_id: string, branch: string | null, commit: string | null, path: string, } | { "type": "history", project_id: string, branch: string | null, } | { "type": "changes", project_id: string, commit: string, from: string | null, } | { "type": "change", project_id: string, commit: string, from: string | null, path: string, } | { "type": "shutdown" };
 
 export type ServiceMessage = { "type": "reply", id: number, outcome: Outcome, } | { "type": "event", event: Event, };
 
 export type Outcome = { "type": "done", answer: Answer, } | { "type": "failed", message: string, };
 
-export type Answer = { "type": "nothing" } | { "type": "project", project: ProjectView, } | { "type": "thread", thread: Thread, } | { "type": "entry", entry: Entry, } | { "type": "entries", entries: Array<Entry>, } | { "type": "listing", listing: Listing, } | { "type": "file", file: FileView, } | { "type": "history", history: History, } | { "type": "changes", changes: Changes, } | { "type": "path", path: string, } | { "type": "draft", text: string, } | { "type": "caught_up", overlaps: boolean, };
+export type Answer = { "type": "nothing" } | { "type": "project", project: ProjectView, } | { "type": "directories", listing: DirectoryListing, } | { "type": "thread", thread: Thread, } | { "type": "entry", entry: Entry, } | { "type": "entries", entries: Array<Entry>, } | { "type": "listing", listing: Listing, } | { "type": "file", file: FileView, } | { "type": "history", history: History, } | { "type": "changes", changes: Changes, } | { "type": "path", path: string, } | { "type": "draft", text: string, } | { "type": "caught_up", overlaps: boolean, };
 
 export type Event = { "type": "snapshot", projects: Array<ProjectView>, threads: Array<Thread>, opens: Opens, } | { "type": "project_added", project: ProjectView, } | { "type": "project_removed", project_id: string, } | { "type": "thread_changed", thread: Thread, } | { "type": "entry_added", entry: Entry, };
 
@@ -22,6 +22,28 @@ export type ProjectView = { id: string, name: string, directory: string, created
 on_github: boolean, };
 
 export type ProjectState = "ready" | "missing" | "in_use";
+
+export type DirectoryListing = { 
+/**
+ * The real directory whose children these are.
+ */
+directory: string, 
+/**
+ * That directory's parent. Nothing at the top of the filesystem.
+ */
+parent: string | null, 
+/**
+ * The child directories, by name, in case-insensitive order.
+ *
+ * Names starting with `.` are included. The screen hides them until
+ * what is typed starts with `.`, so a home folder is not a wall of
+ * configuration.
+ */
+children: Array<string>, 
+/**
+ * What was typed after `directory`. Empty when the typed path is this directory.
+ */
+remainder: string, };
 
 export type Thread = { id: string, 
 /**
