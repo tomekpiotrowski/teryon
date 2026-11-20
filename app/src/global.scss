@@ -942,7 +942,57 @@ a:hover {
 .activity-block > div span:last-child,
 .live-line span:last-child { overflow-wrap: anywhere; }
 
-.live-line { color: var(--color-accent-700); }
+/*
+ * The line that says an agent is working, moving so it reads as alive.
+ *
+ * A still line looks the same whether the agent is busy or stuck; a little motion tells the user work is going on.
+ *
+ * The diamond breathes and turns, and a dimmer band sweeps across the words. The words are painted by a gradient
+ * clipped to the text, so the line's colour lives in `--live-color` rather than `color`, letting the reviewer's line
+ * reuse it with its own colour. People who ask their system for less motion get the still line.
+ */
+.live-line {
+  --live-color: var(--color-accent-700);
+  color: var(--live-color);
+}
+
+.live-line span:first-child {
+  display: inline-block;
+  text-align: center;
+  animation: live-diamond 1.6s ease-in-out infinite;
+}
+
+.live-line span:last-child {
+  background: linear-gradient(
+      100deg,
+      var(--live-color) 0%,
+      var(--live-color) 40%,
+      color-mix(in srgb, var(--live-color) 35%, transparent) 50%,
+      var(--live-color) 60%,
+      var(--live-color) 100%
+    )
+    0 0 / 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: live-sweep 2.4s linear infinite;
+}
+
+@keyframes live-diamond {
+  0%, 100% { opacity: 0.45; transform: scale(0.8) rotate(0deg); }
+  50% { opacity: 1; transform: scale(1.15) rotate(90deg); }
+}
+
+@keyframes live-sweep {
+  from { background-position: 100% 0; }
+  to { background-position: 0% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-line span:first-child,
+  .live-line span:last-child { animation: none; }
+  .live-line span:last-child { background: none; color: var(--live-color); }
+}
 
 .notice-line,
 .summary-line,
@@ -1036,7 +1086,7 @@ a:hover {
 /* The reviewer's lines in a row make one block, named once at its top. */
 .reviewer-entry + .reviewer-entry { margin-top: -22px; padding-top: 4px; }
 .reviewer-entry + .reviewer-entry > .speaker { display: none; }
-.live-line.reviewer-entry { padding-left: 34px; color: var(--reviewer); }
+.live-line.reviewer-entry { padding-left: 34px; --live-color: var(--reviewer); }
 
 .speaker {
   display: block;
