@@ -21,19 +21,19 @@ model: string | null, } | { "type": "change_model", thread_id: string, to: Voice
 /**
  * Nothing leaves the model to the agent program.
  */
-model: string | null, } | { "type": "stop", thread_id: string, } | { "type": "mark_seen", thread_id: string, } | { "type": "start_change", thread_id: string, turn: string, name: string, from: string | null, } | { "type": "name_thread", thread_id: string, turn: string, title: string, } | { "type": "draft_description", thread_id: string, } | { "type": "apply_change", thread_id: string, description: string, } | { "type": "catch_up", thread_id: string, } | { "type": "discard_change", thread_id: string, } | { "type": "send_for_review", thread_id: string, description: string, } | { "type": "open_review", thread_id: string, } | { "type": "open_copy", thread_id: string, with: Opener, } | { "type": "follow_thread", thread_id: string, } | { "type": "unfollow_thread", thread_id: string, } | { "type": "files", project_id: string, thread_id: string | null, branch: string | null, commit: string | null, } | { "type": "file", project_id: string, thread_id: string | null, branch: string | null, commit: string | null, path: string, } | { "type": "history", project_id: string, branch: string | null, } | { "type": "changes", project_id: string, commit: string, from: string | null, } | { "type": "change", project_id: string, commit: string, from: string | null, path: string, } | { "type": "shutdown" };
+model: string | null, } | { "type": "stop", thread_id: string, } | { "type": "mark_seen", thread_id: string, } | { "type": "start_change", thread_id: string, turn: string, name: string, from: string | null, } | { "type": "name_thread", thread_id: string, turn: string, title: string, } | { "type": "draft_description", thread_id: string, } | { "type": "apply_change", thread_id: string, description: string, } | { "type": "catch_up", thread_id: string, } | { "type": "discard_change", thread_id: string, } | { "type": "send_for_review", thread_id: string, description: string, } | { "type": "open_review", thread_id: string, } | { "type": "open_copy", thread_id: string, with: Opener, } | { "type": "follow_thread", thread_id: string, } | { "type": "unfollow_thread", thread_id: string, } | { "type": "files", project_id: string, thread_id: string | null, branch: string | null, commit: string | null, } | { "type": "file", project_id: string, thread_id: string | null, branch: string | null, commit: string | null, path: string, } | { "type": "history", project_id: string, branch: string | null, } | { "type": "changes", project_id: string, commit: string, from: string | null, } | { "type": "change", project_id: string, commit: string, from: string | null, path: string, } | { "type": "usage" } | { "type": "shutdown" };
 
 export type ServiceMessage = { "type": "reply", id: number, outcome: Outcome, } | { "type": "event", event: Event, };
 
 export type Outcome = { "type": "done", answer: Answer, } | { "type": "failed", message: string, };
 
-export type Answer = { "type": "nothing" } | { "type": "project", project: ProjectView, } | { "type": "directories", listing: DirectoryListing, } | { "type": "thread", thread: Thread, } | { "type": "entry", entry: Entry, } | { "type": "entries", entries: Array<Entry>, } | { "type": "listing", listing: Listing, } | { "type": "file", file: FileView, } | { "type": "history", history: History, } | { "type": "changes", changes: Changes, } | { "type": "path", path: string, } | { "type": "draft", text: string, } | { "type": "caught_up", overlaps: boolean, };
+export type Answer = { "type": "nothing" } | { "type": "project", project: ProjectView, } | { "type": "directories", listing: DirectoryListing, } | { "type": "thread", thread: Thread, } | { "type": "entry", entry: Entry, } | { "type": "entries", entries: Array<Entry>, } | { "type": "listing", listing: Listing, } | { "type": "file", file: FileView, } | { "type": "history", history: History, } | { "type": "changes", changes: Changes, } | { "type": "path", path: string, } | { "type": "draft", text: string, } | { "type": "caught_up", overlaps: boolean, } | { "type": "usage", report: UsageReport, };
 
 export type Event = { "type": "snapshot", projects: Array<ProjectView>, threads: Array<Thread>, opens: Opens, 
 /**
  * The models each agent offers besides its default.
  */
-models: ModelLists, } | { "type": "models_changed", models: ModelLists, } | { "type": "project_added", project: ProjectView, } | { "type": "project_removed", project_id: string, } | { "type": "thread_changed", thread: Thread, } | { "type": "entry_added", entry: Entry, };
+models: ModelLists, } | { "type": "models_changed", models: ModelLists, } | { "type": "project_added", project: ProjectView, } | { "type": "project_removed", project_id: string, } | { "type": "thread_changed", thread: Thread, } | { "type": "entry_added", entry: Entry, } | { "type": "limits_changed", limits: Limits, } | { "type": "usage_recorded", line: UsageLine, };
 
 export type ProjectView = { id: string, name: string, directory: string, created_at: string, state: ProjectState, 
 /**
@@ -356,3 +356,82 @@ export type ChangedFile = { path: string, change: FileChange,
  * How many lines were added and removed. Nothing for a file that is not text.
  */
 added: number | null, removed: number | null, };
+
+export type UsageReport = { 
+/**
+ * Every agent's latest limits, in the order the application offers agents. Agents never read are left out.
+ */
+limits: Array<Limits>, 
+/**
+ * The turns of the last 14 days, oldest first.
+ */
+lines: Array<UsageLine>, };
+
+export type Limits = { 
+/**
+ * The agent's name, as on a thread.
+ */
+agent: string, 
+/**
+ * The subscription, such as "Plus", when the program names it.
+ */
+plan: string | null, 
+/**
+ * Shortest first.
+ */
+windows: Array<Window>, 
+/**
+ * When the program reported them. They are only as fresh as the agent's last turn.
+ */
+taken_at: string, 
+/**
+ * Whether reading them after the last turn failed, so they may be older than that turn.
+ */
+failed: boolean, 
+/**
+ * The program's own answer, kept whole while Teryon cannot read it yet.
+ *
+ * Grok will say its limits outside its window one day, in a form not
+ * known today. Keeping what it says is what makes reading it possible later.
+ */
+raw: JsonValue | null, };
+
+export type Window = { 
+/**
+ * What the program calls it, such as `five_hour` or `primary`.
+ */
+name: string, 
+/**
+ * What a person calls it, such as "5 hours".
+ */
+label: string, 
+/**
+ * How long the window is, when known. Windows are shown shortest first.
+ */
+minutes: number | null, 
+/**
+ * How much of it is used, from 0 to 100.
+ */
+used: number, 
+/**
+ * When it starts over. Nothing when the program did not say.
+ */
+resets_at: string | null, 
+/**
+ * Whether the program said it is used up, so the agent cannot work until it resets.
+ */
+reached: boolean, };
+
+export type UsageLine = { 
+/**
+ * When the turn ended.
+ */
+at: string, agent: string, 
+/**
+ * The model that ran, when the program said. Nothing means the program's own default.
+ */
+model: string | null, project_id: string, 
+/**
+ * The project's name when the turn ran, for when the project has since been removed.
+ */
+project_name: string, thread_id: string, read: number, written: number, };

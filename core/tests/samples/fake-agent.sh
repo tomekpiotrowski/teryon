@@ -11,6 +11,13 @@
 
 agent="$1"
 shift
+
+# Grok's usage command, which Teryon asks after every Grok turn, answers as
+# the real one does today. It is not a turn, so it is not noted below.
+if [ "$1" = "usage" ]; then
+  echo "Error: \`grok usage\` can't show your plan's usage here yet. Run /usage inside grok instead." >&2
+  exit 1
+fi
 samples="$(dirname "$0")/agents"
 
 # `grok models`, asked once when the service starts, outside any project:

@@ -30,6 +30,7 @@ use crate::files::diff::{Line, LineChange};
 use crate::files::{Content, FileChange, FileEntry, FileView, Listing};
 use crate::history::{ChangedFile, Changes, Commit, History};
 use crate::store::{Entry, Project, Reviewer, Status, Thread, Verdict};
+use crate::usage::{Limits, UsageLine, UsageReport, Window};
 
 /// A message from a client.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
@@ -191,6 +192,8 @@ pub enum Request {
         from: Option<String>,
         path: String,
     },
+    /// Every agent's latest limits and the turns of the last 14 days, for the usage screen.
+    Usage,
     /// Stops the service, after stopping every agent. Only from this machine.
     Shutdown,
 }
@@ -270,6 +273,9 @@ pub enum Answer {
     CaughtUp {
         overlaps: bool,
     },
+    Usage {
+        report: UsageReport,
+    },
 }
 
 /// What a thread's copy can be opened in.
@@ -319,6 +325,14 @@ pub enum Event {
     /// A new entry of a thread the client follows.
     EntryAdded {
         entry: Entry,
+    },
+    /// An agent's program said something new about its limits.
+    LimitsChanged {
+        limits: Limits,
+    },
+    /// A turn ended and was added to the usage log.
+    UsageRecorded {
+        line: UsageLine,
     },
 }
 
@@ -401,6 +415,10 @@ pub fn typescript() -> String {
         Commit::decl(&config),
         Changes::decl(&config),
         ChangedFile::decl(&config),
+        UsageReport::decl(&config),
+        Limits::decl(&config),
+        Window::decl(&config),
+        UsageLine::decl(&config),
     ];
     let mut text = String::from(
         "// Generated from core/src/protocol.rs by `UPDATE_PROTOCOL=1 cargo test -p teryon-core protocol`.\n\

@@ -562,6 +562,8 @@ lets_expect! { #tokio_test
                 Event::ThreadChanged { .. } => "thread_changed",
                 Event::EntryAdded { .. } => "entry_added",
                 Event::ModelsChanged { .. } => "models_changed",
+                Event::LimitsChanged { .. } => "limits_changed",
+                Event::UsageRecorded { .. } => "usage_recorded",
             });
         }
         expect(names.first().copied()) to equal(Some("project_added"))

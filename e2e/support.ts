@@ -53,6 +53,8 @@ async function startService(origin: string): Promise<Service> {
       "",
       "[agents.codex]",
       `program = "${join(samples, "fake-codex.sh")}"`,
+      // Never the real `~/.codex`: tests must not read a person's Codex sessions.
+      `home = "${join(home, "codex")}"`,
       "",
       "[agents.grok]",
       `program = "${join(samples, "fake-grok.sh")}"`,

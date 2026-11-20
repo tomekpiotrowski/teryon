@@ -40,7 +40,7 @@ export type CommandGroup = 'attention' | 'thread' | 'project' | 'change' | 'acti
 export type CommandAction =
   | { readonly kind: 'openThread'; readonly thread: Thread }
   | { readonly kind: 'openProject'; readonly project: Project }
-  | { readonly kind: 'showScreen'; readonly screen: 'files' | 'history' }
+  | { readonly kind: 'showScreen'; readonly screen: 'files' | 'history' | 'usage' }
   | { readonly kind: 'newProject' }
   | { readonly kind: 'removeProject'; readonly project: Project }
   | { readonly kind: 'useChoice'; readonly choice: Choice }
@@ -153,6 +153,7 @@ export function commandList(situation: Situation): Command[] {
       command('action:history', 'History', 'action', { kind: 'showScreen', screen: 'history' }, { detail: project.name, key: 'h' }),
     );
   }
+  actions.push(command('action:usage', 'Usage', 'action', { kind: 'showScreen', screen: 'usage' }, { detail: 'every agent', key: 'u' }));
   if (thread?.status === 'running') {
     actions.push(command('action:stopAgent', 'Stop the agent', 'action', { kind: 'stopAgent', thread }, { detail: threadLabel(thread) }));
   }

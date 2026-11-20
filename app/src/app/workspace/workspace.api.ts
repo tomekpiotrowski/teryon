@@ -1,6 +1,6 @@
 import { inject, Injectable } from '@angular/core';
 import { map, type Observable } from 'rxjs';
-import type { Answer, DirectoryListing, Opener, Request } from '../service/protocol';
+import type { Answer, DirectoryListing, Opener, Request, UsageReport } from '../service/protocol';
 import { ServiceConnection } from '../service/service-connection';
 import type { FileView, Listing } from './files.model';
 import type { Changes, History } from './history.model';
@@ -145,6 +145,11 @@ export class WorkspaceApi {
     return this.ask({ type: 'change', project_id: projectId, commit, from, path }, (answer) =>
       answer.type === 'file' ? (answer.file as FileView) : undefined,
     );
+  }
+
+  /** Every agent's latest limits and the turns of the last 14 days. */
+  usage(): Observable<UsageReport> {
+    return this.ask({ type: 'usage' }, (answer) => (answer.type === 'usage' ? answer.report : undefined));
   }
 
   /** Sends a request and picks the expected part of the answer. */

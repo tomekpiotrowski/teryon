@@ -306,6 +306,7 @@ mod tests {
             program: "codex".to_string(),
             use_subscription,
             models: None,
+            home: None,
         })
     }
 

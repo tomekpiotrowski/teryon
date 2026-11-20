@@ -2001,3 +2001,231 @@ ion-alert {
   gap: 18px;
 }
 
+
+/* The usage screen: each agent's limits, then what Teryon's agents used in the last 14 days. */
+.usage {
+  --usage-warning: #85703a;
+  --usage-reached: #9d3838;
+}
+
+:root[data-theme='dark'] .usage {
+  --usage-warning: #cfbd8c;
+  --usage-reached: #e09696;
+}
+
+.usage-body {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px 22px 28px;
+}
+
+.usage-section {
+  max-width: 880px;
+  margin: 0 auto 30px;
+}
+
+.usage-agent {
+  border-bottom: 1px solid var(--color-divider);
+  padding: 12px 2px;
+}
+
+.usage-agent-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.usage-agent-name { font: 600 15px/1.2 var(--font-heading); }
+
+.usage-limit {
+  display: grid;
+  grid-template-columns: minmax(120px, 160px) minmax(120px, 1fr) 44px minmax(150px, 220px);
+  align-items: center;
+  gap: 14px;
+  padding: 5px 0;
+}
+
+/* A thin track, filled from the left; the end of the fill is rounded, the start sits on the track's edge. */
+.usage-meter {
+  display: block;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--color-neutral-200);
+}
+
+.usage-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: 0 4px 4px 0;
+  background: var(--color-accent-600);
+}
+
+.usage-limit-used {
+  font-family: var(--font-code);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.usage-limit-reset { color: color-mix(in srgb, var(--color-text) 66%, transparent); }
+
+.usage-limit.warning .usage-meter-fill { background: var(--usage-warning); }
+.usage-limit.reached .usage-meter-fill { background: var(--usage-reached); }
+.usage-limit.reached .usage-limit-used,
+.usage-limit.reached .usage-limit-reset { color: var(--usage-reached); font-weight: 600; }
+
+.usage-note { margin: 4px 0 0; font-size: 12.5px; }
+.usage-problem { color: #9d3838; }
+:root[data-theme='dark'] .usage-problem { color: #e09696; }
+
+.usage-days-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.usage-days-head .files-key { padding-bottom: 0; }
+
+.usage .files-modes kbd {
+  margin-left: 4px;
+  font: 500 10px/1 var(--font-code);
+  opacity: 0.7;
+}
+
+.usage-caption { margin: 0 0 10px; font-size: 12px; }
+
+/* One bar per day on a shared baseline, 2px apart, the top rounded. */
+.usage-chart {
+  display: flex;
+  height: 160px;
+  align-items: stretch;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.usage-day {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  outline: none;
+}
+
+.usage-day-plot {
+  display: flex;
+  flex: 1;
+  align-items: flex-end;
+  border-bottom: 1px solid var(--color-divider);
+  padding: 0 3px;
+}
+
+.usage-day-bar {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  border-radius: 4px 4px 0 0;
+  background: var(--color-accent-600);
+}
+
+.usage-day-label {
+  overflow: hidden;
+  padding-top: 5px;
+  font-size: 10.5px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.usage-day:hover .usage-day-plot,
+.usage-day:focus-visible .usage-day-plot { background: color-mix(in srgb, var(--color-text) 5%, transparent); }
+.usage-day:hover .usage-day-bar,
+.usage-day:focus-visible .usage-day-bar { background: var(--color-accent-700); }
+
+.usage-day:hover::after,
+.usage-day:focus-visible::after {
+  position: absolute;
+  z-index: 2;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  border: 1px solid var(--color-divider);
+  padding: 5px 8px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  content: attr(data-detail);
+  font-size: 12px;
+  pointer-events: none;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.usage-day:first-child:hover::after,
+.usage-day:first-child:focus-visible::after { left: 0; transform: none; }
+.usage-day:last-child:hover::after,
+.usage-day:last-child:focus-visible::after { right: 0; left: auto; transform: none; }
+
+.usage-tables {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 26px;
+  margin-top: 40px;
+}
+
+.usage-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.usage-table caption {
+  display: table-caption;
+  caption-side: top;
+  text-align: left;
+}
+
+.usage-table th,
+.usage-table td {
+  border-bottom: 1px solid var(--color-divider);
+  padding: 5px 4px;
+}
+
+.usage-table thead th {
+  color: color-mix(in srgb, var(--color-text) 66%, transparent);
+  font-weight: 500;
+}
+
+.usage-table tbody th {
+  overflow: hidden;
+  max-width: 220px;
+  font-weight: 500;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.usage-table td {
+  font-family: var(--font-code);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.usage-table thead th:not(:first-child) { text-align: right; }
+
+@media (max-width: 640px) {
+  .usage-limit {
+    grid-template-columns: 1fr 44px;
+    gap: 4px 12px;
+  }
+
+  .usage-meter { grid-column: 1 / -1; grid-row: 2; }
+  .usage-limit-reset { grid-column: 1 / -1; }
+
+  /* Fourteen days do not fit with their weekdays: the date alone stays. */
+  .usage-day-weekday { display: none; }
+}

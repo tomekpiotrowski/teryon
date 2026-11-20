@@ -37,6 +37,8 @@ pub fn fake_agents() -> AgentSettings {
             program: "tests/samples/fake-codex.sh".to_string(),
             use_subscription: true,
             models: None,
+            // Never the real `~/.codex`: tests must not read a person's Codex sessions.
+            home: Some(PathBuf::from("tests/samples/no-codex-home")),
         },
         // Grok's sandbox profiles go to a folder of the tests' own, never to the real `~/.grok`.
         grok: GrokSettings {

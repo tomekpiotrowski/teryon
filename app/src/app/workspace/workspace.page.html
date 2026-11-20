@@ -1,7 +1,9 @@
 <ion-content class="workspace-content" [fullscreen]="true" [scrollY]="false">
   @if (view$ | async; as view) {
     @let screen = screen$ | async;
-    @if (view.project && screen === 'files') {
+    @if (screen === 'usage') {
+      <app-usage (closed)="screen$.next('thread')" (menuOpened)="openMenu()"></app-usage>
+    } @else if (view.project && screen === 'files') {
       <app-files
         [project]="view.project"
         [liveAgents]="view.liveAgents"

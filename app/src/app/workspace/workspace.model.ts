@@ -280,7 +280,7 @@ export interface EntryLine {
 export const NOTHING_SELECTED: Selection = { projectId: null, threadId: null };
 
 /** What fills the screen: a project's threads, its files or its history. */
-export type Screen = 'thread' | 'files' | 'history';
+export type Screen = 'thread' | 'files' | 'history' | 'usage';
 
 /** A pressed key, as far as the shortcuts care. */
 export interface KeyPress {

@@ -21,10 +21,12 @@ use std::process::{ExitStatus, Stdio};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
-use serde_json::json;
+use chrono::Utc;
+use serde_json::{from_value, json};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::process::{ChildStderr, Command};
 use tokio::sync::watch::{channel, Receiver, Sender};
+use tokio::task::spawn_blocking;
 use tokio::time::{interval, sleep_until, timeout, Instant as TokioInstant, MissedTickBehavior};
 use tracing::warn;
 use uuid::Uuid;
@@ -32,7 +34,7 @@ use uuid::Uuid;
 use crate::agents::naming::with_naming;
 use crate::agents::process::{ProcessTree, Signal};
 use crate::agents::{
-    driver_for, Agent, AgentDriver, EntryDraft, EntryKind, Invocation, Turn, Voice,
+    driver_for, Agent, AgentDriver, EntryDraft, EntryKind, Invocation, Tokens, Turn, Voice,
 };
 use crate::changes::instruction::instruction_for;
 use crate::changes::reviewing::{findings_in, fingerprint, reviewing};
@@ -40,6 +42,8 @@ use crate::changes::status::Look;
 use crate::files::git::{first_line, Git};
 use crate::settings::AgentSettings;
 use crate::store::Thread;
+use crate::usage::limits::{codex_home_here, codex_reading, grok_reading};
+use crate::usage::{says_limit_hit, Limits, Reading};
 
 /// How often a running turn has its thread's change looked at.
 const LOOK_AT_CHANGE_EVERY: Duration = Duration::from_secs(1);
@@ -74,6 +78,24 @@ pub trait Journal: Send + Sync + 'static {
     ///
     /// Knowing that takes the whole project's threads, which the runner does not have.
     fn look(&self, thread_id: Uuid, look: Look) -> Pending<'_>;
+
+    /// Records what a turn used, and what the agent's program said about its limits.
+    fn usage(&self, thread_id: Uuid, usage: TurnUsage);
+}
+
+/// What one turn used of its agent's subscription.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TurnUsage {
+    pub agent: Agent,
+    /// Tokens read and written. Nothing when the program never reported the
+    /// end of its turn: such a turn is left out of the usage log.
+    pub tokens: Option<Tokens>,
+    /// What the program said about its limits, during the turn or after it.
+    pub reading: Reading,
+    /// Whether the turn ended on a notice that a usage limit was hit.
+    pub hit_limit: bool,
+    /// The model the turn ran on, when known. Nothing means the program's own default.
+    pub model: Option<String>,
 }
 
 /// A fact about a thread that a turn learns.
@@ -277,6 +299,36 @@ async fn run_turn(
         }
         None => {}
     }
+    let reading = match (speaker.agent, outcome.limits.clone()) {
+        (Agent::Claude, Some(limits)) => Reading::Fresh(limits),
+        (Agent::Claude, None) => Reading::Nothing,
+        (Agent::Codex, _) => {
+            let home = codex_home_here(settings.codex.home.as_deref());
+            let conversation = outcome.conversation.clone();
+            spawn_blocking(move || {
+                codex_reading(home.as_deref(), conversation.as_deref(), Utc::now())
+            })
+            .await
+            .unwrap_or(Reading::Nothing)
+        }
+        (Agent::Grok, _) => grok_reading(&settings.grok.program, &directory, Utc::now()).await,
+    };
+    journal.usage(
+        thread.id,
+        TurnUsage {
+            agent: speaker.agent,
+            tokens: outcome.summarised.then(|| {
+                outcome.tokens.unwrap_or(Tokens {
+                    read: 0,
+                    written: 0,
+                })
+            }),
+            reading,
+            hit_limit: outcome.hit_limit,
+            model: outcome.model.clone(),
+        },
+    );
+
     if voice == Voice::Reviewer {
         let finished = outcome.stop.is_none() && outcome.summarised && !outcome.early;
         let change = if finished {
@@ -336,6 +388,16 @@ struct Outcome {
     complaints: String,
     /// The last message the agent wrote, where a reviewer counts its findings.
     last_message: String,
+    /// The conversation the turn belonged to, as the program last named it.
+    conversation: Option<String>,
+    /// The tokens the program said the turn read and wrote.
+    tokens: Option<Tokens>,
+    /// The limits the program last reported during the turn.
+    limits: Option<Limits>,
+    /// Whether the program said a usage limit was hit.
+    hit_limit: bool,
+    /// The model the turn ran on, as its summary names it.
+    model: Option<String>,
 }
 
 /// Reads the program's report until it ends, stopping it when asked to.
@@ -363,6 +425,10 @@ async fn follow(
     let voice = speaker.voice;
     let mut conversation = speaker.conversation.clone();
     let mut last_message = String::new();
+    let mut tokens = None;
+    let mut limits = None;
+    let mut hit_limit = false;
+    let mut model = None;
     let mut known_commands = thread.commands.clone();
     let mut stop = None;
     let mut listening = true;
@@ -382,6 +448,12 @@ async fn follow(
                         for draft in drafts {
                             summarised |= draft.kind == EntryKind::TurnSummary;
                             early |= draft.is_early_end();
+                            if draft.kind == EntryKind::TurnSummary {
+                                tokens = from_value::<Tokens>(draft.body["tokens"].clone()).ok();
+                                model = driver.model();
+                            }
+                            hit_limit |= draft.kind == EntryKind::Notice
+                                && draft.body["text"].as_str().is_some_and(says_limit_hit);
                             remember_message(&mut last_message, &draft);
                             let draft = with_model(timed(draft, started), driver.model());
                             journal.add(thread.id, draft.by(voice).naming(speaker.agent));
@@ -392,6 +464,9 @@ async fn follow(
                 // Asked only after a line, so the program has started, and has
                 // stored a conversation the driver chose for it. A resumed
                 // conversation may come back under a new name.
+                if let Some(reported) = driver.take_limits() {
+                    limits = Some(reported);
+                }
                 if let Some(named) = driver.take_conversation() {
                     if conversation.as_ref() != Some(&named) {
                         conversation = Some(named.clone());
@@ -455,6 +530,11 @@ async fn follow(
         status,
         complaints: complaints.await.unwrap_or_default(),
         last_message,
+        conversation,
+        tokens,
+        limits,
+        hit_limit,
+        model,
     }
 }
 

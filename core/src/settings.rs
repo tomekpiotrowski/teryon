@@ -20,6 +20,7 @@
 //! program = "codex"
 //! use_subscription = true
 //! models = ["gpt-6-astra"]
+//! # home = "/somewhere/.codex"  # where Codex keeps its files; CODEX_HOME or ~/.codex when not set
 //!
 //! [agents.grok]
 //! program = "grok"
@@ -200,6 +201,12 @@ pub struct CodexSettings {
     pub use_subscription: bool,
     /// The models offered besides the program's default. Nothing means Teryon's own list, see [`crate::agents::models`].
     pub models: Option<Vec<String>>,
+    /// Where Codex keeps its files, where Teryon reads its usage limits.
+    ///
+    /// Codex prints nothing about its limits, but writes them to its session
+    /// files. Nothing means where Codex itself looks: `CODEX_HOME`, else
+    /// `.codex` in the home folder.
+    pub home: Option<PathBuf>,
 }
 
 impl Default for CodexSettings {
@@ -208,6 +215,7 @@ impl Default for CodexSettings {
             program: "codex".to_string(),
             use_subscription: true,
             models: None,
+            home: None,
         }
     }
 }
@@ -291,7 +299,7 @@ mod tests {
             }
             when(text = Some("[agents.codex]\nuse_subscription = false\n")) as the_codex_key_is_allowed {
                 to keep_the_usual_program {
-                    have(as_ref().unwrap().agents.codex.clone()) equal(CodexSettings { program: "codex".to_string(), use_subscription: false, models: None })
+                    have(as_ref().unwrap().agents.codex.clone()) equal(CodexSettings { program: "codex".to_string(), use_subscription: false, models: None, home: None })
                 }
             }
             when(text = Some("[agents.grok]\nmodels = [\"grok-4.6\"]\n")) as grok_models_are_named {

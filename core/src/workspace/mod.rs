@@ -33,7 +33,7 @@ use tracing::{error, warn};
 use uuid::Uuid;
 
 use crate::agents::models::{checked_model, list_grok_models, ModelError, ModelLists};
-use crate::agents::runner::{Journal, Pending, Runner, ThreadChange, TurnRequest};
+use crate::agents::runner::{Journal, Pending, Runner, ThreadChange, TurnRequest, TurnUsage};
 use crate::agents::{Agent, EntryDraft, EntryKind, Voice};
 use crate::changes::finish::FinishError;
 use crate::changes::github::on_github;
@@ -50,6 +50,7 @@ use crate::settings::{AgentSettings, GitHubSettings, OpenSettings};
 use crate::store::projects::ProjectList;
 use crate::store::threads::ThreadStore;
 use crate::store::{Entry, Project, Reviewer, Status, StoreError, Thread, Verdict};
+use crate::usage::{UsageBook, UsageError, UsageLine, UsageReport};
 use crate::workspace::changes::Noticed;
 
 /// The longest title a list shows whole.
@@ -85,6 +86,8 @@ pub enum WorkspaceError {
     /// A model name was refused; the text says why.
     #[error("{0}")]
     Model(#[from] ModelError),
+    #[error("Could not read the usage log. The service's log has the details.")]
+    Usage(#[from] UsageError),
 }
 
 /// What a workspace needs besides its data folder.
@@ -241,6 +244,8 @@ struct Inner {
     project_locks: Mutex<HashMap<Uuid, Arc<AsyncMutex<()>>>>,
     /// The models each agent offers besides its default.
     models: Mutex<ModelLists>,
+    /// The agents' limits and the log of turns, in the data folder.
+    usage: Mutex<UsageBook>,
 }
 
 impl Inner {
@@ -261,6 +266,10 @@ impl Inner {
 
     fn state(&self) -> MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn usage(&self) -> MutexGuard<'_, UsageBook> {
+        self.usage.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     fn announce(&self, event: Event) {
@@ -315,6 +324,7 @@ impl Workspace {
                 noticed: Mutex::new(HashMap::new()),
                 finishing_threads: Mutex::new(HashSet::new()),
                 project_locks: Mutex::new(HashMap::new()),
+                usage: Mutex::new(UsageBook::open(data_folder)),
             }),
         })
     }
@@ -854,6 +864,15 @@ impl Workspace {
         Ok(repository.change(commit, from, path).await?)
     }
 
+    /// Every agent's latest limits and the turns of the last 14 days.
+    pub fn usage(&self) -> Result<UsageReport, WorkspaceError> {
+        let report = self.inner.usage().report(Utc::now());
+        report.map_err(|problem| {
+            error!("could not read the usage: {problem}");
+            WorkspaceError::from(problem)
+        })
+    }
+
     /// Stops every agent and waits up to `patience` for them to end.
     pub async fn shut_down(&self, patience: Duration) {
         self.inner.runner.stop_all();
@@ -968,6 +987,46 @@ impl Journal for WorkspaceJournal {
 
     fn look(&self, thread_id: Uuid, look: Look) -> Pending<'_> {
         Box::pin(self.0.look_at(thread_id, look))
+    }
+
+    /// Writes the turn to the usage log and keeps the agent's limits, telling every listener.
+    ///
+    /// Failing here must not fail the turn, which has ended by now, so problems are only logged.
+    fn usage(&self, thread_id: Uuid, usage: TurnUsage) {
+        let now = Utc::now();
+        let line = usage.tokens.and_then(|tokens| {
+            let state = self.0.state();
+            let project_id = state
+                .all_threads()
+                .into_iter()
+                .find(|thread| thread.id == thread_id)?
+                .project_id;
+            let project = state.project(project_id).ok()?;
+            Some(UsageLine {
+                at: now,
+                agent: usage.agent.name().to_string(),
+                model: usage.model.clone(),
+                project_id,
+                project_name: project.name.clone(),
+                thread_id,
+                read: tokens.read,
+                written: tokens.written,
+            })
+        });
+        let mut book = self.0.usage();
+        let recorded = line.map(|line| book.record(&line).map(|()| line));
+        let noted = book.note(usage.agent, usage.reading, usage.hit_limit, now);
+        drop(book);
+        match recorded {
+            Some(Ok(line)) => self.0.announce(Event::UsageRecorded { line }),
+            Some(Err(problem)) => error!("could not add a turn to the usage log: {problem}"),
+            None => {}
+        }
+        match noted {
+            Ok(Some(limits)) => self.0.announce(Event::LimitsChanged { limits }),
+            Ok(None) => {}
+            Err(problem) => error!("could not keep an agent's limits: {problem}"),
+        }
     }
 }
 

@@ -238,6 +238,10 @@ impl Session {
                 .await
                 .map(|history| Answer::History { history })
                 .map_err(|problem| problem.to_string()),
+            Request::Usage => workspace
+                .usage()
+                .map(|report| Answer::Usage { report })
+                .map_err(|problem| problem.to_string()),
             Request::Changes {
                 project_id,
                 commit,

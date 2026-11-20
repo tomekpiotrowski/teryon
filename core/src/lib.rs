@@ -14,4 +14,5 @@ pub mod paths;
 pub mod protocol;
 pub mod settings;
 pub mod store;
+pub mod usage;
 pub mod workspace;

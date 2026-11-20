@@ -1,0 +1,110 @@
+@if (view$ | async; as view) {
+  <div class="files usage">
+    <header class="files-bar">
+      <button class="menu-button" type="button" aria-label="Open menu" aria-keyshortcuts="/ Control+K" (click)="menuOpened.emit()">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"></path></svg>
+      </button>
+      <span class="files-mark">TERYON</span>
+      <span class="files-muted files-project">usage</span>
+    </header>
+
+    <main class="usage-body">
+      @if (view.problem) {
+        <p class="usage-problem">{{ view.problem }}</p>
+      } @else if (view.loading) {
+        <p class="usage-note files-muted">Reading the usage…</p>
+      } @else {
+        <section class="usage-section" aria-labelledby="usage-limits">
+          <h2 class="files-key" id="usage-limits">Limits</h2>
+          @for (block of view.blocks; track block.agent) {
+            <div class="usage-agent">
+              <div class="usage-agent-head">
+                <span class="usage-agent-name">{{ block.title }}</span>
+                <span class="files-spacer"></span>
+                <span class="files-muted">{{ block.asOf }}</span>
+              </div>
+              @for (row of block.rows; track row.label) {
+                <div [class]="'usage-limit ' + row.level">
+                  <span class="usage-limit-label">{{ row.label }}</span>
+                  <span
+                    class="usage-meter"
+                    role="meter"
+                    aria-valuemin="0"
+                    aria-valuemax="100"
+                    [attr.aria-valuenow]="row.used"
+                    [attr.aria-label]="block.title + ', ' + row.label"
+                  ><span class="usage-meter-fill" [style.width.%]="row.used"></span></span>
+                  <span class="usage-limit-used">{{ row.usedText }}</span>
+                  <span class="usage-limit-reset">{{ row.resetText }}</span>
+                </div>
+              }
+              @if (block.note) {
+                <p class="usage-note files-muted">{{ block.note }}</p>
+              }
+            </div>
+          }
+        </section>
+
+        <section class="usage-section" aria-labelledby="usage-days">
+          <div class="usage-days-head">
+            <h2 class="files-key" id="usage-days">Teryon’s agents · last 14 days</h2>
+            <span class="files-spacer"></span>
+            @if (view.choices.length) {
+              <div class="files-modes" role="group" aria-label="Agent shown">
+                @for (choice of view.choices; track choice.agent) {
+                  <button
+                    type="button"
+                    [class.active]="choice.chosen"
+                    [attr.aria-pressed]="choice.chosen"
+                    [attr.aria-keyshortcuts]="choice.key"
+                    (click)="choose(choice.agent)"
+                  >{{ choice.label }} <kbd>{{ choice.key }}</kbd></button>
+                }
+              </div>
+            }
+          </div>
+
+          @if (!view.agent) {
+            <p class="usage-note files-muted">Nothing yet in the last 14 days.</p>
+          } @else {
+            <p class="usage-caption files-muted">Tokens written per day. Hover a day for tokens read.</p>
+            <ol class="usage-chart">
+              @for (bar of view.days; track bar.date) {
+                <li class="usage-day" tabindex="0" [attr.aria-label]="bar.detail" [attr.data-detail]="bar.detail">
+                  <span class="usage-day-plot"><span class="usage-day-bar" [style.height.%]="bar.height"></span></span>
+                  <span class="usage-day-label files-muted"><span class="usage-day-weekday">{{ bar.weekday }} </span>{{ bar.day }}</span>
+                </li>
+              }
+            </ol>
+
+            <div class="usage-tables">
+              <ng-container *ngTemplateOutlet="table; context: { $implicit: view.projects, heading: 'By project' }"></ng-container>
+              <ng-container *ngTemplateOutlet="table; context: { $implicit: view.models, heading: 'By model' }"></ng-container>
+            </div>
+          }
+        </section>
+      }
+    </main>
+
+    <footer class="files-foot files-muted">
+      <span class="files-spacer"></span>
+      <button type="button" class="code-link" aria-keyshortcuts="/" (click)="menuOpened.emit()">menu <kbd>/</kbd></button>
+      <span aria-hidden="true">·</span>
+      <button type="button" class="code-link" aria-current="page" aria-keyshortcuts="u" (click)="closed.emit()">usage <kbd>U</kbd></button>
+    </footer>
+  </div>
+}
+
+<ng-template #table let-rows let-heading="heading">
+  <table class="usage-table">
+    <caption class="files-key">{{ heading }}</caption>
+    <thead>
+      <tr><th scope="col"></th><th scope="col">turns</th><th scope="col">read</th><th scope="col">written</th></tr>
+    </thead>
+    <tbody>
+      @for (row of rows; track row.key) {
+        <tr><th scope="row">{{ row.name }}</th><td>{{ row.turns }}</td><td>{{ row.read }}</td><td>{{ row.written }}</td></tr>
+      }
+    </tbody>
+  </table>
+</ng-template>

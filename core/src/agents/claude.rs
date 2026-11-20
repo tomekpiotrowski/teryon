@@ -4,7 +4,7 @@
 //! per line. The shapes handled here were recorded from the real program; the
 //! recordings live in `tests/samples/agents/`.
 
-use chrono::DateTime;
+use chrono::{DateTime, Utc};
 use serde_json::Value;
 
 use crate::agents::summary::summarise_input;
@@ -14,6 +14,8 @@ use crate::agents::{
     command_names, typed_report, AgentDriver, EntryDraft, Invocation, NotUnderstood, Tokens, Turn,
 };
 use crate::settings::ClaudeSettings;
+use crate::usage::limits::claude_limits;
+use crate::usage::Limits;
 
 /// Variables that make Claude Code bill an API key instead of the subscription.
 const KEY_VARIABLES: [&str; 2] = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"];
@@ -30,6 +32,8 @@ pub struct ClaudeDriver {
     conversation: Option<String>,
     /// The model asked for, until Claude Code names the one it runs.
     model: Option<String>,
+    /// The limits reported by the last line, until they are taken.
+    limits: Option<Limits>,
 }
 
 impl ClaudeDriver {
@@ -40,6 +44,7 @@ impl ClaudeDriver {
             commands: None,
             conversation: None,
             model: None,
+            limits: None,
         }
     }
 }
@@ -110,7 +115,10 @@ impl AgentDriver for ClaudeDriver {
                 }
                 Ok(system_entries(&report))
             }
-            "rate_limit_event" => Ok(limit_entries(&report)),
+            "rate_limit_event" => {
+                self.limits = claude_limits(&report, Utc::now());
+                Ok(limit_entries(&report))
+            }
             "result" => Ok(result_entries(&report)),
             "user" | "stream_event" => Ok(Vec::new()),
             _ => Err(NotUnderstood),
@@ -128,6 +136,10 @@ impl AgentDriver for ClaudeDriver {
     /// Claude Code names the model on the first line of every turn, as the full name: `claude-opus-5-5` for `opus`.
     fn model(&self) -> Option<String> {
         self.model.clone()
+    }
+
+    fn take_limits(&mut self) -> Option<Limits> {
+        self.limits.take()
     }
 }
 
@@ -303,6 +315,28 @@ mod tests {
             .interpret(&report.to_string())
             .expect("the line is understood");
         driver.take_commands()
+    }
+
+    /// The names of the limit windows the driver hands over after the given lines, and whether it hands them over again.
+    fn windows_after(lines: Vec<Value>) -> (Option<Vec<String>>, bool) {
+        let mut driver = driver(true);
+        for line in lines {
+            driver
+                .interpret(&line.to_string())
+                .expect("the line is understood");
+        }
+        let windows = driver.take_limits().map(|limits| {
+            limits
+                .windows
+                .into_iter()
+                .map(|window| window.name)
+                .collect()
+        });
+        (windows, driver.take_limits().is_some())
+    }
+
+    fn limit_event(window: &str) -> Value {
+        json!({"type": "rate_limit_event", "rate_limit_info": {"status": "allowed", "unifiedWindows": {window: {"utilization": 0.1}}}})
     }
 
     /// The conversation the driver hands over after one report line.
@@ -595,6 +629,22 @@ mod tests {
             }
             when(report = json!({"type": "result", "session_id": "80bf47d7"})) as hand_over_nothing_for_another_line to hold {
                 equal(None)
+            }
+        }
+
+        // requirement: Claude's rate_limit_event becomes the agent's latest reading, the last of a turn winning
+        expect(windows_after(lines)) as limits_handed_over {
+            when(lines = vec![limit_event("five_hour")]) as after_one_event to give_it_once {
+                equal((Some(vec!["five_hour".to_string()]), false))
+            }
+            when(lines = vec![limit_event("five_hour"), limit_event("seven_day")]) as after_several_events to give_the_last {
+                equal((Some(vec!["seven_day".to_string()]), false))
+            }
+            when(lines = vec![json!({"type": "rate_limit_event"})]) as after_an_event_without_windows to give_nothing {
+                equal((None, false))
+            }
+            when(lines = vec![first_line()]) as without_an_event to give_nothing {
+                equal((None, false))
             }
         }
 

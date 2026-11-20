@@ -96,6 +96,7 @@ function ids(commands: readonly Command[]): string[] {
 describe('commandList', () => {
   it('offers only what needs no project when there is none', () => {
     expect(ids(commandList(situation()))).toEqual([
+      'action:usage',
       'action:use:codex:default',
       'action:use:grok:default',
       'action:newProject',
@@ -113,6 +114,7 @@ describe('commandList', () => {
       'action:newThread',
       'action:files',
       'action:history',
+      'action:usage',
       'action:use:codex:default',
       'action:use:grok:default',
       'action:newProject',
@@ -171,6 +173,17 @@ describe('commandList', () => {
     expect(commands.find((candidate) => candidate.id === 'action:removeProject')?.title).toBe('Remove project Website');
   });
 
+  it('offers the usage, with its key, with or without a project', () => {
+    for (const project of [null, first]) {
+      expect(commandList(situation({ groups, project })).find((candidate) => candidate.id === 'action:usage')).toMatchObject({
+        title: 'Usage',
+        key: 'u',
+        leader: null,
+        action: { kind: 'showScreen', screen: 'usage' },
+      });
+    }
+  });
+
   it('offers to stop the agent only in a thread one is working in', () => {
     const idle = commandList(situation({ groups, project: first, thread: older }));
     const running = commandList(situation({ groups, project: second, thread: newest }));
@@ -180,7 +193,7 @@ describe('commandList', () => {
       detail: 'Thread t2',
       action: { kind: 'stopAgent', thread: newest },
     });
-    expect(ids(running).indexOf('action:stopAgent')).toBe(ids(running).indexOf('action:history') + 1);
+    expect(ids(running).indexOf('action:stopAgent')).toBe(ids(running).indexOf('action:usage') + 1);
   });
 
   describe('the agent commands', () => {
@@ -607,6 +620,7 @@ describe('the commands for a thread\'s change', () => {
       'action:newThread',
       'action:files',
       'action:history',
+      'action:usage',
       'action:use:codex:default',
       'action:use:grok:default',
       'action:newProject',

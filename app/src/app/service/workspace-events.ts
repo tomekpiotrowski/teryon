@@ -35,6 +35,8 @@ export function applyEvent(lists: WorkspaceLists, event: Event): WorkspaceLists 
     case 'thread_changed':
       return { ...lists, threads: upsert(lists.threads, event.thread as Thread) };
     case 'entry_added':
+    case 'limits_changed':
+    case 'usage_recorded':
       return lists;
   }
 }

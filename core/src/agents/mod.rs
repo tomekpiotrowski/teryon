@@ -29,6 +29,7 @@ use crate::agents::claude::ClaudeDriver;
 use crate::agents::codex::CodexDriver;
 use crate::agents::grok::GrokDriver;
 use crate::settings::AgentSettings;
+use crate::usage::Limits;
 
 /// The agent programs Teryon can start.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -188,7 +189,7 @@ impl EntryDraft {
 /// Shown instead of a price, because the agents run on subscriptions, where
 /// a turn costs a share of a usage limit rather than money. Text read again
 /// from the provider's cache counts as read: it still takes up the limit.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Tokens {
     pub read: u64,
     pub written: u64,
@@ -293,6 +294,14 @@ pub trait AgentDriver: Send {
     /// such as `opus` means a different model once a newer one is out.
     /// Nothing when the program has not said and none was asked for.
     fn model(&self) -> Option<String>;
+
+    /// Hands over the subscription's limits, when the last line reported them.
+    ///
+    /// Only Claude Code reports them as it works. Codex's and Grok's are
+    /// read after the turn instead, see [`crate::usage::limits`].
+    fn take_limits(&mut self) -> Option<Limits> {
+        None
+    }
 
     /// Returns whatever the driver was still holding when the program ended.
     fn finish(&mut self) -> Vec<EntryDraft> {
