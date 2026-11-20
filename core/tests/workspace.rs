@@ -12,7 +12,10 @@ use std::time::Duration;
 use lets_expect::lets_expect;
 use serde_json::json;
 
-use common::{invocations, kinds, mark_running, project_folder, settings_with, unknown, Scene};
+use common::{
+    invocations, kinds, mark_running, project_folder, settings_with, unknown, Scene,
+    CLAUDE_CONVERSATION, CODEX_CONVERSATION,
+};
 use teryon_core::agents::Voice;
 use teryon_core::protocol::{Event, ProjectState};
 use teryon_core::store::Status;
@@ -165,7 +168,7 @@ lets_expect! { #tokio_test
         let project = scene.project(&folder);
 
         let thread = scene.workspace.start_thread(project.id, "gemini", "").map_err(|problem| problem.to_string());
-        expect(thread.err()) to equal(Some("Choose Claude or Grok as the agent.".to_string()))
+        expect(thread.err()) to equal(Some("Choose Claude, Codex or Grok as the agent.".to_string()))
         let elsewhere = scene.workspace.start_thread(unknown(), "claude", "").map_err(|problem| problem.to_string());
         expect(elsewhere.err()) to equal(Some("There is no such project.".to_string()))
     }
@@ -192,7 +195,8 @@ lets_expect! { #tokio_test
 
         let runs = invocations(&folder);
         expect(runs.len()) to equal(1)
-        expect(runs[0].contains(&format!("--session-id {}", thread.conversation_id))) to be_true
+        expect(runs[0].contains("--resume")) to be_false
+        expect(scene.thread_now(&thread).conversation) to equal(Some(CLAUDE_CONVERSATION.to_string()))
         expect(runs[0].contains("--append-system-prompt")) to be_false
         expect(scene.thread_now(&thread).change) to equal(None)
     }
@@ -211,7 +215,7 @@ lets_expect! { #tokio_test
 
         let runs = invocations(&folder);
         expect(runs.len()) to equal(2)
-        expect(runs[1].contains(&format!("--resume {}", thread.conversation_id))) to be_true
+        expect(runs[1].contains(&format!("--resume {CLAUDE_CONVERSATION}"))) to be_true
         expect(scene.kinds(&thread).len()) to equal(6)
         expect(scene.thread_now(&thread).title) to equal("hello".to_string())
     }
@@ -229,7 +233,7 @@ lets_expect! { #tokio_test
         expect(scene.kinds(&thread).len()) to equal(3)
         scene.say(&thread, "and again").unwrap();
         scene.wait_until_idle(&thread).await;
-        expect(invocations(&folder)[1].contains(&format!("--resume {}", thread.conversation_id))) to be_true
+        expect(invocations(&folder)[1].contains(&format!("--resume {CLAUDE_CONVERSATION}"))) to be_true
         expect(scene.entries(&thread).iter().map(|entry| entry.position).collect::<Vec<_>>()) to equal(vec![1, 2, 3, 4, 5, 6])
     }
 
@@ -270,8 +274,36 @@ lets_expect! { #tokio_test
         expect(scene.kinds(&thread)) to equal(kinds(&[
             "user_message", "agent_message", "activity", "activity", "notice", "activity", "agent_message", "turn_summary",
         ]))
-        expect(invocations(&folder)[0].contains(&format!("--session-id {}", thread.conversation_id))) to be_true
+        let conversation = scene.thread_now(&thread).conversation.expect("Grok's conversation is kept");
+        expect(invocations(&folder)[0].contains(&format!("--session-id {conversation}"))) to be_true
         expect(invocations(&folder)[0].contains("--single=use tools")) to be_true
+    }
+
+    // requirement: Codex runs on its own, reports what it did, and the next message resumes the conversation it named
+    story codex_runs_and_continues_its_conversation {
+        let scene = Scene::new();
+        let folder = project_folder();
+        let project = scene.project(&folder);
+        let thread = scene.thread(&project, "codex");
+
+        scene.say(&thread, "hello").unwrap();
+        scene.wait_until_idle(&thread).await;
+        expect(scene.kinds(&thread)) to equal(kinds(&[
+            "user_message", "agent_message", "activity", "activity", "activity", "activity", "agent_message", "turn_summary",
+        ]))
+        expect(scene.entries(&thread)[2].body.clone()) to equal(json!({ "tool": "shell", "summary": "pwd; git rev-parse --show-toplevel 2>/dev/null" }))
+        expect(scene.entries(&thread)[7].body["tokens"].clone()) to equal(json!({ "read": 86322, "written": 229 }))
+        expect(scene.thread_now(&thread).conversation) to equal(Some(CODEX_CONVERSATION.to_string()))
+
+        scene.say(&thread, "and again").unwrap();
+        scene.wait_until_idle(&thread).await;
+        let runs = invocations(&folder);
+        expect(runs[0].starts_with("exec --json --skip-git-repo-check")) to be_true
+        expect(runs[0].contains("approvals_reviewer=\"auto_review\"")) to be_true
+        expect(runs[0].ends_with("-- hello")) to be_true
+        expect(runs[1].starts_with("exec resume --json")) to be_true
+        expect(runs[1].contains("approvals_reviewer=\"auto_review\"")) to be_true
+        expect(runs[1].ends_with(&format!("-- {CODEX_CONVERSATION} and again"))) to be_true
     }
 
     // requirement: an empty message is refused
@@ -364,7 +396,7 @@ lets_expect! { #tokio_test
 
         scene.say(&thread, "carry on").unwrap();
         scene.wait_until_idle(&thread).await;
-        expect(invocations(&folder)[1].contains(&format!("--resume {}", thread.conversation_id))) to be_true
+        expect(invocations(&folder)[1].contains(&format!("--resume {CLAUDE_CONVERSATION}"))) to be_true
     }
 
     // requirement: the program is asked to stop, and killed if it has not ended after a few seconds

@@ -80,6 +80,8 @@ pub enum Request {
     /// Asks a second agent to review the thread's change, in the same thread.
     ReviewChange {
         thread_id: Uuid,
+        /// The agent that reviews, which may not be the thread's own.
+        agent: String,
     },
     Stop {
         thread_id: Uuid,

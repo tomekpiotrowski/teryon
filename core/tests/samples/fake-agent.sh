@@ -1,5 +1,5 @@
 #!/bin/sh
-# Stands in for the claude and grok programs in tests.
+# Stands in for the claude, codex and grok programs in tests.
 #
 # Tests must never reach a real provider, so the test configuration starts
 # this instead. It replays recordings of the real programs and can be told,

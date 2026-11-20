@@ -1,14 +1,15 @@
 //! Running agent programs and understanding what they report.
 //!
-//! Teryon does not talk to any model provider. It starts the official `claude`
-//! and `grok` programs, which use the sign-in already present on the machine,
-//! and turns the lines they print into thread entries.
+//! Teryon does not talk to any model provider. It starts the official
+//! `claude`, `codex` and `grok` programs, which use the sign-in already
+//! present on the machine, and turns the lines they print into thread entries.
 //!
 //! Each program has a driver that knows two things: how to start a turn, and
 //! how to read one line of the program's report. Everything else, including
 //! processes and storage, lives in [`runner`].
 
 pub mod claude;
+pub mod codex;
 pub mod grok;
 pub mod process;
 pub mod runner;
@@ -18,9 +19,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use thiserror::Error;
 use ts_rs::TS;
-use uuid::Uuid;
 
 use crate::agents::claude::ClaudeDriver;
+use crate::agents::codex::CodexDriver;
 use crate::agents::grok::GrokDriver;
 use crate::settings::AgentSettings;
 
@@ -28,22 +29,23 @@ use crate::settings::AgentSettings;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Agent {
     Claude,
+    Codex,
     Grok,
 }
 
 impl Agent {
+    /// Every agent, in the order the application offers them.
+    pub const ALL: [Self; 3] = [Self::Claude, Self::Codex, Self::Grok];
+
     /// Reads the name stored on a thread and sent by the application.
     pub fn parse(name: &str) -> Option<Self> {
-        match name {
-            "claude" => Some(Self::Claude),
-            "grok" => Some(Self::Grok),
-            _ => None,
-        }
+        Self::ALL.into_iter().find(|agent| agent.name() == name)
     }
 
     pub fn name(self) -> &'static str {
         match self {
             Self::Claude => "claude",
+            Self::Codex => "codex",
             Self::Grok => "grok",
         }
     }
@@ -52,15 +54,8 @@ impl Agent {
     pub fn label(self) -> &'static str {
         match self {
             Self::Claude => "Claude",
+            Self::Codex => "Codex",
             Self::Grok => "Grok",
-        }
-    }
-
-    /// The agent that reviews this one's work: the other one, since two models catch more than one twice.
-    pub fn other(self) -> Self {
-        match self {
-            Self::Claude => Self::Grok,
-            Self::Grok => Self::Claude,
         }
     }
 }
@@ -138,10 +133,10 @@ impl EntryDraft {
     }
 
     /// The end of a turn. The runner adds how long the turn took.
-    pub fn turn_summary(cost_usd: Option<f64>, turns: Option<u64>) -> Self {
+    pub fn turn_summary(tokens: Option<Tokens>, turns: Option<u64>) -> Self {
         Self {
             kind: EntryKind::TurnSummary,
-            body: json!({ "cost_usd": cost_usd, "turns": turns }),
+            body: json!({ "tokens": tokens, "turns": turns }),
         }
     }
 
@@ -164,6 +159,17 @@ impl EntryDraft {
         self
     }
 
+    /// Names the agent on a reviewer's entry. Leaves the author's entries alone.
+    ///
+    /// A thread can be reviewed by different agents in turn, so the current
+    /// reviewer does not say who wrote, or was asked, an earlier review.
+    pub fn naming(mut self, agent: Agent) -> Self {
+        if self.body["reviewer"] == json!(true) {
+            self.body["agent"] = json!(agent.name());
+        }
+        self
+    }
+
     fn text(kind: EntryKind, text: &str) -> Self {
         Self {
             kind,
@@ -172,13 +178,45 @@ impl EntryDraft {
     }
 }
 
+/// How much text a turn's model read and wrote, counted in tokens.
+///
+/// Shown instead of a price, because the agents run on subscriptions, where
+/// a turn costs a share of a usage limit rather than money. Text read again
+/// from the provider's cache counts as read: it still takes up the limit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct Tokens {
+    pub read: u64,
+    pub written: u64,
+}
+
+impl Tokens {
+    /// Adds up the named counts of a usage report. Nothing when it has none of them.
+    fn sum(usage: &Value, read: &[&str], written: &[&str]) -> Option<Self> {
+        let total = |names: &[&str]| -> Option<u64> {
+            names
+                .iter()
+                .filter_map(|name| usage[name].as_u64())
+                .reduce(|sum, count| sum + count)
+        };
+        match (total(read), total(written)) {
+            (None, None) => None,
+            (read, written) => Some(Self {
+                read: read.unwrap_or(0),
+                written: written.unwrap_or(0),
+            }),
+        }
+    }
+}
+
 /// One message to hand to an agent program.
 #[derive(Clone, Debug)]
 pub struct Turn {
     pub message: String,
-    pub conversation: Uuid,
-    /// Whether this message starts the conversation.
-    pub first: bool,
+    /// The identifier the program gave the conversation this message continues.
+    ///
+    /// Nothing for a message that starts a conversation: the program then
+    /// makes one up and reports it, see [`AgentDriver::take_conversation`].
+    pub conversation: Option<String>,
     /// What the agent is told about worktrees, beside the person's message.
     ///
     /// Nothing when the project is not a git repository. The programs take
@@ -207,7 +245,7 @@ pub struct NotUnderstood;
 
 /// What Teryon needs to know about one agent program.
 pub trait AgentDriver: Send {
-    fn invocation(&self, turn: &Turn) -> Invocation;
+    fn invocation(&mut self, turn: &Turn) -> Invocation;
 
     /// Turns one line of the program's report into thread entries.
     ///
@@ -222,6 +260,13 @@ pub trait AgentDriver: Send {
     /// is read from the program rather than kept in Teryon.
     fn take_commands(&mut self) -> Option<Vec<String>>;
 
+    /// Hands over the identifier of the conversation, when the last line named it.
+    ///
+    /// Teryon stores it so the next message continues the conversation. The
+    /// programs name it early in a turn, so a turn stopped halfway can still
+    /// be continued.
+    fn take_conversation(&mut self) -> Option<String>;
+
     /// Returns whatever the driver was still holding when the program ended.
     fn finish(&mut self) -> Vec<EntryDraft> {
         Vec::new()
@@ -231,6 +276,7 @@ pub trait AgentDriver: Send {
 pub fn driver_for(agent: Agent, settings: &AgentSettings) -> Box<dyn AgentDriver> {
     match agent {
         Agent::Claude => Box::new(ClaudeDriver::new(&settings.claude)),
+        Agent::Codex => Box::new(CodexDriver::new(&settings.codex)),
         Agent::Grok => Box::new(GrokDriver::new(&settings.grok)),
     }
 }
@@ -267,20 +313,41 @@ mod tests {
     lets_expect! {
         expect(Agent::parse(name)) {
             when(name = "claude") as be_claude to hold { equal(Some(Agent::Claude)) }
+            when(name = "codex") as be_codex to hold { equal(Some(Agent::Codex)) }
             when(name = "grok") as be_grok to hold { equal(Some(Agent::Grok)) }
             when(name = "Claude") as be_unknown_in_capitals to hold { equal(None) }
             when(name = "") as be_unknown_when_empty to hold { equal(None) }
             when(name = "gemini") as be_unknown to hold { equal(None) }
         }
 
-        expect(Agent::Grok.label()) to be_capitalised { equal("Grok") }
+        expect(Agent::ALL.map(Agent::label)) to be_capitalised { equal(["Claude", "Codex", "Grok"]) }
+
+        expect(Tokens::sum(&usage, &["in", "cached"], &["out"])) as tokens_added_up {
+            let usage = json!({ "in": 10, "cached": 90, "out": 5 });
+
+            to add_up_what_was_read { equal(Some(Tokens { read: 100, written: 5 })) }
+            when(usage = json!({ "in": 10 })) as count_nothing_written_as_none to hold { equal(Some(Tokens { read: 10, written: 0 })) }
+            when(usage = json!({ "out": 5 })) as count_nothing_read_as_none to hold { equal(Some(Tokens { read: 0, written: 5 })) }
+            when(usage = json!({ "in": "ten", "speed": 1 })) as give_nothing_without_counts to hold { equal(None) }
+            when(usage = json!(null)) as give_nothing_without_a_report to hold { equal(None) }
+        }
+
+        expect(EntryDraft::turn_summary(tokens, Some(2)).body) as a_summary_body {
+            let tokens = Some(Tokens { read: 100, written: 5 });
+
+            to carry_the_tokens { equal(json!({ "tokens": { "read": 100, "written": 5 }, "turns": 2 })) }
+            when(tokens = None) as leave_out_unknown_tokens to hold { equal(json!({ "tokens": null, "turns": 2 })) }
+        }
 
         expect(EntryDraft::turn_summary(None, None).ended_early().is_early_end()) as an_early_summary to be_early { be_true }
         expect(EntryDraft::turn_summary(None, None).is_early_end()) as a_summary to be_on_time { be_false }
         expect(EntryDraft::notice("x").ended_early().is_early_end()) as another_entry to never_be_early { be_false }
 
-        expect(Agent::Claude.other()) to be_grok { equal(Agent::Grok) }
-        expect(Agent::Grok.other()) to be_claude { equal(Agent::Claude) }
+        // requirement: a reviewer's entry names the agent that reviewed, so a later reviewer does not take it over
+        expect(EntryDraft::agent_message("hi").by(voice).naming(Agent::Codex).body) as a_named_entry {
+            when(voice = Voice::Author) as the_author to stay_unnamed { equal(json!({ "text": "hi" })) }
+            when(voice = Voice::Reviewer) as the_reviewer to be_named { equal(json!({ "text": "hi", "reviewer": true, "agent": "codex" })) }
+        }
 
         expect(EntryDraft::agent_message("hi").by(voice).body) {
             when(voice = Voice::Author) as the_author to be_left_unmarked { equal(json!({ "text": "hi" })) }
@@ -289,6 +356,7 @@ mod tests {
 
         expect(Agent::parse(agent.name())) {
             when(agent = Agent::Claude) as read_back_claude to hold { equal(Some(Agent::Claude)) }
+            when(agent = Agent::Codex) as read_back_codex to hold { equal(Some(Agent::Codex)) }
             when(agent = Agent::Grok) as read_back_grok to hold { equal(Some(Agent::Grok)) }
         }
 

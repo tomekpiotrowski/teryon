@@ -19,7 +19,7 @@ use uuid::Uuid;
 
 use teryon_core::agents::Voice;
 use teryon_core::protocol::{Event, ProjectView};
-use teryon_core::settings::{AgentSettings, ClaudeSettings, GrokSettings};
+use teryon_core::settings::{AgentSettings, ClaudeSettings, CodexSettings, GrokSettings};
 use teryon_core::store::{Entry, Status, Thread};
 use teryon_core::workspace::{Setup, Workspace};
 
@@ -31,11 +31,21 @@ pub fn fake_agents() -> AgentSettings {
             program: "tests/samples/fake-claude.sh".to_string(),
             use_subscription: true,
         },
+        codex: CodexSettings {
+            program: "tests/samples/fake-codex.sh".to_string(),
+            use_subscription: true,
+        },
         grok: GrokSettings {
             program: "tests/samples/fake-grok.sh".to_string(),
         },
     }
 }
+
+/// The conversation the recordings of Claude Code name, which every fake Claude turn reports.
+pub const CLAUDE_CONVERSATION: &str = "80bf47d7-616f-4148-ab7c-41ff76681fcc";
+
+/// The conversation the first recording of Codex names.
+pub const CODEX_CONVERSATION: &str = "01a1f8d6-5c6e-7282-b40e-8cb29b7aa5e1";
 
 /// Settings that start a given program in place of Claude.
 pub fn settings_with(program: &str) -> AgentSettings {
@@ -269,13 +279,13 @@ impl Scene {
         );
     }
 
-    /// Waits for the agent of a thread to report its first line.
+    /// Waits until the agent of a thread has reported its first line, and with it its conversation.
     ///
     /// Stopping an agent before it has got going proves little, so tests that
     /// stop one wait for this first.
     pub async fn wait_until_reporting(&self, thread: &Thread) {
         for _ in 0..200 {
-            if self.thread_now(thread).conversation_started {
+            if self.thread_now(thread).conversation.is_some() {
                 return;
             }
             sleep(Duration::from_millis(50)).await;

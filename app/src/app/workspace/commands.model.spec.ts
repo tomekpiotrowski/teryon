@@ -46,7 +46,8 @@ function ids(commands: readonly Command[]): string[] {
 describe('commandList', () => {
   it('offers only what needs no project when there is none', () => {
     expect(ids(commandList(situation()))).toEqual([
-      'action:toggleAgent',
+      'action:useAgent:codex',
+      'action:useAgent:grok',
       'action:newProject',
       'action:toggleTheme',
     ]);
@@ -62,7 +63,8 @@ describe('commandList', () => {
       'action:newThread',
       'action:files',
       'action:history',
-      'action:toggleAgent',
+      'action:useAgent:codex',
+      'action:useAgent:grok',
       'action:newProject',
       'action:removeProject',
       'action:toggleTheme',
@@ -184,10 +186,17 @@ describe('commandList', () => {
   });
 
   it.each([
-    ['claude', 'Use Grok for new threads'],
-    ['grok', 'Use Claude for new threads'],
-  ] as const)('with %s chosen offers the other agent', (agent, title) => {
-    expect(commandList(situation({ agent })).find((candidate) => candidate.id === 'action:toggleAgent')?.title).toBe(title);
+    ['claude', ['Use Codex for new threads', 'Use Grok for new threads']],
+    ['codex', ['Use Claude for new threads', 'Use Grok for new threads']],
+    ['grok', ['Use Claude for new threads', 'Use Codex for new threads']],
+  ] as const)('with %s chosen offers each other agent', (agent, titles) => {
+    const offeredAgents = commandList(situation({ agent })).filter((candidate) => candidate.action.kind === 'useAgent');
+    expect(offeredAgents.map((candidate) => candidate.title)).toEqual(titles);
+  });
+
+  it('switches to the agent a command names', () => {
+    const useGrok = commandList(situation()).find((candidate) => candidate.id === 'action:useAgent:grok');
+    expect(useGrok?.action).toEqual({ kind: 'useAgent', agent: 'grok' });
   });
 
   it.each([
@@ -443,7 +452,7 @@ describe('the commands for a thread\'s change', () => {
 
   const changed = thread('t9', 'a', '2026-11-06T10:00:00', { change: change() });
   /** What is offered for a change whose copy is there, whatever is set up. */
-  const ALWAYS = ['change:explore', 'change:apply', 'change:catchUp', 'change:askReview', 'change:discard', 'change:copyLocation', 'change:openFolder'];
+  const ALWAYS = ['change:explore', 'change:apply', 'change:catchUp', 'change:askReview', 'change:askReview:grok', 'change:discard', 'change:copyLocation', 'change:openFolder'];
 
   it('offers nothing without an open thread, or for a thread with no change', () => {
     expect(offered(null)).toEqual([]);
@@ -459,13 +468,15 @@ describe('the commands for a thread\'s change', () => {
       'change:apply',
       'change:catchUp',
       'change:askReview',
+      'change:askReview:grok',
       'change:discard',
       'change:copyLocation',
       'change:openFolder',
       'action:newThread',
       'action:files',
       'action:history',
-      'action:toggleAgent',
+      'action:useAgent:codex',
+      'action:useAgent:grok',
       'action:newProject',
       'action:removeProject',
       'action:toggleTheme',
@@ -477,7 +488,8 @@ describe('the commands for a thread\'s change', () => {
       ['See the changes', 'Thread t9', 'W V'],
       ['Apply to the project', 'Thread t9', 'W A'],
       ['Catch up with the project', 'Thread t9', 'W U'],
-      ['Ask Grok to review', 'Thread t9', 'W C'],
+      ['Ask Codex to review', 'Thread t9', 'W C'],
+      ['Ask Grok to review', 'Thread t9', null],
       ['Discard changes', 'Thread t9', 'W D'],
       ['Copy location', 'Thread t9', 'W Y'],
       ['Open folder', 'Thread t9', 'W F'],
@@ -485,8 +497,9 @@ describe('the commands for a thread\'s change', () => {
   });
 
   it('shows, applies, catches up and discards the open thread\'s change', () => {
-    const [explore, apply, catchUp, askReview, discard] = offered(changed);
-    expect(askReview.action).toEqual({ kind: 'reviewChange', thread: changed });
+    const [explore, apply, catchUp, askReview, askAnother, discard] = offered(changed);
+    expect(askReview.action).toEqual({ kind: 'reviewChange', thread: changed, agent: 'codex' });
+    expect(askAnother.action).toEqual({ kind: 'reviewChange', thread: changed, agent: 'grok' });
     expect(explore.action).toEqual({ kind: 'exploreChange', thread: changed });
     expect(apply.action).toEqual({ kind: 'applyChange', thread: changed });
     expect(catchUp.action).toEqual({ kind: 'catchUp', thread: changed });
@@ -494,7 +507,7 @@ describe('the commands for a thread\'s change', () => {
   });
 
   it('copies the copy\'s full location and opens the open thread\'s copy', () => {
-    const [, , , , , copy, folder] = offered(changed);
+    const [, , , , , , copy, folder] = offered(changed);
     expect(copy.action).toEqual({ kind: 'copyLocation', path: '/work/a/.teryon/worktrees/fix-login' });
     expect(folder.action).toEqual({ kind: 'openCopy', thread: changed, opener: 'folder' });
   });
@@ -508,7 +521,7 @@ describe('the commands for a thread\'s change', () => {
   });
 
   it('offers the editor and the terminal on W E and W T', () => {
-    const [, , , , , , , editor, terminal] = offered(changed, { editor: true, terminal: true });
+    const [, , , , , , , , editor, terminal] = offered(changed, { editor: true, terminal: true });
     expect([keyHint(editor), keyHint(terminal)]).toEqual(['W E', 'W T']);
     expect(editor.action).toEqual({ kind: 'openCopy', thread: changed, opener: 'editor' });
   });
@@ -553,8 +566,8 @@ describe('the commands for a thread\'s change', () => {
     }
 
     it('offers sending for review on W R, after catching up', () => {
-      expect(ids(onGitHub(changed))).toEqual(['change:explore', 'change:apply', 'change:catchUp', 'change:askReview', 'change:sendForReview', 'change:discard', 'change:copyLocation', 'change:openFolder']);
-      const send = onGitHub(changed)[4];
+      expect(ids(onGitHub(changed))).toEqual(['change:explore', 'change:apply', 'change:catchUp', 'change:askReview', 'change:askReview:grok', 'change:sendForReview', 'change:discard', 'change:copyLocation', 'change:openFolder']);
+      const send = onGitHub(changed)[5];
       expect([send.title, keyHint(send)]).toEqual(['Send for review on GitHub', 'W R']);
       expect(send.action).toEqual({ kind: 'sendForReview', thread: changed });
     });
@@ -562,13 +575,13 @@ describe('the commands for a thread\'s change', () => {
     it('offers opening the review in place of sending it, once in review', () => {
       const reviewed = { ...changed, change: change({ review: review('in_review') }) };
       const commands = onGitHub(reviewed);
-      expect(ids(commands)).toEqual(['change:explore', 'change:apply', 'change:catchUp', 'change:askReview', 'change:openReview', 'change:discard', 'change:copyLocation', 'change:openFolder']);
-      expect(keyHint(commands[4])).toBe('W O');
+      expect(ids(commands)).toEqual(['change:explore', 'change:apply', 'change:catchUp', 'change:askReview', 'change:askReview:grok', 'change:openReview', 'change:discard', 'change:copyLocation', 'change:openFolder']);
+      expect(keyHint(commands[5])).toBe('W O');
     });
 
     it('offers sending it again, and opening the old review, once declined', () => {
       const declined = { ...changed, change: change({ review: review('declined') }) };
-      expect(ids(onGitHub(declined)).slice(4, 6)).toEqual(['change:sendForReview', 'change:openReview']);
+      expect(ids(onGitHub(declined)).slice(5, 7)).toEqual(['change:sendForReview', 'change:openReview']);
     });
 
     it('offers nothing about reviews in a project that is not on GitHub', () => {
@@ -585,15 +598,40 @@ describe('the commands for a thread\'s change', () => {
     expect(commands.filter((candidate) => candidate.group !== 'thread').every((candidate) => candidate.badge === '')).toBe(true);
   });
 
-  describe('reviewed by the other agent', () => {
+  describe('reviewed by another agent', () => {
     function reviewed(findings: number | null, answered = false, cut = false): Thread {
       return { ...changed, reviewer: { agent: 'grok', reviewing: false, verdict: { findings, answered, cut } } };
     }
 
-    it('asks the other agent, and asks again once it has reviewed', () => {
-      expect(offered(changed).find((candidate) => candidate.id === 'change:askReview')?.title).toBe('Ask Grok to review');
-      expect(offered({ ...changed, agent: 'grok' }).find((candidate) => candidate.id === 'change:askReview')?.title).toBe('Ask Claude to review');
-      expect(offered(reviewed(2)).find((candidate) => candidate.id === 'change:askReview')?.title).toBe('Ask Grok to review again');
+    function reviewTitles(candidate: Thread): (string | null)[][] {
+      return offered(candidate)
+        .filter((command) => command.action.kind === 'reviewChange')
+        .map((command) => [command.title, keyHint(command)]);
+    }
+
+    it.each([
+      ['claude', [['Ask Codex to review', 'W C'], ['Ask Grok to review', null]]],
+      ['codex', [['Ask Claude to review', 'W C'], ['Ask Grok to review', null]]],
+      ['grok', [['Ask Claude to review', 'W C'], ['Ask Codex to review', null]]],
+    ] as const)('offers every agent but %s, the first one on the key', (agent, titles) => {
+      expect(reviewTitles({ ...changed, agent })).toEqual(titles);
+    });
+
+    it('puts the agent that reviewed first, asking it again, and offers the rest afresh', () => {
+      expect(reviewTitles(reviewed(2))).toEqual([['Ask Grok to review again', 'W C'], ['Ask Codex to review', null]]);
+    });
+
+    it('names the agent to ask in the action', () => {
+      const actions = offered(reviewed(2)).filter((command) => command.action.kind === 'reviewChange').map((command) => [command.id, command.action]);
+      expect(actions).toEqual([
+        ['change:askReview', { kind: 'reviewChange', thread: reviewed(2), agent: 'grok' }],
+        ['change:askReview:codex', { kind: 'reviewChange', thread: reviewed(2), agent: 'codex' }],
+      ]);
+    });
+
+    it('asks the reviewer to review, not again, before it finished a review', () => {
+      const started = { ...changed, reviewer: { agent: 'grok' as const, reviewing: false, verdict: null } };
+      expect(reviewTitles(started)[0]).toEqual(['Ask Grok to review', 'W C']);
     });
 
     it.each([

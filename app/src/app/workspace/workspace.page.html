@@ -72,7 +72,7 @@
                     (keydown)="handleComposerKeydown($event, view)"
                   ></textarea>
                   <div class="composer-meta">
-                    <button type="button" aria-label="Change agent" (click)="toggleAgent()">{{ agentLabel((agent$ | async) ?? 'claude') }}</button>
+                    <button type="button" aria-label="Change agent" (click)="switchAgent()">{{ agentLabel((agent$ | async) ?? 'claude') }}</button>
                     <span class="spacer"></span>
                     <span>{{ view.project.directory }}</span>
                     <button type="button" class="code-link" aria-keyshortcuts="/" (click)="openMenu()">menu <kbd>/</kbd></button>
@@ -97,12 +97,12 @@
                         @case ('user') {
                           <div class="message">
                             <span class="prompt-mark">❯</span>
-                            @if (line.reviewer) { <span class="speaker">to {{ agentLabel(reviewerOf(view.thread)) }}</span> }
+                            @if (line.reviewer) { <span class="speaker">to {{ reviewerLabel(line, view.thread) }}</span> }
                             <p>{{ line.text }}</p>
                           </div>
                         }
                         @case ('agent') {
-                          @if (line.reviewer) { <span class="speaker">{{ agentLabel(reviewerOf(view.thread)) }} · reviewing</span> }
+                          @if (line.reviewer) { <span class="speaker">{{ reviewerLabel(line, view.thread) }} · reviewing</span> }
                           <div class="markdown" [innerHTML]="line.text | markdown"></div>
                         }
                         @case ('review') { <p class="review-divider"><span>{{ line.text }}</span></p> }

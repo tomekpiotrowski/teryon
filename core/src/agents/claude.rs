@@ -11,7 +11,7 @@ use crate::agents::summary::summarise_input;
 use tracing::warn;
 
 use crate::agents::{
-    command_names, typed_report, AgentDriver, EntryDraft, Invocation, NotUnderstood, Turn,
+    command_names, typed_report, AgentDriver, EntryDraft, Invocation, NotUnderstood, Tokens, Turn,
 };
 use crate::settings::ClaudeSettings;
 
@@ -26,6 +26,8 @@ pub struct ClaudeDriver {
     use_subscription: bool,
     /// The slash commands named by the last line, until they are taken.
     commands: Option<Vec<String>>,
+    /// The conversation named by the last line, until it is taken.
+    conversation: Option<String>,
 }
 
 impl ClaudeDriver {
@@ -34,6 +36,7 @@ impl ClaudeDriver {
             program: settings.program.clone(),
             use_subscription: settings.use_subscription,
             commands: None,
+            conversation: None,
         }
     }
 }
@@ -42,13 +45,9 @@ impl AgentDriver for ClaudeDriver {
     /// Builds the command line for one turn.
     ///
     /// The message comes last, after `--`, so a message that begins with a
-    /// dash is not read as an option.
-    fn invocation(&self, turn: &Turn) -> Invocation {
-        let conversation_option = if turn.first {
-            "--session-id"
-        } else {
-            "--resume"
-        };
+    /// dash is not read as an option. A new conversation gets its identifier
+    /// from Claude Code, which names it on the first line of its report.
+    fn invocation(&mut self, turn: &Turn) -> Invocation {
         let mut arguments = [
             "-p",
             "--output-format",
@@ -56,11 +55,12 @@ impl AgentDriver for ClaudeDriver {
             "--verbose",
             "--permission-mode",
             "auto",
-            conversation_option,
-            &turn.conversation.to_string(),
         ]
         .map(String::from)
         .to_vec();
+        if let Some(conversation) = &turn.conversation {
+            arguments.extend(["--resume".to_string(), conversation.clone()]);
+        }
         // The snapshot is off so a later turn of the same conversation is
         // told the branch the project directory is on then, not the one it
         // was on when the conversation started.
@@ -96,6 +96,7 @@ impl AgentDriver for ClaudeDriver {
             "system" => {
                 if report["subtype"].as_str() == Some("init") {
                     self.commands = offered_commands(&report);
+                    self.conversation = report["session_id"].as_str().map(str::to_string);
                 }
                 Ok(system_entries(&report))
             }
@@ -108,6 +109,10 @@ impl AgentDriver for ClaudeDriver {
 
     fn take_commands(&mut self) -> Option<Vec<String>> {
         self.commands.take()
+    }
+
+    fn take_conversation(&mut self) -> Option<String> {
+        self.conversation.take()
     }
 }
 
@@ -196,7 +201,15 @@ fn result_entries(report: &Value) -> Vec<EntryDraft> {
         entries.push(EntryDraft::error(text));
     }
     let summary = EntryDraft::turn_summary(
-        report["total_cost_usd"].as_f64(),
+        Tokens::sum(
+            &report["usage"],
+            &[
+                "input_tokens",
+                "cache_creation_input_tokens",
+                "cache_read_input_tokens",
+            ],
+            &["output_tokens"],
+        ),
         report["num_turns"].as_u64(),
     );
     entries.push(if failed {
@@ -211,7 +224,6 @@ fn result_entries(report: &Value) -> Vec<EntryDraft> {
 mod tests {
     use lets_expect::lets_expect;
     use serde_json::{from_str, json};
-    use uuid::Uuid;
 
     use super::*;
     use crate::agents::EntryKind;
@@ -227,11 +239,15 @@ mod tests {
         })
     }
 
-    fn turn(message: &str, first: bool, brief: Option<&str>, read_only: bool) -> Turn {
+    fn turn(
+        message: &str,
+        conversation: Option<&str>,
+        brief: Option<&str>,
+        read_only: bool,
+    ) -> Turn {
         Turn {
             message: message.to_string(),
-            conversation: Uuid::nil(),
-            first,
+            conversation: conversation.map(str::to_string),
             brief: brief.map(str::to_string),
             read_only,
         }
@@ -244,6 +260,15 @@ mod tests {
             .interpret(&report.to_string())
             .expect("the line is understood");
         driver.take_commands()
+    }
+
+    /// The conversation the driver hands over after one report line.
+    fn conversation_after(report: Value) -> Option<String> {
+        let mut driver = driver(true);
+        driver
+            .interpret(&report.to_string())
+            .expect("the line is understood");
+        driver.take_conversation()
     }
 
     /// The commands the driver hands over the second time it is asked, after a start that named some.
@@ -294,38 +319,39 @@ mod tests {
     }
 
     lets_expect! {
-        expect(driver(use_subscription).invocation(&turn(message, first, brief, read_only))) {
+        expect(driver(use_subscription).invocation(&turn(message, conversation, brief, read_only))) {
             let use_subscription = true;
             let message = "Fix the bug";
-            let first = true;
+            let conversation: Option<&str> = None;
             let brief: Option<&str> = None;
             let read_only = false;
 
-            // requirement: the first message starts a new conversation with an identifier chosen by Teryon
+            // requirement: the first message starts a new conversation, which Claude Code names
             to start_a_conversation {
                 have(program.as_str()) equal("claude"),
                 have(arguments.clone()) equal([
                     "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "auto",
-                    "--session-id", "00000000-0000-0000-0000-000000000000", "--", "Fix the bug",
+                    "--", "Fix the bug",
                 ].map(String::from).to_vec())
             }
 
-            // requirement: later messages resume that conversation
-            when(first = false) as resume_the_conversation to hold {
-                have(arguments[6].as_str()) equal("--resume"),
-                have(arguments[7].as_str()) equal("00000000-0000-0000-0000-000000000000")
+            // requirement: later messages resume the conversation Claude Code named
+            when(conversation = Some("80bf47d7")) as resume_the_conversation to hold {
+                have(arguments.clone()) equal([
+                    "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "auto",
+                    "--resume", "80bf47d7", "--", "Fix the bug",
+                ].map(String::from).to_vec())
             }
 
             when(message = "--help") as keep_a_message_that_looks_like_an_option_last to hold {
-                have(arguments[8].as_str()) equal("--"),
-                have(arguments[9].as_str()) equal("--help")
+                have(arguments[6].as_str()) equal("--"),
+                have(arguments[7].as_str()) equal("--help")
             }
 
             // requirement: a worktree instruction is added beside the message, and is not frozen for the conversation
             when(brief = Some("Stay in the worktree.")) as pass_the_worktree_instruction to hold {
                 have(arguments.clone()) equal([
                     "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "auto",
-                    "--session-id", "00000000-0000-0000-0000-000000000000",
                     "--append-system-prompt", "Stay in the worktree.",
                     "--system-prompt-snapshot", "off",
                     "--", "Fix the bug",
@@ -336,7 +362,6 @@ mod tests {
             when(read_only = true) as switch_off_editing to hold {
                 have(arguments.clone()) equal([
                     "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "auto",
-                    "--session-id", "00000000-0000-0000-0000-000000000000",
                     "--disallowedTools", "Edit,Write,NotebookEdit",
                     "--", "Fix the bug",
                 ].map(String::from).to_vec())
@@ -383,9 +408,9 @@ mod tests {
                 have(first().cloned()) equal(Some(EntryDraft::agent_message("ready")))
             }
 
-            // requirement: the end of the turn becomes a summary with cost where the program reports it
+            // requirement: the end of the turn becomes a summary with the tokens read and written, cached ones counted as read
             when(recording = FIRST) as end_with_a_summary to hold {
-                have(last().cloned()) equal(Some(EntryDraft::turn_summary(Some(0.212946), Some(1))))
+                have(last().cloned()) equal(Some(EntryDraft::turn_summary(Some(Tokens { read: 24528, written: 4 }), Some(1))))
             }
 
             // requirement: each tool the agent uses becomes an activity line naming the tool and what it was used on
@@ -482,6 +507,22 @@ mod tests {
                 equal(None)
             }
             when(report = json!({"type": "assistant", "slash_commands": ["compact"]})) as hand_over_nothing_for_another_line to hold {
+                equal(None)
+            }
+        }
+
+        // requirement: the conversation Claude Code names at the start of a turn is handed over, so the next message continues it
+        expect(conversation_after(report)) {
+            when(report = first_line()) as read_it_from_a_recording to hold {
+                equal(Some("80bf47d7-616f-4148-ab7c-41ff76681fcc".to_string()))
+            }
+            when(report = json!({"type": "system", "subtype": "init"})) as hand_over_nothing_when_none_is_named to hold {
+                equal(None)
+            }
+            when(report = json!({"type": "system", "subtype": "init", "session_id": 5})) as hand_over_nothing_for_something_else_than_text to hold {
+                equal(None)
+            }
+            when(report = json!({"type": "result", "session_id": "80bf47d7"})) as hand_over_nothing_for_another_line to hold {
                 equal(None)
             }
         }

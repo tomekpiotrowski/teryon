@@ -20,6 +20,15 @@ use teryon_core::protocol::ProjectView;
 use teryon_core::settings::{AgentSettings, GrokSettings};
 use teryon_core::store::{Entry, Thread, Verdict};
 
+/// The reviewer most of these specs ask for: Grok, or Claude when Grok wrote the change.
+fn usual_reviewer(thread: &Thread) -> &'static str {
+    if thread.agent == "grok" {
+        "claude"
+    } else {
+        "grok"
+    }
+}
+
 /// A project in a repository on `main` with a `README.md`.
 struct Project {
     scene: Scene,
@@ -67,10 +76,16 @@ impl Project {
         (thread, path)
     }
 
+    /// Asks for a review by Grok, or by Claude for Grok's own work, and waits for it.
     async fn review(&self, thread: &Thread) -> Result<(), String> {
+        self.review_by(thread, usual_reviewer(thread)).await
+    }
+
+    /// Asks a given agent to review, and waits for it.
+    async fn review_by(&self, thread: &Thread, agent: &str) -> Result<(), String> {
         self.scene
             .workspace
-            .review_change(thread.id)
+            .review_change(thread.id, agent)
             .map_err(|problem| problem.to_string())?;
         self.scene.wait_until_idle(thread).await;
         Ok(())
@@ -140,15 +155,16 @@ lets_expect! { #tokio_test
         expect(lines.contains(&reviewers("agent_message", FIRST_REVIEW))) to be_true
         expect(lines.iter().all(|(_, reviewer, _)| *reviewer)) to be_true
         let reviewer = project.scene.thread_now(&thread).reviewer.expect("a reviewer");
-        expect((reviewer.agent.as_str(), reviewer.reviewing, reviewer.conversation_started)) to equal(("grok", false, true))
+        let conversation = reviewer.conversation.clone().expect("the reviewer's conversation is kept");
+        expect((reviewer.agent.as_str(), reviewer.reviewing)) to equal(("grok", false))
         expect(reviewer.verdict) to equal(Some(Verdict { findings: Some(2), answered: false, cut: false }))
-        expect(reviewer.conversation_id == project.scene.thread_now(&thread).conversation_id) to be_false
+        expect(Some(&conversation) == project.scene.thread_now(&thread).conversation.as_ref()) to be_false
 
         let started = project.invocations().last().cloned().unwrap_or_default();
         expect(started.contains("--single=Review the change.")) to be_true
         expect(started.contains(&format!("git worktree `{}`", path.display()))) to be_true
         expect(started.contains("Do not create, change or delete any file")) to be_true
-        expect(started.contains(&format!("--session-id {}", reviewer.conversation_id))) to be_true
+        expect(started.contains(&format!("--session-id {conversation}"))) to be_true
     }
 
     // requirement: a Claude reviewer has its editing tools switched off
@@ -178,7 +194,7 @@ lets_expect! { #tokio_test
         let reviewer = project.scene.thread_now(&thread).reviewer.expect("a reviewer");
         let started = project.invocations().last().cloned().unwrap_or_default();
         expect(started.contains("Review it again")) to be_true
-        expect(started.contains(&format!("--resume {}", reviewer.conversation_id))) to be_true
+        expect(started.contains(&format!("--resume {}", reviewer.conversation.expect("the reviewer's conversation")))) to be_true
         expect(reviewer.verdict) to equal(Some(Verdict { findings: Some(0), answered: false, cut: false }))
     }
 
@@ -243,6 +259,61 @@ lets_expect! { #tokio_test
         expect(project.scene.thread_now(&thread).reviewer) to equal(None)
     }
 
+    // requirement: the reviewer is another agent than the author, and one Teryon knows
+    story a_reviewer_must_be_another_known_agent {
+        let project = project();
+        let (thread, _) = project.changed("claude").await;
+        expect(project.review_by(&thread, "claude").await) to equal(Err("Claude wrote this change, so another agent has to review it.".to_string()))
+        expect(project.review_by(&thread, "gemini").await) to equal(Err("Choose Claude, Codex or Grok as the reviewer.".to_string()))
+        expect(project.scene.thread_now(&thread).reviewer) to equal(None)
+    }
+
+    // requirement: a Codex reviewer runs read-only, in a sandbox nobody can approve more for
+    // requirement: asking a different agent to review starts a review of its own, not a continuation of the last one
+    story a_different_reviewer_starts_afresh {
+        let project = project();
+        let (thread, _) = project.changed("claude").await;
+        project.review(&thread).await.unwrap();
+        project.scene.say(&thread, "fix what the review found").unwrap();
+        project.scene.wait_until_idle(&thread).await;
+
+        project.review_by(&thread, "codex").await.unwrap();
+        let started = project.invocations().last().cloned().unwrap_or_default();
+        expect(started.starts_with("exec --json")) to be_true
+        expect(started.contains("-c sandbox_mode=\"read-only\" -c approval_policy=\"never\"")) to be_true
+        expect(started.contains("Review the change.")) to be_true
+        expect(started.contains("Review it again")) to be_false
+        let reviewer = project.scene.thread_now(&thread).reviewer.expect("a reviewer");
+        expect(reviewer.agent.as_str()) to equal("codex")
+        expect(reviewer.conversation) to equal(Some("01a1f8ed-247d-7683-bcf5-27a3f5553707".to_string()))
+        expect(reviewer.verdict.map(|verdict| verdict.answered)) to equal(Some(false))
+        expect(project.scene.entries(&thread).iter().any(|entry| entry.body["text"] == "Codex reviews the change.")) to be_true
+
+        // requirement: each reviewer entry keeps the agent that wrote it, so a later reviewer does not take over earlier reviews
+        let named: Vec<(String, String)> = project
+            .scene
+            .entries(&thread)
+            .iter()
+            .filter(|entry| entry.body["reviewer"] == Value::Bool(true))
+            .map(|entry| (entry.kind.clone(), entry.body["agent"].as_str().unwrap_or("nobody").to_string()))
+            .collect();
+        let codex_from = named.iter().position(|(_, agent)| agent == "codex").unwrap_or(named.len());
+        expect(codex_from > 0) to be_true
+        expect(named[..codex_from].iter().all(|(_, agent)| agent == "grok")) to be_true
+        expect(named[codex_from..].iter().all(|(_, agent)| agent == "codex")) to be_true
+        expect(named.iter().any(|(kind, agent)| kind == "agent_message" && agent == "grok")) to be_true
+    }
+
+    // requirement: a question to the reviewer names the agent it went to
+    story a_question_to_the_reviewer_names_it {
+        let project = project();
+        let (thread, _) = project.changed("claude").await;
+        project.review(&thread).await.unwrap();
+        let question = project.scene.ask_reviewer(&thread, "is the second one real?").unwrap();
+        project.scene.wait_until_idle(&thread).await;
+        expect(question.body["agent"].clone()) to equal(Value::String("grok".to_string()))
+    }
+
     // requirement: a review cut short is recorded as that, so it can be asked for again
     story a_review_stopped_by_the_person_is_cut {
         let project = project();
@@ -252,7 +323,7 @@ lets_expect! { #tokio_test
         project.scene.wait_until_idle(&thread).await;
 
         write(project.folder.path().join(".fake-reviewer-slow"), "").unwrap();
-        project.scene.workspace.review_change(thread.id).unwrap();
+        project.scene.workspace.review_change(thread.id, "grok").unwrap();
         project.scene.wait_until_reporting(&thread).await;
         project.scene.workspace.stop(thread.id).unwrap();
         project.scene.wait_until_idle(&thread).await;

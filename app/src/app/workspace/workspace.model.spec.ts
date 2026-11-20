@@ -1,5 +1,10 @@
 import {
+  AGENTS,
   agentLabel,
+  countText,
+  reviewerLabel,
+  reviewerOf,
+  reviewersFor,
   barTitle,
   CATCH_UP_REQUEST,
   type Change,
@@ -26,7 +31,7 @@ import {
   type KeyPress,
   NO_PLACE,
   NOTHING_SELECTED,
-  otherAgent,
+  nextAgent,
   placeIn,
   refusalText,
   resolveSelection,
@@ -139,11 +144,35 @@ describe('labels', () => {
   });
 
   it('names the agents', () => {
-    expect([agentLabel('claude'), agentLabel('grok')]).toEqual(['Claude', 'Grok']);
+    expect(AGENTS.map(agentLabel)).toEqual(['Claude', 'Codex', 'Grok']);
   });
 
-  it('switches between the agents', () => {
-    expect([otherAgent('claude'), otherAgent('grok')]).toEqual(['grok', 'claude']);
+  it('switches to the next agent, going round', () => {
+    expect(AGENTS.map(nextAgent)).toEqual(['codex', 'grok', 'claude']);
+  });
+});
+
+describe('reviewersFor', () => {
+  const plain = thread('t', 'a', '2026-11-03T10:00:00');
+
+  it.each([
+    ['claude', ['codex', 'grok']],
+    ['codex', ['claude', 'grok']],
+    ['grok', ['claude', 'codex']],
+  ] as const)('offers every agent but %s, in order', (agent, reviewers) => {
+    expect(reviewersFor({ ...plain, agent })).toEqual(reviewers);
+    expect(reviewerOf({ ...plain, agent })).toBe(reviewers[0]);
+  });
+
+  it('puts the agent that reviewed before first', () => {
+    const reviewed = { ...plain, reviewer: { agent: 'grok' as const, reviewing: false, verdict: null } };
+    expect(reviewersFor(reviewed)).toEqual(['grok', 'codex']);
+    expect(reviewerOf(reviewed)).toBe('grok');
+  });
+
+  it('never offers the author, even when it is recorded as the reviewer', () => {
+    const odd = { ...plain, reviewer: { agent: 'claude' as const, reviewing: false, verdict: null } };
+    expect(reviewersFor(odd)).toEqual(['codex', 'grok']);
   });
 });
 
@@ -177,9 +206,9 @@ describe('entryLine', () => {
   });
 
   it('shows the end of a turn', () => {
-    expect(entryLine(entry('turn_summary', { duration_ms: 2000, cost_usd: 0.5 }))).toEqual({
+    expect(entryLine(entry('turn_summary', { duration_ms: 2000, tokens: { read: 86_322, written: 229 } }))).toEqual({
       kind: 'summary',
-      text: 'Done in 2s · $0.50',
+      text: 'Done in 2s · 86k tokens read, 229 written',
       reviewer: false,
     });
   });
@@ -188,6 +217,21 @@ describe('entryLine', () => {
     expect(entryLine(entry('agent_message', { text: 'Findings: 0', reviewer: true }))).toEqual({ kind: 'agent', text: 'Findings: 0', reviewer: true });
     expect(entryLine(entry('user_message', { text: 'Why?', reviewer: true })).reviewer).toBe(true);
     expect(entryLine(entry('agent_message', { text: 'Done', reviewer: 'yes' })).reviewer).toBe(false);
+  });
+
+  it('keeps the agent a reviewer line names, and only on a reviewer line', () => {
+    expect(entryLine(entry('agent_message', { text: 'Findings: 1', reviewer: true, agent: 'grok' })).agent).toBe('grok');
+    expect(entryLine(entry('agent_message', { text: 'Done', agent: 'grok' })).agent).toBeUndefined();
+    expect(entryLine(entry('agent_message', { text: 'Done', reviewer: true, agent: 'gemini' })).agent).toBeUndefined();
+    expect(entryLine(entry('agent_message', { text: 'Done', reviewer: true })).agent).toBeUndefined();
+  });
+
+  it('labels a reviewer line by the agent it names, not by whoever reviews now', () => {
+    const reviewedAgain = { ...thread('t', 'a', '2026-11-03T10:00:00'), reviewer: { agent: 'codex' as const, reviewing: false, verdict: null } };
+    const earlier = entryLine(entry('agent_message', { text: 'Findings: 1', reviewer: true, agent: 'grok' }));
+    const older = entryLine(entry('agent_message', { text: 'Findings: 1', reviewer: true }));
+    expect(reviewerLabel(earlier, reviewedAgain)).toBe('Grok');
+    expect(reviewerLabel(older, reviewedAgain)).toBe('Codex');
   });
 
   it('shows where a review starts apart from other notices', () => {
@@ -203,17 +247,41 @@ describe('entryLine', () => {
   });
 });
 
+describe('countText', () => {
+  it.each([
+    [0, '0'],
+    [999, '999'],
+    [1000, '1k'],
+    [86_322, '86k'],
+    [999_499, '999k'],
+    [999_500, '1M'],
+    [1_250_000, '1.3M'],
+    [12_000_000, '12M'],
+  ])('shows %s as %s', (count, text) => {
+    expect(countText(count)).toBe(text);
+  });
+});
+
 describe('summaryText', () => {
-  it('shows duration and cost', () => {
-    expect(summaryText({ duration_ms: 72_000, cost_usd: 0.4938 })).toBe('Done in 1m 12s · $0.49');
+  it('shows duration and tokens', () => {
+    expect(summaryText({ duration_ms: 72_000, tokens: { read: 86_322, written: 229 } })).toBe('Done in 1m 12s · 86k tokens read, 229 written');
   });
 
-  it('leaves out a cost that was not reported', () => {
-    expect(summaryText({ duration_ms: 3000, cost_usd: null })).toBe('Done in 3s');
+  it('leaves out tokens that were not reported', () => {
+    expect(summaryText({ duration_ms: 3000, tokens: null })).toBe('Done in 3s');
+  });
+
+  it('leaves out tokens reported only in part', () => {
+    expect(summaryText({ duration_ms: 3000, tokens: { read: 5 } })).toBe('Done in 3s');
+    expect(summaryText({ duration_ms: 3000, tokens: { read: '5', written: 1 } })).toBe('Done in 3s');
   });
 
   it('leaves out a duration that was not reported', () => {
-    expect(summaryText({ cost_usd: 1 })).toBe('Done · $1.00');
+    expect(summaryText({ tokens: { read: 0, written: 0 } })).toBe('Done · 0 tokens read, 0 written');
+  });
+
+  it('ignores a price, which subscriptions do not charge', () => {
+    expect(summaryText({ duration_ms: 3000, cost_usd: 0.5 })).toBe('Done in 3s');
   });
 
   it('says only that the turn ended when nothing was reported', () => {

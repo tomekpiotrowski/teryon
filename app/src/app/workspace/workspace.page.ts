@@ -45,7 +45,7 @@ import {
   groupThreads,
   NO_PLACE,
   NOTHING_SELECTED,
-  otherAgent,
+  nextAgent,
   type Place,
   placeIn,
   type Project,
@@ -65,6 +65,7 @@ import {
   type Voice,
   waitingText,
   findingsDraft,
+  reviewerLabel,
   reviewerOf,
 } from './workspace.model';
 import { WorkspaceStore } from './workspace.store';
@@ -150,6 +151,7 @@ export class WorkspacePage implements OnDestroy {
   readonly leader$ = new BehaviorSubject<string | null>(null);
 
   readonly reviewerOf = reviewerOf;
+  readonly reviewerLabel = reviewerLabel;
 
   readonly view$: Observable<WorkspaceView> = combineLatest([
     combineLatest([this.store.projects$, this.store.threads$]).pipe(
@@ -389,8 +391,8 @@ export class WorkspacePage implements OnDestroy {
         return this.screen$.next(screenAfter(this.screen$.value, action.screen));
       case 'removeProject':
         return void this.confirmRemoveProject(action.project);
-      case 'toggleAgent':
-        return this.toggleAgent();
+      case 'useAgent':
+        return this.agent$.next(action.agent);
       case 'toggleTheme':
         return this.theme.toggle();
       case 'stopAgent':
@@ -402,7 +404,7 @@ export class WorkspacePage implements OnDestroy {
       case 'exploreChange':
         return this.exploreChange(action.thread);
       case 'reviewChange':
-        return this.reviewChange(action.thread);
+        return this.reviewChange(action.thread, action.agent);
       case 'passFindings':
         return this.passFindings();
       case 'discardChange':
@@ -478,8 +480,8 @@ export class WorkspacePage implements OnDestroy {
     this.to$.next(this.to$.value === 'author' ? 'reviewer' : 'author');
   }
 
-  reviewChange(thread: Thread): void {
-    this.api.reviewChange(thread.id).subscribe({
+  reviewChange(thread: Thread, agent: AgentName): void {
+    this.api.reviewChange(thread.id, agent).subscribe({
       error: (failure: unknown) => this.alerts.error(refusalText(failure, 'The change could not be reviewed.')),
     });
   }
@@ -492,8 +494,9 @@ export class WorkspacePage implements OnDestroy {
     });
   }
 
-  toggleAgent(): void {
-    this.agent$.next(otherAgent(this.agent$.value));
+  /** Moves the agent of new threads on to the next one, for the button beside the message box. */
+  switchAgent(): void {
+    this.agent$.next(nextAgent(this.agent$.value));
   }
 
   updateDraft(event: Event): void {

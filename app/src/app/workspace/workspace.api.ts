@@ -46,8 +46,9 @@ export class WorkspaceApi {
   }
 
   /** Asks a second agent to review a thread's change, in the same thread. Answers with the line that starts the review. */
-  reviewChange(threadId: string): Observable<ThreadEntry> {
-    return this.ask({ type: 'review_change', thread_id: threadId }, (answer) =>
+  /** Asks an agent other than the thread's own to review its change. */
+  reviewChange(threadId: string, agent: AgentName): Observable<ThreadEntry> {
+    return this.ask({ type: 'review_change', thread_id: threadId, agent }, (answer) =>
       answer.type === 'entry' ? (answer.entry as ThreadEntry) : undefined,
     );
   }

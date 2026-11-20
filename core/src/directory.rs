@@ -286,15 +286,12 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0)).expect("lock");
+            std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o0)).expect("lock");
             let refused = browse_with(locked.to_str().expect("path"), Some(root.path()));
             let readable = read_dir(&locked).is_ok();
             std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755))
                 .expect("unlock");
-            if readable {
-                return true;
-            }
-            return refused == Err(DirectoryError::Unreadable);
+            readable || refused == Err(DirectoryError::Unreadable)
         }
         #[cfg(not(unix))]
         {

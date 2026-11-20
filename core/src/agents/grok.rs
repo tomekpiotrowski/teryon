@@ -5,16 +5,21 @@
 //! driver collects the pieces and releases a message when something else
 //! follows it. The shapes handled here were recorded from the real program;
 //! the recordings live in `tests/samples/agents/`.
+//!
+//! Grok names a conversation only on the last line of a turn, which a
+//! stopped turn never prints. So the driver gives a new conversation its
+//! identifier itself, and hands it over as soon as Grok has started.
 
 use std::mem::take;
 
 use serde_json::Value;
+use tracing::warn;
+use uuid::Uuid;
 
 use crate::agents::summary::summarise_input;
-use tracing::warn;
 
 use crate::agents::{
-    command_names, typed_report, AgentDriver, EntryDraft, Invocation, NotUnderstood, Turn,
+    command_names, typed_report, AgentDriver, EntryDraft, Invocation, NotUnderstood, Tokens, Turn,
 };
 use crate::settings::GrokSettings;
 
@@ -29,6 +34,8 @@ pub struct GrokDriver {
     commands: Option<Vec<String>>,
     /// Whether a command waited for approval nobody could give, which ends Grok's turn.
     unapproved: bool,
+    /// The conversation started for this turn, until it is taken.
+    conversation: Option<String>,
 }
 
 impl GrokDriver {
@@ -38,6 +45,7 @@ impl GrokDriver {
             text: String::new(),
             commands: None,
             unapproved: false,
+            conversation: None,
         }
     }
 
@@ -58,11 +66,14 @@ impl AgentDriver for GrokDriver {
     ///
     /// The message is attached to its option with `=`, so a message that
     /// begins with a dash is not read as an option.
-    fn invocation(&self, turn: &Turn) -> Invocation {
-        let conversation_option = if turn.first {
-            "--session-id"
-        } else {
-            "--resume"
+    fn invocation(&mut self, turn: &Turn) -> Invocation {
+        let (conversation_option, conversation) = match &turn.conversation {
+            Some(conversation) => ("--resume", conversation.clone()),
+            None => {
+                let started = Uuid::new_v4().to_string();
+                self.conversation = Some(started.clone());
+                ("--session-id", started)
+            }
         };
         let mut arguments = vec![
             format!("--single={}", turn.message),
@@ -80,7 +91,7 @@ impl AgentDriver for GrokDriver {
             arguments.push(brief.clone());
         }
         arguments.push(conversation_option.to_string());
-        arguments.push(turn.conversation.to_string());
+        arguments.push(conversation);
 
         Invocation {
             program: self.program.clone(),
@@ -135,6 +146,14 @@ impl AgentDriver for GrokDriver {
         self.commands.take()
     }
 
+    /// Hands over the conversation started for this turn.
+    ///
+    /// The runner asks only after Grok's first line: before it Grok may not
+    /// have stored the conversation, and resuming one it never stored fails.
+    fn take_conversation(&mut self) -> Option<String> {
+        self.conversation.take()
+    }
+
     fn finish(&mut self) -> Vec<EntryDraft> {
         self.message()
     }
@@ -183,7 +202,15 @@ fn unapproved(report: &Value) -> bool {
 fn end_entries(report: &Value, unapproved: bool) -> Vec<EntryDraft> {
     let mut entries = Vec::new();
     let summary = EntryDraft::turn_summary(
-        report["total_cost_usd"].as_f64(),
+        Tokens::sum(
+            &report["usage"],
+            &[
+                "input_tokens",
+                "cache_read_input_tokens",
+                "cache_creation_input_tokens",
+            ],
+            &["output_tokens"],
+        ),
         report["num_turns"].as_u64(),
     );
     match report["stopReason"].as_str() {
@@ -206,7 +233,6 @@ fn end_entries(report: &Value, unapproved: bool) -> Vec<EntryDraft> {
 mod tests {
     use lets_expect::lets_expect;
     use serde_json::{from_str, json};
-    use uuid::Uuid;
 
     use super::*;
     use crate::agents::EntryKind;
@@ -220,18 +246,19 @@ mod tests {
         })
     }
 
-    fn turn(message: &str, first: bool, brief: Option<&str>) -> Turn {
+    const KNOWN: &str = "9da215a9-ae45-46d5-9c87-8f5220bd7207";
+
+    fn turn(message: &str, conversation: Option<&str>, brief: Option<&str>) -> Turn {
         Turn {
             read_only: false,
-            ..read_only_turn(message, first, brief)
+            ..read_only_turn(message, conversation, brief)
         }
     }
 
-    fn read_only_turn(message: &str, first: bool, brief: Option<&str>) -> Turn {
+    fn read_only_turn(message: &str, conversation: Option<&str>, brief: Option<&str>) -> Turn {
         Turn {
             message: message.to_string(),
-            conversation: Uuid::nil(),
-            first,
+            conversation: conversation.map(str::to_string),
             brief: brief.map(str::to_string),
             read_only: true,
         }
@@ -298,26 +325,47 @@ mod tests {
         run(&reports.iter().map(Value::to_string).collect::<Vec<_>>())
     }
 
+    /// What starting a turn gives.
+    struct Started {
+        /// The arguments without the conversation they name last.
+        arguments: Vec<String>,
+        /// Whether the conversation named is a fresh identifier.
+        fresh: bool,
+        /// Whether the driver hands over the conversation the arguments name.
+        handed_over: bool,
+        /// What the driver hands over when asked again.
+        again: Option<String>,
+    }
+
+    fn started(turn: &Turn) -> Started {
+        let mut driver = driver();
+        let mut arguments = driver.invocation(turn).arguments;
+        let named = arguments.pop();
+        let handed_over = driver.take_conversation();
+        Started {
+            fresh: named
+                .as_deref()
+                .is_some_and(|named| Uuid::parse_str(named).is_ok() && named != KNOWN),
+            handed_over: handed_over.is_some() && handed_over == named,
+            again: driver.take_conversation(),
+            arguments,
+        }
+    }
+
     lets_expect! {
-        expect(driver().invocation(&turn(message, first, brief))) {
+        expect(driver().invocation(&turn(message, conversation, brief))) {
             let message = "Fix the bug";
-            let first = true;
+            let conversation = Some(KNOWN);
             let brief: Option<&str> = None;
 
-            // requirement: the first message starts a new conversation with an identifier chosen by Teryon
-            to start_a_conversation {
+            // requirement: later messages resume the conversation
+            to resume_the_conversation {
                 have(program.as_str()) equal("grok"),
                 have(arguments.clone()) equal([
                     "--single=Fix the bug", "--output-format", "streaming-json", "--permission-mode", "auto",
-                    "--session-id", "00000000-0000-0000-0000-000000000000",
+                    "--resume", KNOWN,
                 ].map(String::from).to_vec()),
                 have(removed_variables.len()) equal(0)
-            }
-
-            // requirement: later messages resume that conversation
-            when(first = false) as resume_the_conversation to hold {
-                have(arguments[5].as_str()) equal("--resume"),
-                have(arguments[6].as_str()) equal("00000000-0000-0000-0000-000000000000")
             }
 
             when(message = "--help") as keep_a_message_that_looks_like_an_option_attached to hold {
@@ -329,9 +377,26 @@ mod tests {
                 have(arguments.clone()) equal([
                     "--single=Fix the bug", "--output-format", "streaming-json", "--permission-mode", "auto",
                     "--rules", "Stay in the worktree.",
-                    "--session-id", "00000000-0000-0000-0000-000000000000",
+                    "--resume", KNOWN,
                 ].map(String::from).to_vec())
             }
+        }
+
+        // requirement: the first message starts a new conversation, with an identifier the driver chooses and hands over once
+        expect(started(&turn("Fix the bug", None, None))) as a_new_conversation {
+            to start_one_and_hand_it_over {
+                have(arguments.clone()) equal([
+                    "--single=Fix the bug", "--output-format", "streaming-json", "--permission-mode", "auto", "--session-id",
+                ].map(String::from).to_vec()),
+                have(fresh) be_true,
+                have(handed_over) be_true,
+                have(again.clone()) equal(None)
+            }
+        }
+
+        // requirement: a resumed conversation is not handed over again
+        expect(started(&turn("Fix the bug", Some(KNOWN), None)).handed_over) as a_resumed_conversation {
+            to be_left_as_it_is { be_false }
         }
 
         expect(kinds(recording)) {
@@ -352,9 +417,9 @@ mod tests {
                 have(first().cloned()) equal(Some(EntryDraft::agent_message("ready")))
             }
 
-            // requirement: the end of the turn becomes a summary with cost where the program reports it
+            // requirement: the end of the turn becomes a summary with the tokens read and written, cached ones counted as read
             when(recording = FIRST) as end_with_a_summary to hold {
-                have(last().cloned()) equal(Some(EntryDraft::turn_summary(Some(0.00767584), Some(1))))
+                have(last().cloned()) equal(Some(EntryDraft::turn_summary(Some(Tokens { read: 18779, written: 31 }), Some(1))))
             }
 
             when(recording = TOOLS) as join_the_pieces_of_a_message to hold {
@@ -372,12 +437,12 @@ mod tests {
         }
 
         // requirement: a reviewer's turn has Grok's editing tools removed
-        expect(driver().invocation(&read_only_turn("Review the change.", true, None)).arguments) as a_reviewers_turn {
+        expect(driver().invocation(&read_only_turn("Review the change.", Some(KNOWN), None)).arguments) as a_reviewers_turn {
             to remove_the_editing_tools {
                 equal([
                     "--single=Review the change.", "--output-format", "streaming-json", "--permission-mode", "auto",
                     "--disallowed-tools", "write,search_replace,apply_patch,hashline_edit",
-                    "--session-id", "00000000-0000-0000-0000-000000000000",
+                    "--resume", KNOWN,
                 ].map(String::from).to_vec())
             }
         }

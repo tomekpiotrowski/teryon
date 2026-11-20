@@ -15,6 +15,10 @@
 //! program = "claude"
 //! use_subscription = true
 //!
+//! [agents.codex]
+//! program = "codex"
+//! use_subscription = true
+//!
 //! [agents.grok]
 //! program = "grok"
 //!
@@ -106,6 +110,7 @@ pub struct AgentSettings {
     /// How long a stopped agent gets to end on its own before it is killed.
     pub stop_grace_seconds: u64,
     pub claude: ClaudeSettings,
+    pub codex: CodexSettings,
     pub grok: GrokSettings,
 }
 
@@ -114,6 +119,7 @@ impl Default for AgentSettings {
         Self {
             stop_grace_seconds: 5,
             claude: ClaudeSettings::default(),
+            codex: CodexSettings::default(),
             grok: GrokSettings::default(),
         }
     }
@@ -172,6 +178,29 @@ impl Default for ClaudeSettings {
     }
 }
 
+/// How the Codex program, OpenAI's agent, is started.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields)]
+pub struct CodexSettings {
+    pub program: String,
+    /// Run on the ChatGPT subscription the program is signed in with.
+    ///
+    /// Codex uses an API key from the environment when it finds one, which
+    /// would bill the key instead of the subscription. When true, the key
+    /// variables are not passed on; when false the environment is passed
+    /// unchanged and the program decides.
+    pub use_subscription: bool,
+}
+
+impl Default for CodexSettings {
+    fn default() -> Self {
+        Self {
+            program: "codex".to_string(),
+            use_subscription: true,
+        }
+    }
+}
+
 /// How the Grok program is started.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
@@ -221,6 +250,11 @@ mod tests {
             when(text = Some("[agents.claude]\nprogram = \"/opt/claude\"\n")) as the_program_is_moved {
                 to keep_using_the_subscription {
                     have(as_ref().unwrap().agents.claude.clone()) equal(ClaudeSettings { program: "/opt/claude".to_string(), use_subscription: true })
+                }
+            }
+            when(text = Some("[agents.codex]\nuse_subscription = false\n")) as the_codex_key_is_allowed {
+                to keep_the_usual_program {
+                    have(as_ref().unwrap().agents.codex.clone()) equal(CodexSettings { program: "codex".to_string(), use_subscription: false })
                 }
             }
             when(text = Some("[open]\neditor = \"code {path}\"\n")) as an_editor_is_named {

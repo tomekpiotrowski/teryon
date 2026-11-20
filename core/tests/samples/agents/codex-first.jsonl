@@ -1,0 +1,13 @@
+{"type":"thread.started","thread_id":"01a1f8d6-5c6e-7282-b40e-8cb29b7aa5e1"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"I’ll create `note.txt` and check its byte count.\n"}}
+{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"/usr/bin/bash -lc 'pwd; git rev-parse --show-toplevel 2>/dev/null'","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"/usr/bin/bash -lc 'pwd; git rev-parse --show-toplevel 2>/dev/null'","aggregated_output":"/work/sample-project\n/work/sample-project\n","exit_code":0,"status":"completed"}}
+{"type":"item.started","item":{"id":"item_2","type":"command_execution","command":"/usr/bin/bash -lc 'git status --short --branch; git rev-parse --verify HEAD'","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_2","type":"command_execution","command":"/usr/bin/bash -lc 'git status --short --branch; git rev-parse --verify HEAD'","aggregated_output":"## master\nae9c814dd8bf867eb12921255cb074c5965f0ad1\n","exit_code":0,"status":"completed"}}
+{"type":"item.started","item":{"id":"item_3","type":"command_execution","command":"/usr/bin/bash -lc 'git worktree add -b create-note /work/sample-project--create-note'","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_3","type":"command_execution","command":"/usr/bin/bash -lc 'git worktree add -b create-note /work/sample-project--create-note'","aggregated_output":"Preparing worktree (new branch 'create-note')\nHEAD is now at ae9c814 init\n","exit_code":0,"status":"completed"}}
+{"type":"item.started","item":{"id":"item_4","type":"command_execution","command":"/usr/bin/bash -lc \"printf 'hi' > note.txt\nwc -c note.txt\"","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_4","type":"command_execution","command":"/usr/bin/bash -lc \"printf 'hi' > note.txt\nwc -c note.txt\"","aggregated_output":"2 note.txt\n","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_5","type":"agent_message","text":"done"}}
+{"type":"turn.completed","usage":{"input_tokens":86322,"cached_input_tokens":68352,"cache_write_input_tokens":0,"output_tokens":229,"reasoning_output_tokens":14}}

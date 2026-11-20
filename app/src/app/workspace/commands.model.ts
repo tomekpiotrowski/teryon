@@ -10,16 +10,16 @@
 
 import type { Opener } from '../service/protocol';
 import {
+  AGENTS,
   type AgentName,
   agentLabel,
   changeBadge,
   isBareLetter,
   type KeyPress,
   type Opens,
-  otherAgent,
   type Project,
   type ProjectGroup,
-  reviewerOf,
+  reviewersFor,
   type Thread,
   threadLabel,
 } from './workspace.model';
@@ -34,13 +34,13 @@ export type CommandAction =
   | { readonly kind: 'showScreen'; readonly screen: 'files' | 'history' }
   | { readonly kind: 'newProject' }
   | { readonly kind: 'removeProject'; readonly project: Project }
-  | { readonly kind: 'toggleAgent' }
+  | { readonly kind: 'useAgent'; readonly agent: AgentName }
   | { readonly kind: 'toggleTheme' }
   | { readonly kind: 'stopAgent'; readonly thread: Thread }
   | { readonly kind: 'applyChange'; readonly thread: Thread }
   | { readonly kind: 'catchUp'; readonly thread: Thread }
   | { readonly kind: 'exploreChange'; readonly thread: Thread }
-  | { readonly kind: 'reviewChange'; readonly thread: Thread }
+  | { readonly kind: 'reviewChange'; readonly thread: Thread; readonly agent: AgentName }
   | { readonly kind: 'passFindings'; readonly thread: Thread }
   | { readonly kind: 'discardChange'; readonly thread: Thread }
   | { readonly kind: 'sendForReview'; readonly thread: Thread }
@@ -143,7 +143,9 @@ export function commandList(situation: Situation): Command[] {
     actions.push(command('action:stopAgent', 'Stop the agent', 'action', { kind: 'stopAgent', thread }, { detail: threadLabel(thread) }));
   }
   actions.push(
-    command('action:toggleAgent', `Use ${agentLabel(otherAgent(situation.agent))} for new threads`, 'action', { kind: 'toggleAgent' }),
+    ...AGENTS.filter((agent) => agent !== situation.agent).map((agent) =>
+      command(`action:useAgent:${agent}`, `Use ${agentLabel(agent)} for new threads`, 'action', { kind: 'useAgent', agent }),
+    ),
     command('action:newProject', 'New project', 'action', { kind: 'newProject' }),
   );
   if (project) {
@@ -176,7 +178,11 @@ function reviewCommands(situation: Situation, thread: Thread): Command[] {
 }
 
 /**
- * Asking the other agent to review the change, and passing what it found to the author.
+ * Asking another agent to review the change, and passing what it found to the author.
+ *
+ * Every agent but the thread's own is offered. The usual one, the one that
+ * reviewed before or else the first other agent, has the key; asking it
+ * again continues its review, while asking another starts afresh.
  *
  * Passing is only offered while the last review, finished, found something
  * and the author has not worked on the change since.
@@ -184,9 +190,13 @@ function reviewCommands(situation: Situation, thread: Thread): Command[] {
 function agentReviewCommands(thread: Thread): Command[] {
   const extra = (key: string) => ({ detail: threadLabel(thread), key, leader: CHANGE_LEADER });
   const verdict = thread.reviewer?.verdict;
-  const again = verdict ? ' again' : '';
+  const [usual, ...others] = reviewersFor(thread);
+  const again = verdict && thread.reviewer?.agent === usual ? ' again' : '';
   const commands = [
-    command('change:askReview', `Ask ${agentLabel(reviewerOf(thread))} to review${again}`, 'change', { kind: 'reviewChange', thread }, extra('c')),
+    command('change:askReview', `Ask ${agentLabel(usual)} to review${again}`, 'change', { kind: 'reviewChange', thread, agent: usual }, extra('c')),
+    ...others.map((agent) =>
+      command(`change:askReview:${agent}`, `Ask ${agentLabel(agent)} to review`, 'change', { kind: 'reviewChange', thread, agent }, { detail: threadLabel(thread) }),
+    ),
   ];
   if (verdict && !verdict.answered && !verdict.cut && verdict.findings !== 0) {
     commands.push(

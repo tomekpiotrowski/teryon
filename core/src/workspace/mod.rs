@@ -416,7 +416,7 @@ impl Workspace {
         title: &str,
     ) -> Result<Thread, WorkspaceError> {
         let agent = Agent::parse(agent).ok_or_else(|| {
-            WorkspaceError::Invalid("Choose Claude or Grok as the agent.".to_string())
+            WorkspaceError::Invalid("Choose Claude, Codex or Grok as the agent.".to_string())
         })?;
         let mut state = self.inner.state();
         state.project(project_id)?;
@@ -425,8 +425,7 @@ impl Workspace {
             project_id,
             title: title.trim().to_string(),
             agent: agent.name().to_string(),
-            conversation_id: Uuid::new_v4(),
-            conversation_started: false,
+            conversation: None,
             status: Status::Idle,
             unread: false,
             commands: Vec::new(),
@@ -471,7 +470,14 @@ impl Workspace {
                 "Nobody reviews this thread yet. Ask for a review first.".to_string(),
             ));
         }
-        let draft = EntryDraft::user_message(text).by(to);
+        let mut draft = EntryDraft::user_message(text).by(to);
+        if let Some(reviewer) = thread
+            .reviewer
+            .as_ref()
+            .and_then(|reviewer| Agent::parse(&reviewer.agent))
+        {
+            draft = draft.naming(reviewer);
+        }
         let entry = store.append(thread_id, draft.kind.name(), draft.body)?;
         let thread = store.change(thread_id, |thread| {
             thread.status = Status::Running;
@@ -501,10 +507,15 @@ impl Workspace {
 
     /// Asks a second agent to review a thread's change, in the same thread.
     ///
-    /// The reviewer is the other agent program, so a second model reads the
-    /// work, in a conversation of its own that the next review continues.
-    /// Answers with the line that marks the review's start in the thread.
-    pub fn review_change(&self, thread_id: Uuid) -> Result<Entry, WorkspaceError> {
+    /// The reviewer is another agent program than the author, so a second
+    /// model reads the work. It reviews in a conversation of its own, which
+    /// the next review by the same agent continues; a review by a different
+    /// agent starts afresh. Answers with the line that marks the review's
+    /// start in the thread.
+    pub fn review_change(&self, thread_id: Uuid, reviewer: &str) -> Result<Entry, WorkspaceError> {
+        let agent = Agent::parse(reviewer).ok_or_else(|| {
+            WorkspaceError::Invalid("Choose Claude, Codex or Grok as the reviewer.".to_string())
+        })?;
         let mut state = self.inner.state();
         let (store, thread) = state.holding(thread_id)?;
         self.inner.check_free(&thread)?;
@@ -522,35 +533,43 @@ impl Workspace {
                 ));
             }
         }
-        let agent = Agent::parse(&thread.agent).map_or(Agent::Claude, Agent::other);
-        // Only a finished review the author has worked on since is checked for fixes.
-        let again = thread
+        if thread.agent == agent.name() {
+            return Err(WorkspaceError::Invalid(format!(
+                "{} wrote this change, so another agent has to review it.",
+                agent.label()
+            )));
+        }
+        let same_reviewer = thread
             .reviewer
             .as_ref()
-            .and_then(|reviewer| reviewer.verdict)
-            .is_some_and(|verdict| verdict.answered && !verdict.cut);
-        let label = thread
-            .reviewer
-            .as_ref()
-            .and_then(|reviewer| Agent::parse(&reviewer.agent))
-            .unwrap_or(agent)
-            .label();
-        let notice =
-            EntryDraft::notice(&format!("{label} reviews the change.")).by(Voice::Reviewer);
+            .is_some_and(|reviewer| reviewer.agent == agent.name());
+        // Only a finished review the same reviewer made, and the author has worked on since, is checked for fixes.
+        let again = same_reviewer
+            && thread
+                .reviewer
+                .as_ref()
+                .and_then(|reviewer| reviewer.verdict)
+                .is_some_and(|verdict| verdict.answered && !verdict.cut);
+        let notice = EntryDraft::notice(&format!("{} reviews the change.", agent.label()))
+            .by(Voice::Reviewer)
+            .naming(agent);
         let mut body = notice.body;
         body["starts_review"] = true.into();
         let entry = store.append(thread_id, notice.kind.name(), body)?;
         let thread = store.change(thread_id, |thread| {
             thread.status = Status::Running;
-            let reviewer = thread.reviewer.get_or_insert_with(|| Reviewer {
-                agent: agent.name().to_string(),
-                conversation_id: Uuid::new_v4(),
-                conversation_started: false,
-                reviewing: false,
-                verdict: None,
-            });
-            reviewer.reviewing = true;
-            reviewer.verdict = None;
+            if !same_reviewer {
+                thread.reviewer = Some(Reviewer {
+                    agent: agent.name().to_string(),
+                    conversation: None,
+                    reviewing: false,
+                    verdict: None,
+                });
+            }
+            if let Some(reviewer) = &mut thread.reviewer {
+                reviewer.reviewing = true;
+                reviewer.verdict = None;
+            }
         })?;
         let directory = state.project(thread.project_id)?.directory.clone();
         drop(state);
@@ -745,12 +764,12 @@ impl Journal for WorkspaceJournal {
             .and_then(|(store, _)| {
                 store
                     .change(thread_id, |thread| match change {
-                        ThreadChange::ConversationStarted(Voice::Author) => {
-                            thread.conversation_started = true;
+                        ThreadChange::Conversation(Voice::Author, named) => {
+                            thread.conversation = Some(named);
                         }
-                        ThreadChange::ConversationStarted(Voice::Reviewer) => {
+                        ThreadChange::Conversation(Voice::Reviewer, named) => {
                             if let Some(reviewer) = &mut thread.reviewer {
-                                reviewer.conversation_started = true;
+                                reviewer.conversation = Some(named);
                             }
                         }
                         ThreadChange::Commands(commands) => thread.commands = commands,

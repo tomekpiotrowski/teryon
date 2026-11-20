@@ -89,13 +89,12 @@ pub struct Thread {
     pub project_id: Uuid,
     pub title: String,
     pub agent: String,
-    /// The identifier the agent program knows this conversation by.
-    pub conversation_id: Uuid,
-    /// Whether the agent program has seen the conversation yet.
+    /// The identifier the agent program gave this conversation.
     ///
-    /// The programs take a different option for starting a conversation than
-    /// for continuing one, and refuse the wrong one.
-    pub conversation_started: bool,
+    /// Nothing until the program has started it: the program makes the
+    /// identifier up and reports it, and the next message continues it.
+    #[serde(default)]
+    pub conversation: Option<String>,
     pub status: Status,
     /// Whether an agent stopped working here since the person last looked.
     pub unread: bool,
@@ -128,10 +127,9 @@ pub struct Thread {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct Reviewer {
     pub agent: String,
-    /// The identifier the agent program knows the reviewer's conversation by.
-    pub conversation_id: Uuid,
-    /// Whether the agent program has seen the reviewer's conversation yet.
-    pub conversation_started: bool,
+    /// The identifier the agent program gave the reviewer's conversation. Nothing until it has started it.
+    #[serde(default)]
+    pub conversation: Option<String>,
     /// Whether the turn running in the thread is the reviewer's.
     pub reviewing: bool,
     /// What the last review found. Nothing until one has ended.

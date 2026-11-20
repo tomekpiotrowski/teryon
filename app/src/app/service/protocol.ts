@@ -5,7 +5,11 @@ export type JsonValue = number | string | boolean | null | JsonValue[] | { [key:
 
 export type ClientMessage = { "type": "hello", token: string, } | { "type": "call", id: number, request: Request, };
 
-export type Request = { "type": "add_project", name: string, directory: string, } | { "type": "directories", path: string, } | { "type": "remove_project", project_id: string, } | { "type": "start_thread", project_id: string, agent: string, title: string, } | { "type": "send_message", thread_id: string, text: string, to: Voice, } | { "type": "review_change", thread_id: string, } | { "type": "stop", thread_id: string, } | { "type": "mark_seen", thread_id: string, } | { "type": "start_change", thread_id: string, turn: string, name: string, from: string | null, } | { "type": "draft_description", thread_id: string, } | { "type": "apply_change", thread_id: string, description: string, } | { "type": "catch_up", thread_id: string, } | { "type": "discard_change", thread_id: string, } | { "type": "send_for_review", thread_id: string, description: string, } | { "type": "open_review", thread_id: string, } | { "type": "open_copy", thread_id: string, with: Opener, } | { "type": "follow_thread", thread_id: string, } | { "type": "unfollow_thread", thread_id: string, } | { "type": "files", project_id: string, branch: string | null, commit: string | null, } | { "type": "file", project_id: string, branch: string | null, commit: string | null, path: string, } | { "type": "history", project_id: string, branch: string | null, } | { "type": "changes", project_id: string, commit: string, from: string | null, } | { "type": "change", project_id: string, commit: string, from: string | null, path: string, } | { "type": "shutdown" };
+export type Request = { "type": "add_project", name: string, directory: string, } | { "type": "directories", path: string, } | { "type": "remove_project", project_id: string, } | { "type": "start_thread", project_id: string, agent: string, title: string, } | { "type": "send_message", thread_id: string, text: string, to: Voice, } | { "type": "review_change", thread_id: string, 
+/**
+ * The agent that reviews, which may not be the thread's own.
+ */
+agent: string, } | { "type": "stop", thread_id: string, } | { "type": "mark_seen", thread_id: string, } | { "type": "start_change", thread_id: string, turn: string, name: string, from: string | null, } | { "type": "draft_description", thread_id: string, } | { "type": "apply_change", thread_id: string, description: string, } | { "type": "catch_up", thread_id: string, } | { "type": "discard_change", thread_id: string, } | { "type": "send_for_review", thread_id: string, description: string, } | { "type": "open_review", thread_id: string, } | { "type": "open_copy", thread_id: string, with: Opener, } | { "type": "follow_thread", thread_id: string, } | { "type": "unfollow_thread", thread_id: string, } | { "type": "files", project_id: string, branch: string | null, commit: string | null, } | { "type": "file", project_id: string, branch: string | null, commit: string | null, path: string, } | { "type": "history", project_id: string, branch: string | null, } | { "type": "changes", project_id: string, commit: string, from: string | null, } | { "type": "change", project_id: string, commit: string, from: string | null, path: string, } | { "type": "shutdown" };
 
 export type ServiceMessage = { "type": "reply", id: number, outcome: Outcome, } | { "type": "event", event: Event, };
 
@@ -54,16 +58,12 @@ export type Thread = { id: string,
  */
 project_id: string, title: string, agent: string, 
 /**
- * The identifier the agent program knows this conversation by.
- */
-conversation_id: string, 
-/**
- * Whether the agent program has seen the conversation yet.
+ * The identifier the agent program gave this conversation.
  *
- * The programs take a different option for starting a conversation than
- * for continuing one, and refuse the wrong one.
+ * Nothing until the program has started it: the program makes the
+ * identifier up and reports it, and the next message continues it.
  */
-conversation_started: boolean, status: Status, 
+conversation: string | null, status: Status, 
 /**
  * Whether an agent stopped working here since the person last looked.
  */
@@ -157,13 +157,9 @@ export type Finish = "applied" | "accepted" | "discarded" | "removed";
 
 export type Reviewer = { agent: string, 
 /**
- * The identifier the agent program knows the reviewer's conversation by.
+ * The identifier the agent program gave the reviewer's conversation. Nothing until it has started it.
  */
-conversation_id: string, 
-/**
- * Whether the agent program has seen the reviewer's conversation yet.
- */
-conversation_started: boolean, 
+conversation: string | null, 
 /**
  * Whether the turn running in the thread is the reviewer's.
  */

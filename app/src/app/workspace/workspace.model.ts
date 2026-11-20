@@ -5,7 +5,10 @@
  * the screen itself cannot be unit tested until Vitest can load Ionic.
  */
 
-export type AgentName = 'claude' | 'grok';
+export type AgentName = 'claude' | 'codex' | 'grok';
+
+/** Every agent, in the order Teryon offers them. */
+export const AGENTS: readonly AgentName[] = ['claude', 'codex', 'grok'];
 
 export interface Project {
   readonly id: string;
@@ -63,9 +66,22 @@ export interface Verdict {
   readonly cut: boolean;
 }
 
-/** The agent that reviews a thread's change: the one already reviewing, or the other program. */
+/** The agent that reviews a thread's change: the one already reviewing, or the first other agent. */
 export function reviewerOf(thread: Thread): AgentName {
-  return thread.reviewer?.agent ?? otherAgent(thread.agent);
+  return reviewersFor(thread)[0];
+}
+
+/**
+ * The agents that may review a thread's change, the usual one first.
+ *
+ * Any agent but the thread's own, so a second model reads the work. The
+ * one that reviewed before comes first: asking it again continues its
+ * conversation, so it remembers what it found.
+ */
+export function reviewersFor(thread: Thread): AgentName[] {
+  const others = AGENTS.filter((agent) => agent !== thread.agent);
+  const previous = thread.reviewer?.agent;
+  return previous && others.includes(previous) ? [previous, ...others.filter((agent) => agent !== previous)] : others;
 }
 
 /** How a thread's change ended, once Teryon let go of it and its copy. */
@@ -150,6 +166,14 @@ export interface EntryLine {
   readonly text: string;
   /** Whether the reviewer wrote it, or the person wrote it to the reviewer. */
   readonly reviewer: boolean;
+  /**
+   * The agent that reviewed, on a reviewer's line.
+   *
+   * A thread may be reviewed by different agents in turn, so the current
+   * reviewer does not say who wrote an earlier review. Missing on lines
+   * stored before Teryon recorded it.
+   */
+  readonly agent?: AgentName;
 }
 
 export const NOTHING_SELECTED: Selection = { projectId: null, threadId: null };
@@ -452,16 +476,30 @@ export function threadLabel(thread: Thread): string {
   return thread.title || 'New thread';
 }
 
+const AGENT_LABELS: Readonly<Record<AgentName, string>> = { claude: 'Claude', codex: 'Codex', grok: 'Grok' };
+
 export function agentLabel(agent: AgentName): string {
-  return agent === 'claude' ? 'Claude' : 'Grok';
+  return AGENT_LABELS[agent];
 }
 
-export function otherAgent(agent: AgentName): AgentName {
-  return agent === 'claude' ? 'grok' : 'claude';
+/** The agent after this one, going round, for the button that switches the agent of new threads. */
+export function nextAgent(agent: AgentName): AgentName {
+  return AGENTS[(AGENTS.indexOf(agent) + 1) % AGENTS.length];
 }
 
 /** Turns a stored entry into the line the thread shows. */
 export function entryLine(entry: ThreadEntry): EntryLine {
+  const line = plainLine(entry);
+  const agent = entry.body['agent'];
+  return line.reviewer && AGENTS.includes(agent as AgentName) ? { ...line, agent: agent as AgentName } : line;
+}
+
+/** Who a reviewer's line is from or to: the agent it names, or else the thread's reviewer. */
+export function reviewerLabel(line: EntryLine, thread: Thread): string {
+  return agentLabel(line.agent ?? reviewerOf(thread));
+}
+
+function plainLine(entry: ThreadEntry): EntryLine {
   const text = textOf(entry.body['text']);
   const reviewer = entry.body['reviewer'] === true;
   switch (entry.kind) {
@@ -503,13 +541,29 @@ export function findingsDraft(lines: readonly EntryLine[]): string {
   return `A reviewer looked at the change and found:\n\n${findings}\n\nFix what you agree with, and say why for anything you don't.`;
 }
 
-/** For example `Done in 1m 12s · $0.49`. Parts the agent did not report are left out. */
+/**
+ * For example `Done in 1m 12s · 86k tokens read, 229 written`. Parts the agent did not report are left out.
+ *
+ * Tokens rather than money: the agents run on subscriptions, where a turn
+ * uses up part of a limit instead of costing a price.
+ */
 export function summaryText(body: Readonly<Record<string, unknown>>): string {
   const duration = body['duration_ms'];
-  const cost = body['cost_usd'];
+  const tokens = body['tokens'] as Readonly<Record<string, unknown>> | null | undefined;
   const parts = [typeof duration === 'number' ? `Done in ${durationText(duration)}` : 'Done'];
-  if (typeof cost === 'number') parts.push(`$${cost.toFixed(2)}`);
+  const read = tokens?.['read'];
+  const written = tokens?.['written'];
+  if (typeof read === 'number' && typeof written === 'number') {
+    parts.push(`${countText(read)} tokens read, ${countText(written)} written`);
+  }
   return parts.join(' · ');
+}
+
+/** A count short enough to take in at a glance: `229`, `86k`, `1.2M`. */
+export function countText(count: number): string {
+  if (count < 1000) return `${count}`;
+  if (count < 999_500) return `${Math.round(count / 1000)}k`;
+  return `${Number((count / 1_000_000).toFixed(1))}M`;
 }
 
 export function durationText(milliseconds: number): string {
