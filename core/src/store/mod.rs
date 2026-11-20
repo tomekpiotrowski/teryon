@@ -88,6 +88,12 @@ pub struct Thread {
     #[serde(default)]
     pub project_id: Uuid,
     pub title: String,
+    /// Whether the title was chosen, by the person or by the agent.
+    ///
+    /// Until then the title is the start of the first message, which often
+    /// tells threads apart poorly, and the agent is asked to name the thread.
+    #[serde(default)]
+    pub named: bool,
     pub agent: String,
     /// The identifier the agent program gave this conversation.
     ///

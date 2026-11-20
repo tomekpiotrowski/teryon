@@ -41,6 +41,20 @@ enum Command {
         #[command(subcommand)]
         command: WorktreeCommand,
     },
+    /// For agents working in Teryon: the thread they work in.
+    Thread {
+        #[command(subcommand)]
+        command: ThreadCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum ThreadCommand {
+    /// Give this thread a title of a few words, shown in place of the start of its first message.
+    Title {
+        /// The title, such as `Fix the login redirect`.
+        title: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -74,6 +88,9 @@ async fn main() -> ExitCode {
         Some(Command::Worktree {
             command: WorktreeCommand::Create { name, from },
         }) => create_worktree(folders, name, from).await,
+        Some(Command::Thread {
+            command: ThreadCommand::Title { title },
+        }) => title_thread(folders, title).await,
         None => {
             eprintln!(
                 "The terminal app is not there yet. Run `teryon service`, or `teryon --help`."
@@ -129,37 +146,16 @@ async fn stop(folders: Folders) -> ExitCode {
 }
 
 /// Asks the service for a worktree for the thread whose agent runs this, and prints its path.
-///
-/// The service sets `TERYON_THREAD` and `TERYON_TURN` for the agents it
-/// starts, and `TERYON_DATA` to the folder with its `service.json`.
 async fn create_worktree(folders: Folders, name: String, from: Option<String>) -> ExitCode {
-    let (Some(thread_id), Some(turn)) = (identifier("TERYON_THREAD"), identifier("TERYON_TURN"))
-    else {
-        eprintln!("This command is for agents working in Teryon, which sets TERYON_THREAD and TERYON_TURN for them.");
-        return ExitCode::FAILURE;
-    };
-    let data = var("TERYON_DATA").map_or(folders.data, PathBuf::from);
-    let file = match ServiceFile::read(&data) {
-        Ok(Some(file)) => file,
-        Ok(None) => {
-            eprintln!("Teryon is not running.");
-            return ExitCode::FAILURE;
+    let answer = call_for_thread(folders, "teryon worktree create", |thread_id, turn| {
+        Request::StartChange {
+            thread_id,
+            turn,
+            name,
+            from,
         }
-        Err(problem) => {
-            eprintln!("{problem}");
-            return ExitCode::FAILURE;
-        }
-    };
-    let request = Request::StartChange {
-        thread_id,
-        turn,
-        name,
-        from,
-    };
-    let answer = match Client::connect_to(&file).await {
-        Ok(mut client) => client.call(request).await,
-        Err(problem) => Err(problem),
-    };
+    })
+    .await;
     match answer {
         Ok(Answer::Path { path }) => {
             println!("{path}");
@@ -174,6 +170,54 @@ async fn create_worktree(folders: Folders, name: String, from: Option<String>) -
             ExitCode::FAILURE
         }
     }
+}
+
+/// Gives the thread whose agent runs this a title.
+async fn title_thread(folders: Folders, title: String) -> ExitCode {
+    let answer = call_for_thread(folders, "teryon thread title", |thread_id, turn| {
+        Request::NameThread {
+            thread_id,
+            turn,
+            title,
+        }
+    })
+    .await;
+    match answer {
+        Ok(_) => ExitCode::SUCCESS,
+        Err(problem) => {
+            eprintln!("{problem}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Sends the service a request about the thread whose agent runs this, during its turn.
+///
+/// The service sets `TERYON_THREAD` and `TERYON_TURN` for the agents it
+/// starts, and `TERYON_DATA` to the folder with its `service.json`. The
+/// error is the text to print.
+async fn call_for_thread(
+    folders: Folders,
+    command: &str,
+    request: impl FnOnce(Uuid, Uuid) -> Request,
+) -> Result<Answer, String> {
+    let (Some(thread_id), Some(turn)) = (identifier("TERYON_THREAD"), identifier("TERYON_TURN"))
+    else {
+        return Err(format!("`{command}` is for agents working in Teryon, which sets TERYON_THREAD and TERYON_TURN for them."));
+    };
+    let data = var("TERYON_DATA").map_or(folders.data, PathBuf::from);
+    let file = match ServiceFile::read(&data) {
+        Ok(Some(file)) => file,
+        Ok(None) => return Err("Teryon is not running.".to_string()),
+        Err(problem) => return Err(problem.to_string()),
+    };
+    let mut client = Client::connect_to(&file)
+        .await
+        .map_err(|problem| problem.to_string())?;
+    client
+        .call(request(thread_id, turn))
+        .await
+        .map_err(|problem| problem.to_string())
 }
 
 /// An identifier from an environment variable, when it is set to one.

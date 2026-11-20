@@ -119,6 +119,14 @@ impl Session {
                     path: path.to_string_lossy().into_owned(),
                 })
                 .map_err(|problem| problem.to_string()),
+            Request::NameThread {
+                thread_id,
+                turn,
+                title,
+            } => workspace
+                .name_thread(thread_id, turn, &title)
+                .map(|()| Answer::Nothing)
+                .map_err(|problem| problem.to_string()),
             Request::DraftDescription { thread_id } => workspace
                 .draft_description(thread_id)
                 .await

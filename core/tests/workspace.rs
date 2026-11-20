@@ -197,7 +197,7 @@ lets_expect! { #tokio_test
         expect(runs.len()) to equal(1)
         expect(runs[0].contains("--resume")) to be_false
         expect(scene.thread_now(&thread).conversation) to equal(Some(CLAUDE_CONVERSATION.to_string()))
-        expect(runs[0].contains("--append-system-prompt")) to be_false
+        expect(runs[0].contains("teryon worktree create")) to be_false
         expect(scene.thread_now(&thread).change) to equal(None)
     }
 
@@ -300,10 +300,12 @@ lets_expect! { #tokio_test
         let runs = invocations(&folder);
         expect(runs[0].starts_with("exec --json --skip-git-repo-check")) to be_true
         expect(runs[0].contains("approvals_reviewer=\"auto_review\"")) to be_true
-        expect(runs[0].ends_with("-- hello")) to be_true
+        expect(runs[0].contains("-- <teryon-instruction> This thread has no title yet.")) to be_true
+        expect(runs[0].ends_with("</teryon-instruction>  hello")) to be_true
         expect(runs[1].starts_with("exec resume --json")) to be_true
         expect(runs[1].contains("approvals_reviewer=\"auto_review\"")) to be_true
-        expect(runs[1].ends_with(&format!("-- {CODEX_CONVERSATION} and again"))) to be_true
+        expect(runs[1].contains(&format!("-- {CODEX_CONVERSATION} <teryon-instruction>"))) to be_true
+        expect(runs[1].ends_with("</teryon-instruction>  and again")) to be_true
     }
 
     // requirement: an empty message is refused

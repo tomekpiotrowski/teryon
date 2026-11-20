@@ -98,6 +98,13 @@ pub enum Request {
         name: String,
         from: Option<String>,
     },
+    /// Gives a thread the title its agent chose: sent by `teryon thread title`,
+    /// run by the thread's agent during `turn`.
+    NameThread {
+        thread_id: Uuid,
+        turn: Uuid,
+        title: String,
+    },
     /// A starting point for the description of a thread's change, for the person to edit.
     DraftDescription {
         thread_id: Uuid,

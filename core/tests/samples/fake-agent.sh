@@ -40,6 +40,15 @@ start_change() {
   rm -f .fake-agent-worktree-error
 }
 
+# Names the thread through Teryon, as agents are told to, with the text in
+# quotes after "name the thread". What `teryon` printed on errors goes to
+# `.fake-agent-title`, empty when it agreed.
+name_thread() {
+  title=$(printf '%s\n' "$*" | tr '\n' ' ' | sed -n 's/.*name the thread "\([^"]*\)".*/\1/p')
+  teryon thread title "$title" 2>.fake-agent-title
+  printf '\n' >> .fake-agent-title
+}
+
 # Makes a worktree by hand, ignoring the instruction, as an agent might.
 make_worktree() {
   name=$(word_after "make a worktree called" "$*")
@@ -97,6 +106,10 @@ case "$*" in
     ;;
   *"start a change"*)
     start_change "$*"
+    cat "$samples/$agent-first.jsonl"
+    ;;
+  *"name the thread"*)
+    name_thread "$*"
     cat "$samples/$agent-first.jsonl"
     ;;
   *"make a worktree called"*"and wait"*)

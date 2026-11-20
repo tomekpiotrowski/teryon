@@ -1,4 +1,4 @@
-//! Request specs for a thread's change through the service: `teryon worktree create`, opening a copy, and refreshing.
+//! Request specs for what an agent asks of the service about its thread (`teryon worktree create`, `teryon thread title`), opening a copy, and refreshing.
 //!
 //! The fake agent runs the real `teryon` program cargo built, found the way a
 //! real agent finds it: through the `PATH` the service gives it. The rules
@@ -101,9 +101,19 @@ fn copy_of(folder: &TempDir, name: &str) -> PathBuf {
 
 /// Runs `teryon worktree create` as a person might in a terminal, and gives what it said and whether it succeeded.
 async fn create_by_hand(variables: &[(&str, String)]) -> (bool, String) {
+    run_by_hand(&["worktree", "create", "by-hand"], variables).await
+}
+
+/// Runs `teryon thread title` as a person might in a terminal, and gives what it said and whether it succeeded.
+async fn title_by_hand(variables: &[(&str, String)]) -> (bool, String) {
+    run_by_hand(&["thread", "title", "By hand"], variables).await
+}
+
+/// Runs `teryon` with only the given variables of Teryon's own, and gives what it said on errors and whether it succeeded.
+async fn run_by_hand(arguments: &[&str], variables: &[(&str, String)]) -> (bool, String) {
     let mut command = Command::new(program());
     command
-        .args(["worktree", "create", "by-hand"])
+        .args(arguments)
         .env_remove("TERYON_THREAD")
         .env_remove("TERYON_TURN")
         .env_remove("TERYON_DATA");
@@ -177,13 +187,56 @@ lets_expect! { #tokio_test
         let mut client = scene.client().await;
         let thread = thread_in(&mut client, &folder).await;
 
-        expect(create_by_hand(&[]).await) to equal((false, "This command is for agents working in Teryon, which sets TERYON_THREAD and TERYON_TURN for them.".to_string()))
+        expect(create_by_hand(&[]).await) to equal((false, "`teryon worktree create` is for agents working in Teryon, which sets TERYON_THREAD and TERYON_TURN for them.".to_string()))
         let data = scene.data().to_string_lossy().into_owned();
         let pretending = [("TERYON_THREAD", thread.to_string()), ("TERYON_TURN", Uuid::new_v4().to_string()), ("TERYON_DATA", data)];
         expect(create_by_hand(&pretending).await) to equal((false, "`teryon worktree create` is for agents working in Teryon, during their turn.".to_string()))
         let empty = tempdir().unwrap();
         let nowhere = [("TERYON_THREAD", thread.to_string()), ("TERYON_TURN", Uuid::new_v4().to_string()), ("TERYON_DATA", empty.path().to_string_lossy().into_owned())];
         expect(create_by_hand(&nowhere).await) to equal((false, "Teryon is not running.".to_string()))
+    }
+
+    // requirement: an agent names its thread by running `teryon thread title "<title>"`
+    story an_agent_names_its_thread_through_teryon {
+        let scene = scene().await;
+        let folder = repository();
+        let mut client = scene.client().await;
+        let thread = thread_in(&mut client, &folder).await;
+
+        let after = turn(&mut client, thread, "please name the thread \"Fix the login redirect\"").await;
+
+        expect(written_by_agent(&folder, ".fake-agent-title").await) to equal(String::new())
+        expect(after.title) to equal("Fix the login redirect".to_string())
+        expect(after.named) to be_true
+    }
+
+    // requirement: a refused `teryon thread title` tells the agent why, and ends in failure
+    story an_agent_is_told_why_a_title_is_refused {
+        let scene = scene().await;
+        let folder = repository();
+        let mut client = scene.client().await;
+        let thread = thread_in(&mut client, &folder).await;
+
+        let after = turn(&mut client, thread, "please name the thread \" \"").await;
+
+        expect(written_by_agent(&folder, ".fake-agent-title").await) to equal("Give the thread a title of a few words.".to_string())
+        expect(after.named) to be_false
+    }
+
+    // requirement: `teryon thread title` outside an agent's turn is refused
+    story the_title_command_is_only_for_agents {
+        let scene = scene().await;
+        let folder = repository();
+        let mut client = scene.client().await;
+        let thread = thread_in(&mut client, &folder).await;
+
+        expect(title_by_hand(&[]).await) to equal((false, "`teryon thread title` is for agents working in Teryon, which sets TERYON_THREAD and TERYON_TURN for them.".to_string()))
+        let data = scene.data().to_string_lossy().into_owned();
+        let pretending = [("TERYON_THREAD", thread.to_string()), ("TERYON_TURN", Uuid::new_v4().to_string()), ("TERYON_DATA", data)];
+        expect(title_by_hand(&pretending).await) to equal((false, "`teryon thread title` is for agents working in Teryon, during their turn.".to_string()))
+        let empty = tempdir().unwrap();
+        let nowhere = [("TERYON_THREAD", thread.to_string()), ("TERYON_TURN", Uuid::new_v4().to_string()), ("TERYON_DATA", empty.path().to_string_lossy().into_owned())];
+        expect(title_by_hand(&nowhere).await) to equal((false, "Teryon is not running.".to_string()))
     }
 
     // requirement: following a thread reads where its change stands again, so work done outside Teryon shows up

@@ -51,7 +51,7 @@ use crate::store::threads::ThreadStore;
 use crate::store::{Entry, Project, Reviewer, Status, StoreError, Thread, Verdict};
 use crate::workspace::changes::Noticed;
 
-/// The longest title taken from a first message.
+/// The longest title a list shows whole.
 const LONGEST_TITLE: usize = 60;
 
 /// How many changes a slow listener may fall behind before it must start over.
@@ -418,12 +418,14 @@ impl Workspace {
         let agent = Agent::parse(agent).ok_or_else(|| {
             WorkspaceError::Invalid("Choose Claude, Codex or Grok as the agent.".to_string())
         })?;
+        let title = title.trim();
         let mut state = self.inner.state();
         state.project(project_id)?;
         let thread = state.ready(project_id)?.save(Thread {
             id: Uuid::new_v4(),
             project_id,
-            title: title.trim().to_string(),
+            title: title.to_string(),
+            named: !title.is_empty(),
             agent: agent.name().to_string(),
             conversation: None,
             status: Status::Idle,
@@ -440,6 +442,45 @@ impl Workspace {
             thread: thread.clone(),
         });
         Ok(thread)
+    }
+
+    /// Gives a thread the title its agent chose, in place of the start of the first message.
+    ///
+    /// A person tells threads apart in a list by their titles, and the start
+    /// of a message is often a greeting or context rather than the point.
+    /// The agent has read the whole message, so it can say in a few words
+    /// what the thread is about.
+    ///
+    /// Only the agent running the thread's current turn may, which it proves
+    /// with the turn's identifier from its environment, as for a change.
+    pub fn name_thread(
+        &self,
+        thread_id: Uuid,
+        turn: Uuid,
+        title: &str,
+    ) -> Result<(), WorkspaceError> {
+        let title = title.split_whitespace().collect::<Vec<_>>().join(" ");
+        if title.is_empty() {
+            return Err(WorkspaceError::Invalid(
+                "Give the thread a title of a few words.".to_string(),
+            ));
+        }
+        let mut state = self.inner.state();
+        let (store, _) = state.holding(thread_id)?;
+        if self.inner.runner.turn_of(thread_id) != Some(turn) {
+            return Err(WorkspaceError::Invalid(
+                "`teryon thread title` is for agents working in Teryon, during their turn."
+                    .to_string(),
+            ));
+        }
+        let thread = store.change(thread_id, |thread| {
+            thread.title = shortened(&title);
+            thread.named = true;
+        })?;
+        drop(state);
+
+        self.inner.announce(Event::ThreadChanged { thread });
+        Ok(())
     }
 
     /// Sends a message to a thread's agent, or to its reviewer, and starts that agent on it.
@@ -881,7 +922,11 @@ fn release_interrupted(store: &mut ThreadStore) {
 
 /// The start of a message's first line, short enough for a list.
 fn title_from(text: &str) -> String {
-    let line = text.lines().next().unwrap_or_default().trim();
+    shortened(text.lines().next().unwrap_or_default().trim())
+}
+
+/// A line cut to the longest title, marked where it was cut.
+fn shortened(line: &str) -> String {
     if line.chars().count() <= LONGEST_TITLE {
         line.to_string()
     } else {

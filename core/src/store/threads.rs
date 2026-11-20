@@ -286,6 +286,7 @@ mod tests {
             id: Uuid::new_v4(),
             project_id: Uuid::nil(),
             title: String::new(),
+            named: false,
             agent: "claude".to_string(),
             conversation: None,
             status: Status::Idle,
