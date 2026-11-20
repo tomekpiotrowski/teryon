@@ -1,6 +1,16 @@
 import {
   AGENTS,
   agentLabel,
+  allChoices,
+  choiceLabel,
+  choicesOf,
+  chosen,
+  choosing,
+  FIRST_NEW_THREADS,
+  modelLabel,
+  sameChoice,
+  switchingAgent,
+  threadChoice,
   countText,
   reviewerLabel,
   reviewerOf,
@@ -216,6 +226,15 @@ describe('entryLine', () => {
     });
   });
 
+  it('shows the model of a turn, with its full name on hover', () => {
+    expect(entryLine(entry('turn_summary', { duration_ms: 2000, model: 'claude-opus-5-5' }))).toEqual({
+      kind: 'summary',
+      text: 'Done in 2s · Opus 5.5',
+      reviewer: false,
+      title: 'claude-opus-5-5',
+    });
+  });
+
   it('marks what the reviewer wrote, or was asked', () => {
     expect(entryLine(entry('agent_message', { text: 'Findings: 0', reviewer: true }))).toEqual({ kind: 'agent', text: 'Findings: 0', reviewer: true });
     expect(entryLine(entry('user_message', { text: 'Why?', reviewer: true })).reviewer).toBe(true);
@@ -289,6 +308,89 @@ describe('summaryText', () => {
 
   it('says only that the turn ended when nothing was reported', () => {
     expect(summaryText({})).toBe('Done');
+  });
+
+  it('names the model that ran after the duration', () => {
+    expect(summaryText({ duration_ms: 72_000, model: 'claude-opus-5-5', tokens: { read: 86_322, written: 229 } })).toBe(
+      'Done in 1m 12s · Opus 5.5 · 86k tokens read, 229 written',
+    );
+    expect(summaryText({ model: 'grok-4.7-build + grok-4.7-build-fast' })).toBe('Done · Grok 4.7 build + Grok 4.7 build fast');
+  });
+
+  it('leaves out a model that is missing, empty or not a name', () => {
+    expect(summaryText({ duration_ms: 3000, model: null })).toBe('Done in 3s');
+    expect(summaryText({ duration_ms: 3000, model: ' ' })).toBe('Done in 3s');
+    expect(summaryText({ duration_ms: 3000, model: 5 })).toBe('Done in 3s');
+  });
+});
+
+describe('modelLabel', () => {
+  it.each([
+    ['claude-opus-5-5', 'Opus 5.5'],
+    ['claude-fable-5-2', 'Fable 5.2'],
+    ['opus', 'Opus'],
+    ['grok-4.7-build-fast', 'Grok 4.7 build fast'],
+    ['gpt-6-astra', 'GPT 6 astra'],
+    ['gpt-6.2-sol', 'GPT 6.2 sol'],
+    ['claude-haiku-4-5-1', 'Haiku 4.5.1'],
+    ['5-5', '5.5'],
+    ['', ''],
+    ['grok-4.7-build + grok-4.7-build-fast', 'Grok 4.7 build + Grok 4.7 build fast'],
+  ])('reads %s as "%s"', (name, label) => {
+    expect(modelLabel(name)).toBe(label);
+  });
+});
+
+describe('choices', () => {
+  const models = { claude: ['opus', 'sonnet'], codex: [], grok: ['grok-4.6'] };
+
+  it('labels an agent and its model, or its default', () => {
+    expect(choiceLabel({ agent: 'claude', model: 'claude-opus-5-5' })).toBe('Claude · Opus 5.5');
+    expect(choiceLabel({ agent: 'codex', model: null })).toBe('Codex · default');
+  });
+
+  it('offers an agent\'s default first, then its models', () => {
+    expect(choicesOf('claude', models)).toEqual([
+      { agent: 'claude', model: null },
+      { agent: 'claude', model: 'opus' },
+      { agent: 'claude', model: 'sonnet' },
+    ]);
+    expect(choicesOf('codex', models)).toEqual([{ agent: 'codex', model: null }]);
+  });
+
+  it('offers every agent\'s choices in the order agents are offered', () => {
+    expect(allChoices(models).map(choiceLabel)).toEqual([
+      'Claude · default', 'Claude · Opus', 'Claude · Sonnet', 'Codex · default', 'Grok · default', 'Grok · Grok 4.6',
+    ]);
+  });
+
+  it('tells choices apart by agent and model', () => {
+    expect(sameChoice({ agent: 'claude', model: null }, { agent: 'claude', model: null })).toBe(true);
+    expect(sameChoice({ agent: 'claude', model: null }, { agent: 'claude', model: 'opus' })).toBe(false);
+    expect(sameChoice({ agent: 'claude', model: null }, { agent: 'codex', model: null })).toBe(false);
+  });
+
+  it('starts new threads on Claude\'s default', () => {
+    expect(chosen(FIRST_NEW_THREADS)).toEqual({ agent: 'claude', model: null });
+  });
+
+  it('remembers the model chosen for each agent, across switching agents', () => {
+    const onOpus = choosing(FIRST_NEW_THREADS, { agent: 'claude', model: 'opus' });
+    const onCodex = switchingAgent(onOpus);
+    expect(chosen(onCodex)).toEqual({ agent: 'codex', model: null });
+    const back = switchingAgent(switchingAgent(onCodex));
+    expect(chosen(back)).toEqual({ agent: 'claude', model: 'opus' });
+    const grokked = choosing(back, { agent: 'grok', model: 'grok-4.6' });
+    expect(grokked.models).toEqual({ claude: 'opus', codex: null, grok: 'grok-4.6' });
+  });
+
+  it('reads the choice of a thread\'s agent and of its reviewer', () => {
+    const plain = thread('t', 'a', '2026-11-03T10:00:00');
+    const reviewed = { ...plain, model: 'opus', reviewer: { agent: 'grok' as const, model: 'grok-4.6', reviewing: false, verdict: null } };
+    expect(threadChoice(plain, 'author')).toEqual({ agent: 'claude', model: null });
+    expect(threadChoice(plain, 'reviewer')).toBeNull();
+    expect(threadChoice(reviewed, 'author')).toEqual({ agent: 'claude', model: 'opus' });
+    expect(threadChoice(reviewed, 'reviewer')).toEqual({ agent: 'grok', model: 'grok-4.6' });
   });
 });
 

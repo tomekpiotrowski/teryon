@@ -29,9 +29,10 @@ use thiserror::Error;
 use tokio::sync::broadcast::{channel, Receiver, Sender};
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::time::{sleep, Instant};
-use tracing::error;
+use tracing::{error, warn};
 use uuid::Uuid;
 
+use crate::agents::models::{checked_model, list_grok_models, ModelError, ModelLists};
 use crate::agents::runner::{Journal, Pending, Runner, ThreadChange, TurnRequest};
 use crate::agents::{Agent, EntryDraft, EntryKind, Voice};
 use crate::changes::finish::FinishError;
@@ -81,6 +82,9 @@ pub enum WorkspaceError {
     /// A change could not be finished; the text says why.
     #[error("{0}")]
     Finish(#[from] FinishError),
+    /// A model name was refused; the text says why.
+    #[error("{0}")]
+    Model(#[from] ModelError),
 }
 
 /// What a workspace needs besides its data folder.
@@ -235,6 +239,8 @@ struct Inner {
     finishing_threads: Mutex<HashSet<Uuid>>,
     /// One lock per project, held while one of its changes is finished.
     project_locks: Mutex<HashMap<Uuid, Arc<AsyncMutex<()>>>>,
+    /// The models each agent offers besides its default.
+    models: Mutex<ModelLists>,
 }
 
 impl Inner {
@@ -260,6 +266,10 @@ impl Inner {
     fn announce(&self, event: Event) {
         // Nobody listening is fine; the change is stored either way.
         let _ = self.changes.send(event);
+    }
+
+    fn models(&self) -> MutexGuard<'_, ModelLists> {
+        self.models.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
@@ -290,8 +300,10 @@ impl Workspace {
             threads.insert(project.id, opened);
         }
         let (changes, _) = channel(BACKLOG);
+        let models = Mutex::new(ModelLists::from_settings(&setup.agents));
         Ok(Self {
             inner: Arc::new(Inner {
+                models,
                 setup,
                 state: Mutex::new(State {
                     projects,
@@ -322,6 +334,30 @@ impl Workspace {
                 editor: self.inner.setup.open.editor.is_some(),
                 terminal: self.inner.setup.open.terminal.is_some(),
             },
+            models: self.inner.models().clone(),
+        }
+    }
+
+    /// Asks the agent programs that list their own models for them, unless `config.toml` names them.
+    ///
+    /// Only Grok lists its models. Asking takes a moment and can fail, so it
+    /// happens after the service has started; clients hear the new lists
+    /// when they arrive. A failure is logged and leaves Grok with only its default.
+    pub async fn list_models(&self) {
+        let grok = &self.inner.setup.agents.grok;
+        if grok.models.is_some() {
+            return;
+        }
+        match list_grok_models(&grok.program).await {
+            Ok(names) => {
+                let models = {
+                    let mut models = self.inner.models();
+                    models.grok = names;
+                    models.clone()
+                };
+                self.inner.announce(Event::ModelsChanged { models });
+            }
+            Err(problem) => warn!("Grok offers only its default model: {problem}"),
         }
     }
 
@@ -413,12 +449,14 @@ impl Workspace {
         &self,
         project_id: Uuid,
         agent: &str,
+        model: Option<&str>,
         title: &str,
     ) -> Result<Thread, WorkspaceError> {
         let agent = Agent::parse(agent).ok_or_else(|| {
             WorkspaceError::Invalid("Choose Claude, Codex or Grok as the agent.".to_string())
         })?;
         let title = title.trim();
+        let model = checked_model(model)?;
         let mut state = self.inner.state();
         state.project(project_id)?;
         let thread = state.ready(project_id)?.save(Thread {
@@ -427,6 +465,7 @@ impl Workspace {
             title: title.to_string(),
             named: !title.is_empty(),
             agent: agent.name().to_string(),
+            model,
             conversation: None,
             status: Status::Idle,
             unread: false,
@@ -552,11 +591,18 @@ impl Workspace {
     /// model reads the work. It reviews in a conversation of its own, which
     /// the next review by the same agent continues; a review by a different
     /// agent starts afresh. Answers with the line that marks the review's
-    /// start in the thread.
-    pub fn review_change(&self, thread_id: Uuid, reviewer: &str) -> Result<Entry, WorkspaceError> {
+    /// start in the thread. The model is the one this review runs on; a
+    /// reviewer asked again may be asked on another model than before.
+    pub fn review_change(
+        &self,
+        thread_id: Uuid,
+        reviewer: &str,
+        model: Option<&str>,
+    ) -> Result<Entry, WorkspaceError> {
         let agent = Agent::parse(reviewer).ok_or_else(|| {
             WorkspaceError::Invalid("Choose Claude, Codex or Grok as the reviewer.".to_string())
         })?;
+        let model = checked_model(model)?;
         let mut state = self.inner.state();
         let (store, thread) = state.holding(thread_id)?;
         self.inner.check_free(&thread)?;
@@ -602,12 +648,14 @@ impl Workspace {
             if !same_reviewer {
                 thread.reviewer = Some(Reviewer {
                     agent: agent.name().to_string(),
+                    model: None,
                     conversation: None,
                     reviewing: false,
                     verdict: None,
                 });
             }
             if let Some(reviewer) = &mut thread.reviewer {
+                reviewer.model = model;
                 reviewer.reviewing = true;
                 reviewer.verdict = None;
             }
@@ -666,6 +714,40 @@ impl Workspace {
     ///
     /// A thread that is not marked is left alone, so that looking at it again
     /// does not send a change to every client.
+    /// Switches the model of a thread's agent, or of its reviewer, from the next message on.
+    ///
+    /// Allowed while an agent is working: the turn under way keeps the model
+    /// it started with. The agent stays the same, since a conversation cannot
+    /// move to another program.
+    pub fn change_model(
+        &self,
+        thread_id: Uuid,
+        to: Voice,
+        model: Option<&str>,
+    ) -> Result<Thread, WorkspaceError> {
+        let model = checked_model(model)?;
+        let mut state = self.inner.state();
+        let (store, thread) = state.holding(thread_id)?;
+        if to == Voice::Reviewer && thread.reviewer.is_none() {
+            return Err(WorkspaceError::Invalid(
+                "Nobody reviews this thread yet. Ask for a review first.".to_string(),
+            ));
+        }
+        let thread = store.change(thread_id, |thread| match to {
+            Voice::Author => thread.model = model,
+            Voice::Reviewer => {
+                if let Some(reviewer) = &mut thread.reviewer {
+                    reviewer.model = model;
+                }
+            }
+        })?;
+        drop(state);
+        self.inner.announce(Event::ThreadChanged {
+            thread: thread.clone(),
+        });
+        Ok(thread)
+    }
+
     pub fn mark_seen(&self, thread_id: Uuid) -> Result<(), WorkspaceError> {
         let mut state = self.inner.state();
         let (store, thread) = state.holding(thread_id)?;

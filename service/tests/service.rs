@@ -252,7 +252,7 @@ lets_expect! { #tokio_test
         let check_4 = matches!(added, Event::ProjectAdded { project: ref added } if added.id == project);
         expect(check_4) to be_true
 
-        let thread = thread_id(client.call(Request::StartThread { project_id: project, agent: "claude".to_string(), title: String::new() }).await.unwrap());
+        let thread = thread_id(client.call(Request::StartThread { project_id: project, agent: "claude".to_string(), model: None, title: String::new() }).await.unwrap());
         let followed = client.call(Request::FollowThread { thread_id: thread }).await.unwrap();
         expect(followed) to equal(no_entries())
 
@@ -268,13 +268,47 @@ lets_expect! { #tokio_test
         expect(seen.is_ok()) to be_true
     }
 
+    // requirement: clients are offered each agent's models, with Grok's once the service has asked it
+    // requirement: a thread starts on a chosen model, which can be changed between messages
+    story models_over_the_connection {
+        let scene = scene().await;
+        let folder = tempdir().unwrap();
+        let mut client = scene.client().await;
+        let snapshot = match client.event().await.unwrap() {
+            Event::Snapshot { models, .. } => Some(models),
+            _ => None,
+        };
+        expect(snapshot.as_ref().map(|models| models.claude.clone())) to equal(Some(vec!["opus".to_string(), "sonnet".to_string(), "haiku".to_string()]))
+        // Grok is asked when the service starts, which may finish before or after this client connects:
+        // its models arrive in the snapshot or in a later update.
+        let grok = match snapshot.map(|models| models.grok).filter(|grok| !grok.is_empty()) {
+            Some(grok) => grok,
+            None => match wait_for(&mut client, |event| matches!(event, Event::ModelsChanged { .. })).await {
+                Event::ModelsChanged { models } => models.grok,
+                _ => Vec::new(),
+            },
+        };
+        expect(grok.first().cloned()) to equal(Some("grok-4.7".to_string()))
+
+        let project = project_id(client.call(Request::AddProject { name: "Sample".to_string(), directory: folder.path().to_string_lossy().into_owned() }).await.unwrap());
+        let started = client.call(Request::StartThread { project_id: project, agent: "claude".to_string(), model: Some("sonnet".to_string()), title: String::new() }).await.unwrap();
+        let thread = match started { Answer::Thread { thread } => thread, _ => panic!("a thread") };
+        expect(thread.model.clone()) to equal(Some("sonnet".to_string()))
+
+        let changed = client.call(Request::ChangeModel { thread_id: thread.id, to: Voice::Author, model: Some("opus".to_string()) }).await.unwrap();
+        let model = match changed { Answer::Thread { thread } => thread.model, _ => None };
+        expect(model) to equal(Some("opus".to_string()))
+        let refused = client.call(Request::ChangeModel { thread_id: thread.id, to: Voice::Reviewer, model: None }).await;
+        expect(refused.is_err()) to be_true
+    }
+
     // requirement: entries are sent only for threads the client follows
     story entries_of_other_threads_are_not_sent {
         let scene = scene().await;
         let folder = tempdir().unwrap();
         let mut client = scene.client().await;
         let project = project_id(client.call(Request::AddProject { name: "Sample".to_string(), directory: folder.path().to_string_lossy().into_owned() }).await.unwrap());
-        let thread = thread_id(client.call(Request::StartThread { project_id: project, agent: "claude".to_string(), title: String::new() }).await.unwrap());
+        let thread = thread_id(client.call(Request::StartThread { project_id: project, agent: "claude".to_string(), model: None, title: String::new() }).await.unwrap());
 
         client.call(Request::SendMessage { thread_id: thread, text: "hello".to_string(), to: Voice::Author }).await.unwrap();
         wait_for(&mut client, |event| matches!(event, Event::ThreadChanged { thread: changed } if changed.status == Status::Idle)).await;

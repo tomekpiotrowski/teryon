@@ -27,7 +27,7 @@ test("an agent works in a project and the thread fills in live", async ({ page }
 
   await expect(page.getByLabel("Thread").getByText("hello", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Thread").getByText("ready", { exact: true })).toBeVisible();
-  await expect(page.getByText(/^Done in \d+s · 25k tokens read, 4 written$/)).toBeVisible();
+  await expect(page.getByText(/^Done in \d+s · Fable 5\.2 · 25k tokens read, 4 written$/)).toBeVisible();
   await expect(page.locator(".workspace-bar")).toContainText("Sample · hello");
 
   await page.getByLabel("Reply").fill("use tools");
@@ -54,7 +54,7 @@ test("an agent's change shows where it stands, and its copy can be found", async
   await expect(thread.getByText("ready", { exact: true })).toBeVisible();
   const line = changeLine(page);
   // Ready to apply goes without a label: the button says so.
-  await expect(line.getByRole("button")).toHaveText(["Ask Codex to review", "Apply to the project", "more"]);
+  await expect(line.getByRole("button")).toHaveText(["Ask Codex · default to review", "Apply to the project", "more"]);
   await expect(line.getByRole("status")).toHaveCount(0);
   await expect(line).toContainText("1 file changed");
   await expect(page.getByText("fix-login", { exact: true })).toHaveCount(0);
@@ -103,7 +103,7 @@ test("another agent reviews a change in the same thread, and its findings go bac
   await page.getByLabel("New thread").fill("start a change fix-login");
   await page.getByRole("button", { name: "Run ↵" }).click();
   const line = changeLine(page);
-  await line.getByRole("button", { name: "Ask Codex to review" }).click();
+  await line.getByRole("button", { name: "Ask Codex · default to review" }).click();
 
   // The review is part of the thread, set apart, and counted on the line.
   const thread = page.getByLabel("Thread");
@@ -113,7 +113,7 @@ test("another agent reviews a change in the same thread, and its findings go bac
   await expect(line.getByRole("status")).toHaveText("2 findings");
   await expect(line).toContainText("from Codex");
   await expect(page.getByText("The change could not be reviewed.")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Who the message goes to" })).toHaveText("to Claude ▾");
+  await expect(page.getByRole("button", { name: "Who the message goes to" })).toHaveText("to Claude · default ▾");
 
   // The person can ask the reviewer, which leaves the count alone.
   await page.getByRole("button", { name: "Who the message goes to" }).click();
@@ -126,14 +126,14 @@ test("another agent reviews a change in the same thread, and its findings go bac
 
   // Passing the findings drafts them for the author, without the count.
   await line.getByRole("button", { name: "Pass findings to Claude" }).click();
-  await expect(page.getByRole("button", { name: "Who the message goes to" })).toHaveText("to Claude ▾");
+  await expect(page.getByRole("button", { name: "Who the message goes to" })).toHaveText("to Claude · default ▾");
   const reply = page.getByLabel("Reply");
   await expect(reply).toHaveValue(/^A reviewer looked at the change and found:\n\n1\. `fix-login\.txt` has no test\.\n2\. The redirect is not checked\.\n\nFix what/);
   await reply.press("Enter");
-  await expect(line.getByRole("button", { name: "Ask Codex to review again" })).toBeVisible();
+  await expect(line.getByRole("button", { name: "Ask Codex · default to review again" })).toBeVisible();
 
   // A second review finds nothing.
-  await line.getByRole("button", { name: "Ask Codex to review again" }).click();
+  await line.getByRole("button", { name: "Ask Codex · default to review again" }).click();
   await expect(line.getByRole("status")).toHaveText("Reviewed");
   await expect(line).toContainText("Codex found nothing");
   await expect(thread.locator(".review-divider")).toHaveCount(2);
@@ -255,6 +255,29 @@ test("a thread can be started with Codex", async ({ page }) => {
   await expect(page.getByText("edit  /work/sample-project--edit/a.txt")).toBeVisible();
   await expect(page.getByText(/^Done in \d+s · 105k tokens read, 587 written$/)).toBeVisible();
   await expect(page.locator(".thread-meta").getByText("Codex")).toBeVisible();
+});
+
+test("a thread runs on the model chosen for it, and each turn says which model ran", async ({ page }) => {
+  await addProject(page, "Sample");
+
+  // Grok's models come from the program once the service has asked it.
+  await page.keyboard.press("Control+k");
+  await expect(menu(page).getByRole("option", { name: /^Use Grok · Grok 4\.6 for new threads/ })).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  await choose(page, "Use Claude · Sonnet for new threads");
+  await expect(page.getByRole("button", { name: "Change agent" })).toHaveText("Claude · Sonnet");
+  await page.getByLabel("New thread").fill("hello");
+  await page.getByRole("button", { name: "Run ↵" }).click();
+
+  // The recording names the model that ran, which is what the summary shows.
+  const summary = page.getByText(/^Done in \d+s · Fable 5\.2 · 25k tokens read, 4 written$/);
+  await expect(summary).toBeVisible();
+  await expect(summary).toHaveAttribute("title", "claude-fable-5-2");
+  await expect(page.locator(".thread-meta")).toContainText("Claude · Sonnet");
+
+  await choose(page, "Use Claude · Opus in this thread");
+  await expect(page.locator(".thread-meta")).toContainText("Claude · Opus");
 });
 
 test("a thread can be started with Grok", async ({ page }) => {
@@ -489,7 +512,7 @@ test("the keys and the menu start a new thread and show the running agents", asy
   await expect(page.getByPlaceholder("What should Claude do in Sample?")).toBeVisible();
 
   // The agent for new threads is changed from the menu too.
-  await choose(page, "Use Grok for new threads");
+  await choose(page, "Use Grok · default for new threads");
   await expect(page.getByPlaceholder("What should Grok do in Sample?")).toBeVisible();
 });
 

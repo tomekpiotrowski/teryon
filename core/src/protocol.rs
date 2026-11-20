@@ -22,6 +22,7 @@ use sha2::{Digest, Sha256};
 use ts_rs::{Config, TS};
 use uuid::Uuid;
 
+use crate::agents::models::ModelLists;
 use crate::agents::Voice;
 use crate::changes::{Change, ChangeState, Finish, Fit, Review, ReviewState};
 use crate::directory::DirectoryListing;
@@ -67,6 +68,9 @@ pub enum Request {
     StartThread {
         project_id: Uuid,
         agent: String,
+        /// Nothing leaves the model to the agent program.
+        #[serde(default)]
+        model: Option<String>,
         #[serde(default)]
         title: String,
     },
@@ -82,6 +86,17 @@ pub enum Request {
         thread_id: Uuid,
         /// The agent that reviews, which may not be the thread's own.
         agent: String,
+        /// Nothing leaves the model to the agent program.
+        #[serde(default)]
+        model: Option<String>,
+    },
+    /// Switches the model of the thread's agent, or of its reviewer, from the next message on.
+    ChangeModel {
+        thread_id: Uuid,
+        #[serde(default)]
+        to: Voice,
+        /// Nothing leaves the model to the agent program.
+        model: Option<String>,
     },
     Stop {
         thread_id: Uuid,
@@ -221,8 +236,9 @@ pub enum Answer {
     Directories {
         listing: DirectoryListing,
     },
+    /// Boxed, because a thread is several times larger than any other answer.
     Thread {
-        thread: Thread,
+        thread: Box<Thread>,
     },
     Entry {
         entry: Entry,
@@ -284,6 +300,12 @@ pub enum Event {
         projects: Vec<ProjectView>,
         threads: Vec<Thread>,
         opens: Opens,
+        /// The models each agent offers besides its default.
+        models: ModelLists,
+    },
+    /// The models on offer changed, as when Grok has listed its own after the service started.
+    ModelsChanged {
+        models: ModelLists,
     },
     ProjectAdded {
         project: ProjectView,
@@ -366,6 +388,7 @@ pub fn typescript() -> String {
         Fit::decl(&config),
         Opener::decl(&config),
         Opens::decl(&config),
+        ModelLists::decl(&config),
         Entry::decl(&config),
         Listing::decl(&config),
         FileEntry::decl(&config),

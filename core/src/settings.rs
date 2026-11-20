@@ -14,15 +14,18 @@
 //! [agents.claude]
 //! program = "claude"
 //! use_subscription = true
+//! models = ["opus", "sonnet", "haiku"]
 //!
 //! [agents.codex]
 //! program = "codex"
 //! use_subscription = true
+//! models = ["gpt-6-astra"]
 //!
 //! [agents.grok]
 //! program = "grok"
 //! home = "~/.grok"
 //! writable = ["~/.cache", "~/.cargo", "~/.rustup", "~/.bun", "~/.npm", "~/go", "~/.gradle", "~/.m2"]
+//! models = ["grok-4.7", "grok-4.7-build-fast"]
 //!
 //! [open]
 //! editor = "code {path}"
@@ -169,6 +172,8 @@ pub struct ClaudeSettings {
     /// When true, the key variables are not passed on; when false the
     /// environment is passed unchanged and the program decides.
     pub use_subscription: bool,
+    /// The models offered besides the program's default. Nothing means Teryon's own list, see [`crate::agents::models`].
+    pub models: Option<Vec<String>>,
 }
 
 impl Default for ClaudeSettings {
@@ -176,6 +181,7 @@ impl Default for ClaudeSettings {
         Self {
             program: "claude".to_string(),
             use_subscription: true,
+            models: None,
         }
     }
 }
@@ -192,6 +198,8 @@ pub struct CodexSettings {
     /// variables are not passed on; when false the environment is passed
     /// unchanged and the program decides.
     pub use_subscription: bool,
+    /// The models offered besides the program's default. Nothing means Teryon's own list, see [`crate::agents::models`].
+    pub models: Option<Vec<String>>,
 }
 
 impl Default for CodexSettings {
@@ -199,6 +207,7 @@ impl Default for CodexSettings {
         Self {
             program: "codex".to_string(),
             use_subscription: true,
+            models: None,
         }
     }
 }
@@ -218,6 +227,8 @@ pub struct GrokSettings {
     /// anything. Build tools keep caches in the home folder and fill them
     /// when they fetch a dependency, so the usual ones are listed.
     pub writable: Vec<String>,
+    /// The models offered besides the program's default. Nothing means Teryon's own list, see [`crate::agents::models`].
+    pub models: Option<Vec<String>>,
 }
 
 impl Default for GrokSettings {
@@ -237,6 +248,7 @@ impl Default for GrokSettings {
             ]
             .map(String::from)
             .to_vec(),
+            models: None,
         }
     }
 }
@@ -274,12 +286,22 @@ mod tests {
             }
             when(text = Some("[agents.claude]\nprogram = \"/opt/claude\"\n")) as the_program_is_moved {
                 to keep_using_the_subscription {
-                    have(as_ref().unwrap().agents.claude.clone()) equal(ClaudeSettings { program: "/opt/claude".to_string(), use_subscription: true })
+                    have(as_ref().unwrap().agents.claude.clone()) equal(ClaudeSettings { program: "/opt/claude".to_string(), use_subscription: true, models: None })
                 }
             }
             when(text = Some("[agents.codex]\nuse_subscription = false\n")) as the_codex_key_is_allowed {
                 to keep_the_usual_program {
-                    have(as_ref().unwrap().agents.codex.clone()) equal(CodexSettings { program: "codex".to_string(), use_subscription: false })
+                    have(as_ref().unwrap().agents.codex.clone()) equal(CodexSettings { program: "codex".to_string(), use_subscription: false, models: None })
+                }
+            }
+            when(text = Some("[agents.grok]\nmodels = [\"grok-4.6\"]\n")) as grok_models_are_named {
+                to keep_them {
+                    have(as_ref().unwrap().agents.grok.models.clone()) equal(Some(vec!["grok-4.6".to_string()]))
+                }
+            }
+            when(text = Some("[agents.claude]\nmodels = []\n")) as no_claude_models_are_named {
+                to keep_the_empty_list {
+                    have(as_ref().unwrap().agents.claude.models.clone()) equal(Some(Vec::new()))
                 }
             }
             when(text = Some("[open]\neditor = \"code {path}\"\n")) as an_editor_is_named {

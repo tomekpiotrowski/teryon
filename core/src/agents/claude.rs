@@ -28,6 +28,8 @@ pub struct ClaudeDriver {
     commands: Option<Vec<String>>,
     /// The conversation named by the last line, until it is taken.
     conversation: Option<String>,
+    /// The model asked for, until Claude Code names the one it runs.
+    model: Option<String>,
 }
 
 impl ClaudeDriver {
@@ -37,6 +39,7 @@ impl ClaudeDriver {
             use_subscription: settings.use_subscription,
             commands: None,
             conversation: None,
+            model: None,
         }
     }
 }
@@ -61,6 +64,10 @@ impl AgentDriver for ClaudeDriver {
         if let Some(conversation) = &turn.conversation {
             arguments.extend(["--resume".to_string(), conversation.clone()]);
         }
+        if let Some(model) = &turn.model {
+            arguments.extend(["--model".to_string(), model.clone()]);
+        }
+        self.model = turn.model.clone();
         // The snapshot is off so a later turn of the same conversation is
         // told the branch the project directory is on then, not the one it
         // was on when the conversation started.
@@ -97,6 +104,9 @@ impl AgentDriver for ClaudeDriver {
                 if report["subtype"].as_str() == Some("init") {
                     self.commands = offered_commands(&report);
                     self.conversation = report["session_id"].as_str().map(str::to_string);
+                    if let Some(model) = report["model"].as_str() {
+                        self.model = Some(model.to_string());
+                    }
                 }
                 Ok(system_entries(&report))
             }
@@ -113,6 +123,11 @@ impl AgentDriver for ClaudeDriver {
 
     fn take_conversation(&mut self) -> Option<String> {
         self.conversation.take()
+    }
+
+    /// Claude Code names the model on the first line of every turn, as the full name: `claude-opus-5-5` for `opus`.
+    fn model(&self) -> Option<String> {
+        self.model.clone()
     }
 }
 
@@ -233,11 +248,13 @@ mod tests {
     const FIRST: &str = include_str!("../../tests/samples/agents/claude-first.jsonl");
     const TOOLS: &str = include_str!("../../tests/samples/agents/claude-tools.jsonl");
     const DENIED: &str = include_str!("../../tests/samples/agents/claude-denied.jsonl");
+    const OTHER_MODEL: &str = include_str!("../../tests/samples/agents/claude-other-model.jsonl");
 
     fn driver(use_subscription: bool) -> ClaudeDriver {
         ClaudeDriver::new(&ClaudeSettings {
             program: "claude".to_string(),
             use_subscription,
+            models: None,
         })
     }
 
@@ -254,7 +271,29 @@ mod tests {
             read_only,
             directory: PathBuf::from("/work/app"),
             writable_outside: Vec::new(),
+            model: None,
         }
+    }
+
+    /// The same turn, on a chosen model.
+    fn on_model(model: Option<&str>, turn: Turn) -> Turn {
+        Turn {
+            model: model.map(str::to_string),
+            ..turn
+        }
+    }
+
+    /// The model the driver says the turn runs on, after being asked for `asked` and reading `lines`.
+    fn model_after(asked: Option<&str>, lines: &str) -> Option<String> {
+        let mut driver = driver(true);
+        driver.invocation(&Turn {
+            model: asked.map(str::to_string),
+            ..turn("Fix the bug", None, None, false)
+        });
+        for line in lines.lines() {
+            driver.interpret(line).expect("the line is understood");
+        }
+        driver.model()
     }
 
     /// The commands the driver hands over after one report line.
@@ -323,12 +362,29 @@ mod tests {
     }
 
     lets_expect! {
-        expect(driver(use_subscription).invocation(&turn(message, conversation, brief, read_only))) {
+        expect(driver(use_subscription).invocation(&on_model(model, turn(message, conversation, brief, read_only)))) {
             let use_subscription = true;
             let message = "Fix the bug";
             let conversation: Option<&str> = None;
             let brief: Option<&str> = None;
             let read_only = false;
+            let model: Option<&str> = None;
+
+            // requirement: a chosen model is passed on, before the message
+            when(model = Some("opus")) as pass_the_model to hold {
+                have(arguments.clone()) equal([
+                    "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "auto",
+                    "--model", "opus", "--", "Fix the bug",
+                ].map(String::from).to_vec())
+            }
+
+            // requirement: the model is passed when continuing a conversation too, so it can change between messages
+            when(model = Some("sonnet"), conversation = Some("80bf47d7")) as pass_the_model_when_continuing to hold {
+                have(arguments.clone()) equal([
+                    "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "auto",
+                    "--resume", "80bf47d7", "--model", "sonnet", "--", "Fix the bug",
+                ].map(String::from).to_vec())
+            }
 
             // requirement: the first message starts a new conversation, which Claude Code names
             to start_a_conversation {
@@ -380,6 +436,17 @@ mod tests {
             when(use_subscription = false) as leave_the_environment_alone to hold {
                 have(removed_variables.len()) equal(0)
             }
+        }
+
+        // requirement: the summary names the model that ran, not the one asked for
+        expect(model_after(asked, lines)) {
+            let asked: Option<&str> = None;
+            let lines = "";
+
+            when(asked = None) as nothing_is_asked_or_said to be_unknown { equal(None) }
+            when(asked = Some("opus")) as nothing_is_said_yet to be_the_one_asked_for { equal(Some("opus".to_string())) }
+            when(lines = FIRST) as the_default_runs to be_the_one_named { equal(Some("claude-fable-5-2".to_string())) }
+            when(asked = Some("opus"), lines = OTHER_MODEL) as a_short_name_runs to be_its_full_name { equal(Some("claude-opus-5-5".to_string())) }
         }
 
         // requirement: a failed turn's summary says the turn ended early

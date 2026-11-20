@@ -82,10 +82,13 @@ impl Session {
             Request::StartThread {
                 project_id,
                 agent,
+                model,
                 title,
             } => workspace
-                .start_thread(project_id, &agent, &title)
-                .map(|thread| Answer::Thread { thread })
+                .start_thread(project_id, &agent, model.as_deref(), &title)
+                .map(|thread| Answer::Thread {
+                    thread: Box::new(thread),
+                })
                 .map_err(|problem| problem.to_string()),
             Request::SendMessage {
                 thread_id,
@@ -95,9 +98,23 @@ impl Session {
                 .send_message(thread_id, &text, to)
                 .map(|entry| Answer::Entry { entry })
                 .map_err(|problem| problem.to_string()),
-            Request::ReviewChange { thread_id, agent } => workspace
-                .review_change(thread_id, &agent)
+            Request::ReviewChange {
+                thread_id,
+                agent,
+                model,
+            } => workspace
+                .review_change(thread_id, &agent, model.as_deref())
                 .map(|entry| Answer::Entry { entry })
+                .map_err(|problem| problem.to_string()),
+            Request::ChangeModel {
+                thread_id,
+                to,
+                model,
+            } => workspace
+                .change_model(thread_id, to, model.as_deref())
+                .map(|thread| Answer::Thread {
+                    thread: Box::new(thread),
+                })
                 .map_err(|problem| problem.to_string()),
             Request::Stop { thread_id } => workspace
                 .stop(thread_id)

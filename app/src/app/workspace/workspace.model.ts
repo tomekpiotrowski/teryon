@@ -26,6 +26,8 @@ export interface Thread {
   readonly project_id: string;
   readonly title: string;
   readonly agent: AgentName;
+  /** The model the agent runs on. Nothing leaves it to the agent program's own settings. */
+  readonly model?: string | null;
   readonly status: 'idle' | 'running';
   /** Whether an agent stopped working here since the person last looked. */
   readonly unread: boolean;
@@ -51,6 +53,8 @@ export type Voice = 'author' | 'reviewer';
  */
 export interface Reviewer {
   readonly agent: AgentName;
+  /** The model the reviewer runs on. Nothing leaves it to the agent program's own settings. */
+  readonly model?: string | null;
   /** Whether the turn running in the thread is the reviewer's. */
   readonly reviewing: boolean;
   /** What the last review found. Nothing until one has ended. */
@@ -82,6 +86,101 @@ export function reviewersFor(thread: Thread): AgentName[] {
   const others = AGENTS.filter((agent) => agent !== thread.agent);
   const previous = thread.reviewer?.agent;
   return previous && others.includes(previous) ? [previous, ...others.filter((agent) => agent !== previous)] : others;
+}
+
+/**
+ * An agent and the model it runs on, as one choice: "Claude · Opus".
+ *
+ * A model of `null` is the agent's default: no model is passed, and the
+ * agent program's own settings decide.
+ */
+export interface Choice {
+  readonly agent: AgentName;
+  readonly model: string | null;
+}
+
+/** The models each agent offers besides its default, as the service lists them. */
+export type ModelLists = Readonly<Record<AgentName, readonly string[]>>;
+
+export const NO_MODELS: ModelLists = { claude: [], codex: [], grok: [] };
+
+/**
+ * What new threads start with: the agent, and the model last chosen for each agent.
+ *
+ * Remembering a model per agent means switching from Claude · Opus to Codex
+ * and back gives Opus again. A review uses the model remembered for the
+ * reviewing agent.
+ */
+export interface NewThreads {
+  readonly agent: AgentName;
+  readonly models: Readonly<Record<AgentName, string | null>>;
+}
+
+export const FIRST_NEW_THREADS: NewThreads = { agent: 'claude', models: { claude: null, codex: null, grok: null } };
+
+/** The agent and model a new thread starts with. */
+export function chosen(newThreads: NewThreads): Choice {
+  return { agent: newThreads.agent, model: newThreads.models[newThreads.agent] };
+}
+
+/** New threads after picking a choice: its agent, with its model remembered for that agent. */
+export function choosing(newThreads: NewThreads, choice: Choice): NewThreads {
+  return { agent: choice.agent, models: { ...newThreads.models, [choice.agent]: choice.model } };
+}
+
+/** New threads on the next agent, going round, with the model remembered for it. For the button beside the message box. */
+export function switchingAgent(newThreads: NewThreads): NewThreads {
+  return { ...newThreads, agent: nextAgent(newThreads.agent) };
+}
+
+/** Every choice an agent offers: its default first, then its models. */
+export function choicesOf(agent: AgentName, models: ModelLists): Choice[] {
+  return [null, ...models[agent]].map((model) => ({ agent, model }));
+}
+
+/** Every choice of every agent, in the order agents are offered. */
+export function allChoices(models: ModelLists): Choice[] {
+  return AGENTS.flatMap((agent) => choicesOf(agent, models));
+}
+
+export function sameChoice(first: Choice, second: Choice): boolean {
+  return first.agent === second.agent && first.model === second.model;
+}
+
+/** The choice a thread's agent, or its reviewer, runs on. Nothing when the thread has no reviewer. */
+export function threadChoice(thread: Thread, voice: Voice): Choice | null {
+  if (voice === 'author') return { agent: thread.agent, model: thread.model ?? null };
+  return thread.reviewer ? { agent: thread.reviewer.agent, model: thread.reviewer.model ?? null } : null;
+}
+
+/** For example "Claude · Opus" or "Codex · default". */
+export function choiceLabel(choice: Choice): string {
+  return `${agentLabel(choice.agent)} · ${choice.model === null ? 'default' : modelLabel(choice.model)}`;
+}
+
+/**
+ * A model's name as people say it: `claude-opus-5-5` is "Opus 5.5".
+ *
+ * A rule rather than a table, so that a model released after this Teryon
+ * still reads well: drop a leading `claude-`, join numbers that follow each
+ * other with a dot, turn the remaining dashes into spaces, capitalise the
+ * first word, and write `gpt` as `GPT`. Several models, as a turn that used
+ * more than one reports them, are each read that way.
+ */
+export function modelLabel(name: string): string {
+  return name
+    .split(' + ')
+    .map((single) => {
+      const words = single
+        .trim()
+        .replace(/^claude-/, '')
+        .replace(/(\d)-(?=\d)/g, '$1.')
+        .split('-')
+        .filter(Boolean)
+        .map((word) => (word.toLowerCase() === 'gpt' ? 'GPT' : word));
+      return words.map((word, index) => (index === 0 ? word.charAt(0).toUpperCase() + word.slice(1) : word)).join(' ');
+    })
+    .join(' + ');
 }
 
 /** How a thread's change ended, once Teryon let go of it and its copy. */
@@ -174,6 +273,8 @@ export interface EntryLine {
    * stored before Teryon recorded it.
    */
   readonly agent?: AgentName;
+  /** More about the line, shown when the pointer rests on it: the full name of a summary's model. */
+  readonly title?: string;
 }
 
 export const NOTHING_SELECTED: Selection = { projectId: null, threadId: null };
@@ -540,8 +641,11 @@ function plainLine(entry: ThreadEntry): EntryLine {
       return { kind: entry.body['starts_review'] === true ? 'review' : 'notice', text, reviewer };
     case 'error':
       return { kind: 'error', text, reviewer };
-    case 'turn_summary':
-      return { kind: 'summary', text: summaryText(entry.body), reviewer };
+    case 'turn_summary': {
+      const model = entry.body['model'];
+      const title = typeof model === 'string' && model ? { title: model } : {};
+      return { kind: 'summary', text: summaryText(entry.body), reviewer, ...title };
+    }
   }
 }
 
@@ -569,7 +673,10 @@ export function findingsDraft(lines: readonly EntryLine[]): string {
 }
 
 /**
- * For example `Done in 1m 12s · 86k tokens read, 229 written`. Parts the agent did not report are left out.
+ * For example `Done in 1m 12s · Opus 5.5 · 86k tokens read, 229 written`. Parts the agent did not report are left out.
+ *
+ * The model is the one that ran, as the agent program reported it, so the
+ * thread says which model did each turn even when the choice changed.
  *
  * Tokens rather than money: the agents run on subscriptions, where a turn
  * uses up part of a limit instead of costing a price.
@@ -578,6 +685,8 @@ export function summaryText(body: Readonly<Record<string, unknown>>): string {
   const duration = body['duration_ms'];
   const tokens = body['tokens'] as Readonly<Record<string, unknown>> | null | undefined;
   const parts = [typeof duration === 'number' ? `Done in ${durationText(duration)}` : 'Done'];
+  const model = body['model'];
+  if (typeof model === 'string' && model.trim()) parts.push(modelLabel(model));
   const read = tokens?.['read'];
   const written = tokens?.['written'];
   if (typeof read === 'number' && typeof written === 'number') {

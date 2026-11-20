@@ -4,7 +4,7 @@ import type { Answer, DirectoryListing, Opener, Request } from '../service/proto
 import { ServiceConnection } from '../service/service-connection';
 import type { FileView, Listing } from './files.model';
 import type { Changes, History } from './history.model';
-import type { AgentName, Project, Thread, ThreadEntry, Voice } from './workspace.model';
+import type { Choice, Project, Thread, ThreadEntry, Voice } from './workspace.model';
 
 /**
  * The requests the screens make to the local service.
@@ -32,8 +32,9 @@ export class WorkspaceApi {
     return this.ask({ type: 'remove_project', project_id: projectId }, () => undefined as void);
   }
 
-  createThread(projectId: string, agent: AgentName): Observable<Thread> {
-    return this.ask({ type: 'start_thread', project_id: projectId, agent, title: '' }, (answer) =>
+  /** Starts a thread on an agent and model. */
+  createThread(projectId: string, choice: Choice): Observable<Thread> {
+    return this.ask({ type: 'start_thread', project_id: projectId, agent: choice.agent, model: choice.model, title: '' }, (answer) =>
       answer.type === 'thread' ? (answer.thread as Thread) : undefined,
     );
   }
@@ -45,11 +46,21 @@ export class WorkspaceApi {
     );
   }
 
-  /** Asks a second agent to review a thread's change, in the same thread. Answers with the line that starts the review. */
-  /** Asks an agent other than the thread's own to review its change. */
-  reviewChange(threadId: string, agent: AgentName): Observable<ThreadEntry> {
-    return this.ask({ type: 'review_change', thread_id: threadId, agent }, (answer) =>
+  /**
+   * Asks an agent other than the thread's own to review its change, on a model, in the same thread.
+   *
+   * Answers with the line that starts the review.
+   */
+  reviewChange(threadId: string, choice: Choice): Observable<ThreadEntry> {
+    return this.ask({ type: 'review_change', thread_id: threadId, agent: choice.agent, model: choice.model }, (answer) =>
       answer.type === 'entry' ? (answer.entry as ThreadEntry) : undefined,
+    );
+  }
+
+  /** Switches the model of a thread's agent, or of its reviewer, from the next message on. */
+  changeModel(threadId: string, to: Voice, model: string | null): Observable<Thread> {
+    return this.ask({ type: 'change_model', thread_id: threadId, to, model }, (answer) =>
+      answer.type === 'thread' ? (answer.thread as Thread) : undefined,
     );
   }
 

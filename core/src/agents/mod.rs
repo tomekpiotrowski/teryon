@@ -12,6 +12,7 @@ pub mod claude;
 pub mod codex;
 pub mod grok;
 pub mod grok_sandbox;
+pub mod models;
 pub mod naming;
 pub mod process;
 pub mod runner;
@@ -239,6 +240,12 @@ pub struct Turn {
     /// repository: committing writes there.
     /// Programs that confine their commands to the project let them in.
     pub writable_outside: Vec<PathBuf>,
+    /// The model to run. Nothing leaves the choice to the program's own settings.
+    ///
+    /// Given on every turn, not only the first: the programs keep the model
+    /// a conversation started with unless told otherwise, and a person may
+    /// switch models between messages.
+    pub model: Option<String>,
 }
 
 /// How to start an agent program for one turn.
@@ -278,6 +285,14 @@ pub trait AgentDriver: Send {
     /// programs name it early in a turn, so a turn stopped halfway can still
     /// be continued.
     fn take_conversation(&mut self) -> Option<String>;
+
+    /// The model this turn runs on, as far as the program has said, else the one asked for.
+    ///
+    /// The runner writes it on the turn's summary, so the thread shows what
+    /// did the work. That can differ from what was asked for: a short name
+    /// such as `opus` means a different model once a newer one is out.
+    /// Nothing when the program has not said and none was asked for.
+    fn model(&self) -> Option<String>;
 
     /// Returns whatever the driver was still holding when the program ended.
     fn finish(&mut self) -> Vec<EntryDraft> {

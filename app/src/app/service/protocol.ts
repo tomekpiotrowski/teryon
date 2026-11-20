@@ -5,11 +5,23 @@ export type JsonValue = number | string | boolean | null | JsonValue[] | { [key:
 
 export type ClientMessage = { "type": "hello", token: string, } | { "type": "call", id: number, request: Request, };
 
-export type Request = { "type": "add_project", name: string, directory: string, } | { "type": "directories", path: string, } | { "type": "remove_project", project_id: string, } | { "type": "start_thread", project_id: string, agent: string, title: string, } | { "type": "send_message", thread_id: string, text: string, to: Voice, } | { "type": "review_change", thread_id: string, 
+export type Request = { "type": "add_project", name: string, directory: string, } | { "type": "directories", path: string, } | { "type": "remove_project", project_id: string, } | { "type": "start_thread", project_id: string, agent: string, 
+/**
+ * Nothing leaves the model to the agent program.
+ */
+model: string | null, title: string, } | { "type": "send_message", thread_id: string, text: string, to: Voice, } | { "type": "review_change", thread_id: string, 
 /**
  * The agent that reviews, which may not be the thread's own.
  */
-agent: string, } | { "type": "stop", thread_id: string, } | { "type": "mark_seen", thread_id: string, } | { "type": "start_change", thread_id: string, turn: string, name: string, from: string | null, } | { "type": "name_thread", thread_id: string, turn: string, title: string, } | { "type": "draft_description", thread_id: string, } | { "type": "apply_change", thread_id: string, description: string, } | { "type": "catch_up", thread_id: string, } | { "type": "discard_change", thread_id: string, } | { "type": "send_for_review", thread_id: string, description: string, } | { "type": "open_review", thread_id: string, } | { "type": "open_copy", thread_id: string, with: Opener, } | { "type": "follow_thread", thread_id: string, } | { "type": "unfollow_thread", thread_id: string, } | { "type": "files", project_id: string, thread_id: string | null, branch: string | null, commit: string | null, } | { "type": "file", project_id: string, thread_id: string | null, branch: string | null, commit: string | null, path: string, } | { "type": "history", project_id: string, branch: string | null, } | { "type": "changes", project_id: string, commit: string, from: string | null, } | { "type": "change", project_id: string, commit: string, from: string | null, path: string, } | { "type": "shutdown" };
+agent: string, 
+/**
+ * Nothing leaves the model to the agent program.
+ */
+model: string | null, } | { "type": "change_model", thread_id: string, to: Voice, 
+/**
+ * Nothing leaves the model to the agent program.
+ */
+model: string | null, } | { "type": "stop", thread_id: string, } | { "type": "mark_seen", thread_id: string, } | { "type": "start_change", thread_id: string, turn: string, name: string, from: string | null, } | { "type": "name_thread", thread_id: string, turn: string, title: string, } | { "type": "draft_description", thread_id: string, } | { "type": "apply_change", thread_id: string, description: string, } | { "type": "catch_up", thread_id: string, } | { "type": "discard_change", thread_id: string, } | { "type": "send_for_review", thread_id: string, description: string, } | { "type": "open_review", thread_id: string, } | { "type": "open_copy", thread_id: string, with: Opener, } | { "type": "follow_thread", thread_id: string, } | { "type": "unfollow_thread", thread_id: string, } | { "type": "files", project_id: string, thread_id: string | null, branch: string | null, commit: string | null, } | { "type": "file", project_id: string, thread_id: string | null, branch: string | null, commit: string | null, path: string, } | { "type": "history", project_id: string, branch: string | null, } | { "type": "changes", project_id: string, commit: string, from: string | null, } | { "type": "change", project_id: string, commit: string, from: string | null, path: string, } | { "type": "shutdown" };
 
 export type ServiceMessage = { "type": "reply", id: number, outcome: Outcome, } | { "type": "event", event: Event, };
 
@@ -17,7 +29,11 @@ export type Outcome = { "type": "done", answer: Answer, } | { "type": "failed", 
 
 export type Answer = { "type": "nothing" } | { "type": "project", project: ProjectView, } | { "type": "directories", listing: DirectoryListing, } | { "type": "thread", thread: Thread, } | { "type": "entry", entry: Entry, } | { "type": "entries", entries: Array<Entry>, } | { "type": "listing", listing: Listing, } | { "type": "file", file: FileView, } | { "type": "history", history: History, } | { "type": "changes", changes: Changes, } | { "type": "path", path: string, } | { "type": "draft", text: string, } | { "type": "caught_up", overlaps: boolean, };
 
-export type Event = { "type": "snapshot", projects: Array<ProjectView>, threads: Array<Thread>, opens: Opens, } | { "type": "project_added", project: ProjectView, } | { "type": "project_removed", project_id: string, } | { "type": "thread_changed", thread: Thread, } | { "type": "entry_added", entry: Entry, };
+export type Event = { "type": "snapshot", projects: Array<ProjectView>, threads: Array<Thread>, opens: Opens, 
+/**
+ * The models each agent offers besides its default.
+ */
+models: ModelLists, } | { "type": "models_changed", models: ModelLists, } | { "type": "project_added", project: ProjectView, } | { "type": "project_removed", project_id: string, } | { "type": "thread_changed", thread: Thread, } | { "type": "entry_added", entry: Entry, };
 
 export type ProjectView = { id: string, name: string, directory: string, created_at: string, state: ProjectState, 
 /**
@@ -64,6 +80,12 @@ project_id: string, title: string,
  * tells threads apart poorly, and the agent is asked to name the thread.
  */
 named: boolean, agent: string, 
+/**
+ * The model the agent runs on. Nothing leaves it to the agent program's own settings.
+ *
+ * Can change between messages; each turn's summary says which model did that turn.
+ */
+model: string | null, 
 /**
  * The identifier the agent program gave this conversation.
  *
@@ -164,6 +186,10 @@ export type Finish = "applied" | "accepted" | "discarded" | "removed";
 
 export type Reviewer = { agent: string, 
 /**
+ * The model the reviewer runs on. Nothing leaves it to the agent program's own settings.
+ */
+model: string | null, 
+/**
  * The identifier the agent program gave the reviewer's conversation. Nothing until it has started it.
  */
 conversation: string | null, 
@@ -197,6 +223,8 @@ export type Fit = "applies" | "overlaps" | "unknown";
 export type Opener = "folder" | "editor" | "terminal";
 
 export type Opens = { editor: boolean, terminal: boolean, };
+
+export type ModelLists = { claude: Array<string>, codex: Array<string>, grok: Array<string>, };
 
 export type Entry = { id: string, thread_id: string, 
 /**

@@ -129,6 +129,8 @@ impl Service {
             _lock,
         } = self;
         let workspace = state.workspace.clone();
+        let listing = workspace.clone();
+        tokio::spawn(async move { listing.list_models().await });
         let asked = async move {
             let _ = stopping.wait_for(|stop| *stop).await;
         };

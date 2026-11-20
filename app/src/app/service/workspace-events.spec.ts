@@ -30,6 +30,7 @@ const lists: WorkspaceLists = {
   projects: [project('a'), project('b')],
   threads: [thread('t1', 'a'), thread('t2', 'b')],
   opens: { editor: false, terminal: false },
+  models: { claude: ['opus'], codex: [], grok: [] },
 };
 
 function apply(event: unknown): WorkspaceLists {
@@ -38,8 +39,14 @@ function apply(event: unknown): WorkspaceLists {
 
 describe('applyEvent', () => {
   it('replaces everything with a snapshot, including what copies can be opened in', () => {
-    const fresh = apply({ type: 'snapshot', projects: [project('c')], threads: [], opens: { editor: true, terminal: false } });
-    expect(fresh).toEqual({ projects: [project('c')], threads: [], opens: { editor: true, terminal: false } });
+    const models = { claude: ['sonnet'], codex: ['gpt-6-astra'], grok: [] };
+    const fresh = apply({ type: 'snapshot', projects: [project('c')], threads: [], opens: { editor: true, terminal: false }, models });
+    expect(fresh).toEqual({ projects: [project('c')], threads: [], opens: { editor: true, terminal: false }, models });
+  });
+
+  it('replaces only the models when they change, as when Grok has listed its own', () => {
+    const models = { claude: ['opus'], codex: [], grok: ['grok-4.6'] };
+    expect(apply({ type: 'models_changed', models })).toEqual({ ...lists, models });
   });
 
   it('adds a project at the end', () => {
@@ -73,7 +80,7 @@ describe('applyEvent', () => {
   });
 
   it('starts from nothing', () => {
-    expect(NO_LISTS).toEqual({ projects: [], threads: [], opens: { editor: false, terminal: false } });
+    expect(NO_LISTS).toEqual({ projects: [], threads: [], opens: { editor: false, terminal: false }, models: { claude: [], codex: [], grok: [] } });
   });
 });
 

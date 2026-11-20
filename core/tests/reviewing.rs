@@ -17,6 +17,7 @@ use tempfile::TempDir;
 use common::{
     commit, fake_agents, git, invocations, noted_turn, project_folder, put, thread_file, Scene,
 };
+use teryon_core::agents::Voice;
 use teryon_core::protocol::ProjectView;
 use teryon_core::settings::{AgentSettings, GrokSettings};
 use teryon_core::store::{Entry, Thread, Verdict};
@@ -84,9 +85,19 @@ impl Project {
 
     /// Asks a given agent to review, and waits for it.
     async fn review_by(&self, thread: &Thread, agent: &str) -> Result<(), String> {
+        self.review_on(thread, agent, None).await
+    }
+
+    /// Asks a given agent to review on a given model, and waits for it.
+    async fn review_on(
+        &self,
+        thread: &Thread,
+        agent: &str,
+        model: Option<&str>,
+    ) -> Result<(), String> {
         self.scene
             .workspace
-            .review_change(thread.id, agent)
+            .review_change(thread.id, agent, model)
             .map_err(|problem| problem.to_string())?;
         self.scene.wait_until_idle(thread).await;
         Ok(())
@@ -197,6 +208,52 @@ lets_expect! { #tokio_test
         expect(started.contains("Review it again")) to be_true
         expect(started.contains(&format!("--resume {}", reviewer.conversation.expect("the reviewer's conversation")))) to be_true
         expect(reviewer.verdict) to equal(Some(Verdict { findings: Some(0), answered: false, cut: false }))
+    }
+
+    // requirement: a review runs on the model asked for, which the reviewer keeps
+    story a_review_runs_on_its_chosen_model {
+        let project = project();
+        let (thread, _) = project.changed("claude").await;
+
+        project.review_on(&thread, "grok", Some("grok-4.6")).await.unwrap();
+        let reviewer = project.scene.thread_now(&thread).reviewer.expect("a reviewer");
+        expect(reviewer.model.clone()) to equal(Some("grok-4.6".to_string()))
+        expect(project.invocations().last().cloned().unwrap_or_default().contains("-m grok-4.6")) to be_true
+        let summary = project.scene.entries(&thread).into_iter().rev().find(|entry| entry.kind == "turn_summary").unwrap();
+        expect(summary.body["reviewer"].clone()) to equal(Value::Bool(true))
+        expect(summary.body["model"].clone()) to equal(Value::String("grok-4.7-build".to_string()))
+    }
+
+    // requirement: the same reviewer asked again on another model continues its conversation on that model
+    story a_review_again_on_another_model_continues {
+        let project = project();
+        let (thread, _) = project.changed("claude").await;
+        project.review_on(&thread, "grok", Some("grok-4.6")).await.unwrap();
+        project.scene.say(&thread, "fix what the review found").unwrap();
+        project.scene.wait_until_idle(&thread).await;
+
+        project.review_on(&thread, "grok", None).await.unwrap();
+        let reviewer = project.scene.thread_now(&thread).reviewer.expect("a reviewer");
+        expect(reviewer.model.clone()) to equal(None)
+        let started = project.invocations().last().cloned().unwrap_or_default();
+        expect(started.contains("--resume")) to be_true
+        expect(started.contains(" -m ")) to be_false
+    }
+
+    // requirement: the reviewer's model can change between messages, leaving the author's alone
+    story the_reviewers_model_changes {
+        let project = project();
+        let (thread, _) = project.changed("claude").await;
+        project.review(&thread).await.unwrap();
+
+        project.scene.workspace.change_model(thread.id, Voice::Reviewer, Some("grok-4.5")).unwrap();
+        project.scene.ask_reviewer(&thread, "is the second one real?").unwrap();
+        project.scene.wait_until_idle(&thread).await;
+
+        let now = project.scene.thread_now(&thread);
+        expect(now.reviewer.and_then(|reviewer| reviewer.model)) to equal(Some("grok-4.5".to_string()))
+        expect(now.model) to equal(None)
+        expect(project.invocations().last().cloned().unwrap_or_default().contains("-m grok-4.5")) to be_true
     }
 
     // requirement: the person can ask the reviewer something, which leaves the review's count alone
@@ -324,7 +381,7 @@ lets_expect! { #tokio_test
         project.scene.wait_until_idle(&thread).await;
 
         write(project.folder.path().join(".fake-reviewer-slow"), "").unwrap();
-        project.scene.workspace.review_change(thread.id, "grok").unwrap();
+        project.scene.workspace.review_change(thread.id, "grok", None).unwrap();
         project.scene.wait_until_reporting(&thread).await;
         project.scene.workspace.stop(thread.id).unwrap();
         project.scene.wait_until_idle(&thread).await;

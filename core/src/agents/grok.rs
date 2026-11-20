@@ -42,6 +42,8 @@ pub struct GrokDriver {
     unapproved: bool,
     /// The conversation started for this turn, until it is taken.
     conversation: Option<String>,
+    /// The model asked for, until Grok names the ones it ran at the end of the turn.
+    model: Option<String>,
 }
 
 impl GrokDriver {
@@ -53,6 +55,7 @@ impl GrokDriver {
             commands: None,
             unapproved: false,
             conversation: None,
+            model: None,
         }
     }
 
@@ -103,6 +106,11 @@ impl AgentDriver for GrokDriver {
             arguments.push("--sandbox".to_string());
             arguments.push(profile);
         }
+        if let Some(model) = &turn.model {
+            arguments.push("-m".to_string());
+            arguments.push(model.clone());
+        }
+        self.model = turn.model.clone();
         if turn.read_only {
             arguments.push("--disallowed-tools".to_string());
             arguments.push(EDITING_TOOLS.to_string());
@@ -144,6 +152,9 @@ impl AgentDriver for GrokDriver {
                 Ok(entries)
             }
             "end" => {
+                if let Some(ran) = models_used(&report) {
+                    self.model = Some(ran);
+                }
                 let mut entries = self.message();
                 entries.extend(end_entries(&report, self.unapproved));
                 Ok(entries)
@@ -175,9 +186,28 @@ impl AgentDriver for GrokDriver {
         self.conversation.take()
     }
 
+    /// Grok names the models it ran only at the end of a turn. Until then, the one asked for.
+    fn model(&self) -> Option<String> {
+        self.model.clone()
+    }
+
     fn finish(&mut self) -> Vec<EntryDraft> {
         self.message()
     }
+}
+
+/// The models a turn ran on, as the end of Grok's report names them, joined with " + ".
+///
+/// Grok counts usage per model, and names the build it ran: `grok-4.6` runs
+/// as `grok-4.6-build`. A turn can use more than one, such as a smaller one
+/// for a side task. Nothing when it names none.
+fn models_used(report: &Value) -> Option<String> {
+    let names: Vec<&str> = report["modelUsage"]
+        .as_object()?
+        .keys()
+        .map(String::as_str)
+        .collect();
+    (!names.is_empty()).then(|| names.join(" + "))
 }
 
 /// A tool call that did not run, with the reason the program gives.
@@ -264,6 +294,8 @@ mod tests {
 
     const FIRST: &str = include_str!("../../tests/samples/agents/grok-first.jsonl");
     const TOOLS: &str = include_str!("../../tests/samples/agents/grok-tools.jsonl");
+    /// A real turn continuing a conversation on `grok-4.6`, which it started on `grok-4.7-build-fast`.
+    const OTHER_MODEL: &str = include_str!("../../tests/samples/agents/grok-other-model.jsonl");
 
     /// The folder the turns run in.
     const PROJECT: &str = "/work/app";
@@ -274,6 +306,7 @@ mod tests {
             program: "grok".to_string(),
             home: Some(temp_dir().join("teryon-grok-driver-tests")),
             writable: vec!["/opt/cache".to_string()],
+            models: None,
         })
     }
 
@@ -299,7 +332,35 @@ mod tests {
             read_only: true,
             directory: PathBuf::from(PROJECT),
             writable_outside: Vec::new(),
+            model: None,
         }
+    }
+
+    /// The model the driver says the turn runs on, after being asked for `asked` and reading `lines`.
+    fn model_after(asked: Option<&str>, lines: &[String]) -> Option<String> {
+        let mut driver = driver();
+        driver.invocation(&Turn {
+            model: asked.map(str::to_string),
+            ..turn("Fix the bug", None, None)
+        });
+        for line in lines {
+            driver.interpret(line).expect("the line is understood");
+        }
+        driver.model()
+    }
+
+    fn lines_of(recording: &str) -> Vec<String> {
+        recording.lines().map(String::from).collect()
+    }
+
+    /// The end of a turn that used two models.
+    fn two_models() -> Vec<String> {
+        vec![json!({
+            "type": "end",
+            "stopReason": "end_turn",
+            "modelUsage": { "grok-4.7-build": { "modelCalls": 2 }, "grok-4.7-build-fast": { "modelCalls": 1 } },
+        })
+        .to_string()]
     }
 
     /// The commands the driver hands over after each of some report lines.
@@ -477,6 +538,30 @@ mod tests {
         }
 
         // requirement: a reviewer's turn has Grok's editing tools removed
+        // requirement: a chosen model is passed on, also when continuing a conversation and for a reviewer
+        expect(driver().invocation(&Turn { model: Some("grok-4.6".to_string()), ..read_only_turn("Review the change.", Some(KNOWN), None) }).arguments) as a_turn_on_a_chosen_model {
+            to pass_the_model {
+                equal([
+                    "--single=Review the change.", "--output-format", "streaming-json", "--always-approve",
+                    "-m", "grok-4.6",
+                    "--disallowed-tools", "write,search_replace,apply_patch,hashline_edit",
+                    "--resume", KNOWN,
+                ].map(String::from).to_vec())
+            }
+        }
+
+        // requirement: the summary names the model that ran, as Grok names it at the end of the turn
+        expect(model_after(asked, &lines)) {
+            let asked: Option<&str> = None;
+            let lines: Vec<String> = Vec::new();
+
+            when(asked = None) as nothing_is_asked_or_said to be_unknown { equal(None) }
+            when(asked = Some("grok-4.6")) as nothing_is_said_yet to be_the_one_asked_for { equal(Some("grok-4.6".to_string())) }
+            when(asked = Some("grok-4.6"), lines = lines_of(OTHER_MODEL)) as the_turn_ends to be_the_build_that_ran { equal(Some("grok-4.6-build".to_string())) }
+            when(lines = lines_of(FIRST)) as the_default_runs to be_the_one_named { equal(Some("grok-4.7-build".to_string())) }
+            when(lines = two_models()) as two_models_run to name_both { equal(Some("grok-4.7-build + grok-4.7-build-fast".to_string())) }
+        }
+
         expect(driver().invocation(&read_only_turn("Review the change.", Some(KNOWN), None)).arguments) as a_reviewers_turn {
             to remove_the_editing_tools {
                 equal([

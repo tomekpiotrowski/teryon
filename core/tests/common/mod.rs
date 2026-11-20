@@ -31,10 +31,12 @@ pub fn fake_agents() -> AgentSettings {
         claude: ClaudeSettings {
             program: "tests/samples/fake-claude.sh".to_string(),
             use_subscription: true,
+            models: None,
         },
         codex: CodexSettings {
             program: "tests/samples/fake-codex.sh".to_string(),
             use_subscription: true,
+            models: None,
         },
         // Grok's sandbox profiles go to a folder of the tests' own, never to the real `~/.grok`.
         grok: GrokSettings {
@@ -57,6 +59,7 @@ pub fn settings_with(program: &str) -> AgentSettings {
         claude: ClaudeSettings {
             program: program.to_string(),
             use_subscription: true,
+            models: None,
         },
         ..fake_agents()
     }
@@ -199,7 +202,7 @@ impl Scene {
 
     pub fn thread(&self, project: &ProjectView, agent: &str) -> Thread {
         self.workspace
-            .start_thread(project.id, agent, "")
+            .start_thread(project.id, agent, None, "")
             .expect("the thread is started")
     }
 

@@ -1,5 +1,5 @@
 import type { Event } from './protocol';
-import { NO_OPENS, type Opens, type Project, type Thread, type ThreadEntry } from '../workspace/workspace.model';
+import { type ModelLists, NO_MODELS, NO_OPENS, type Opens, type Project, type Thread, type ThreadEntry } from '../workspace/workspace.model';
 
 /**
  * The projects and threads as the service last described them.
@@ -11,15 +11,19 @@ export interface WorkspaceLists {
   readonly threads: readonly Thread[];
   /** What a thread's copy can be opened in on the service's machine, besides the file manager. */
   readonly opens: Opens;
+  /** The models each agent offers besides its default. */
+  readonly models: ModelLists;
 }
 
-export const NO_LISTS: WorkspaceLists = { projects: [], threads: [], opens: NO_OPENS };
+export const NO_LISTS: WorkspaceLists = { projects: [], threads: [], opens: NO_OPENS, models: NO_MODELS };
 
 /** The lists after one event. A snapshot replaces everything; changes replace or add one item. */
 export function applyEvent(lists: WorkspaceLists, event: Event): WorkspaceLists {
   switch (event.type) {
     case 'snapshot':
-      return { projects: event.projects as Project[], threads: event.threads as Thread[], opens: event.opens };
+      return { projects: event.projects as Project[], threads: event.threads as Thread[], opens: event.opens, models: event.models };
+    case 'models_changed':
+      return { ...lists, models: event.models };
     case 'project_added':
       return { ...lists, projects: upsert(lists.projects, event.project as Project) };
     case 'project_removed':

@@ -67,13 +67,15 @@
                     class="hero-input"
                     rows="1"
                     aria-label="New thread"
-                    [placeholder]="'What should ' + agentLabel((agent$ | async) ?? 'claude') + ' do in ' + view.project.name + '?'"
+                    [placeholder]="'What should ' + agentLabel((choice$ | async)?.agent ?? 'claude') + ' do in ' + view.project.name + '?'"
                     [value]="draft$ | async"
                     (input)="updateDraft($event)"
                     (keydown)="handleComposerKeydown($event, view)"
                   ></textarea>
                   <div class="composer-meta">
-                    <button type="button" aria-label="Change agent" (click)="switchAgent()">{{ agentLabel((agent$ | async) ?? 'claude') }}</button>
+                    @if (choice$ | async; as choice) {
+                      <button type="button" aria-label="Change agent" (click)="switchAgent()">{{ choiceLabel(choice) }}</button>
+                    }
                     <span class="spacer"></span>
                     <span>{{ view.project.directory }}</span>
                     <button type="button" class="code-link" aria-keyshortcuts="/" (click)="openMenu()">menu <kbd>/</kbd></button>
@@ -112,7 +114,7 @@
                         }
                         @case ('notice') { <p class="notice-line">{{ line.text }}</p> }
                         @case ('error') { <p class="error-line" role="alert">{{ line.text }}</p> }
-                        @case ('summary') { <p class="summary-line">{{ line.text }}</p> }
+                        @case ('summary') { <p class="summary-line" [attr.title]="line.title ?? null">{{ line.text }}</p> }
                       }
                     </article>
                   }
@@ -156,10 +158,10 @@
                     <div>
                       @if (view.thread.reviewer) {
                         <button type="button" class="target-switch" aria-label="Who the message goes to" (click)="toggleTarget()">
-                          to {{ (target$ | async) === 'reviewer' ? agentLabel(view.thread.reviewer.agent) : agentLabel(view.thread.agent) }} ▾
+                          to {{ choiceLabel(threadChoice(view.thread, (target$ | async) ?? 'author') ?? { agent: view.thread.agent, model: null }) }} ▾
                         </button>
                       } @else {
-                        <span>{{ agentLabel(view.thread.agent) }}</span>
+                        <span class="thread-choice">{{ choiceLabel({ agent: view.thread.agent, model: view.thread.model ?? null }) }}</span>
                       }
                       <button type="button" class="code-link" aria-keyshortcuts="/" (click)="openMenu()">menu <kbd>/</kbd></button>
                       <button type="button" class="code-link" aria-keyshortcuts="h" (click)="screen$.next('history')">history <kbd>H</kbd></button>

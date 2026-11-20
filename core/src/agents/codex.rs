@@ -45,6 +45,8 @@ pub struct CodexDriver {
     started: HashSet<String>,
     /// The last problem Codex reported, so the failure of the turn that follows does not repeat it.
     last_problem: Option<String>,
+    /// The model asked for. Codex never names the one it runs.
+    model: Option<String>,
 }
 
 impl CodexDriver {
@@ -55,6 +57,7 @@ impl CodexDriver {
             conversation: None,
             started: HashSet::new(),
             last_problem: None,
+            model: None,
         }
     }
 
@@ -138,6 +141,10 @@ impl AgentDriver for CodexDriver {
             arguments.push("resume".to_string());
         }
         arguments.extend(["--json", "--skip-git-repo-check"].map(String::from));
+        if let Some(model) = &turn.model {
+            arguments.extend(["-m".to_string(), model.clone()]);
+        }
+        self.model = turn.model.clone();
         let sandbox: &[&str] = if turn.read_only {
             &REVIEWER_SANDBOX
         } else {
@@ -190,6 +197,11 @@ impl AgentDriver for CodexDriver {
 
     fn take_conversation(&mut self) -> Option<String> {
         self.conversation.take()
+    }
+
+    /// The model asked for. Codex does not say which model it runs, so on its default this is unknown.
+    fn model(&self) -> Option<String> {
+        self.model.clone()
     }
 }
 
@@ -284,6 +296,8 @@ mod tests {
     const RESUMED: &str = include_str!("../../tests/samples/agents/codex-resumed.jsonl");
     /// A real reviewer turn, read-only: its refused writes print nothing.
     const REVIEW: &str = include_str!("../../tests/samples/agents/codex-read-only.jsonl");
+    /// A real turn continuing a conversation on another model than it started with.
+    const OTHER_MODEL: &str = include_str!("../../tests/samples/agents/codex-other-model.jsonl");
 
     const KNOWN: &str = "01a1f8d6-5c6e-7282-b40e-8cb29b7aa5e1";
 
@@ -291,6 +305,7 @@ mod tests {
         CodexDriver::new(&CodexSettings {
             program: "codex".to_string(),
             use_subscription,
+            models: None,
         })
     }
 
@@ -307,7 +322,29 @@ mod tests {
             read_only,
             directory: PathBuf::from("/work/app"),
             writable_outside: Vec::new(),
+            model: None,
         }
+    }
+
+    /// The same turn, on a chosen model.
+    fn on_model(model: Option<&str>, turn: Turn) -> Turn {
+        Turn {
+            model: model.map(str::to_string),
+            ..turn
+        }
+    }
+
+    /// The model the driver says the turn runs on, after being asked for `asked` and reading `lines`.
+    fn model_after(asked: Option<&str>, lines: &str) -> Option<String> {
+        let mut driver = driver(true);
+        driver.invocation(&Turn {
+            model: asked.map(str::to_string),
+            ..turn("Fix the bug", None, None, false)
+        });
+        for line in lines.lines() {
+            driver.interpret(line).expect("the line is understood");
+        }
+        driver.model()
     }
 
     fn arguments(list: &[&str]) -> Vec<String> {
@@ -361,12 +398,43 @@ mod tests {
     ];
 
     lets_expect! {
-        expect(driver(use_subscription).invocation(&turn(message, conversation, brief, read_only))) {
+        // requirement: the summary names the model asked for, since Codex never says which one ran
+        expect(model_after(asked, OTHER_MODEL)) {
+            when(asked = None) as the_default_runs to be_unknown { equal(None) }
+            when(asked = Some("gpt-6-astra")) as a_model_is_asked_for to be_that_model { equal(Some("gpt-6-astra".to_string())) }
+        }
+
+        // requirement: Codex's remark that the conversation started on another model is shown, and the turn still ends normally
+        expect(kinds(OTHER_MODEL)) to note_the_switch {
+            equal(vec![EntryKind::Notice, EntryKind::AgentMessage, EntryKind::TurnSummary])
+        }
+
+        expect(driver(use_subscription).invocation(&on_model(model, turn(message, conversation, brief, read_only)))) {
             let use_subscription = true;
             let message = "Fix the bug";
             let conversation: Option<&str> = None;
             let brief: Option<&str> = None;
             let read_only = false;
+            let model: Option<&str> = None;
+
+            // requirement: a chosen model is passed on
+            when(model = Some("gpt-6-astra")) as pass_the_model to hold {
+                have(arguments.clone()) equal(arguments(&[
+                    &["exec", "--json", "--skip-git-repo-check", "-m", "gpt-6-astra"][..], &AUTHOR, &["--", "Fix the bug"],
+                ].concat()))
+            }
+
+            // requirement: the model is passed when continuing a conversation too, so it can change between messages
+            when(model = Some("gpt-6-astra"), conversation = Some(KNOWN)) as pass_the_model_when_continuing to hold {
+                have(arguments.clone()) equal(arguments(&[
+                    &["exec", "resume", "--json", "--skip-git-repo-check", "-m", "gpt-6-astra"][..], &AUTHOR, &["--", KNOWN, "Fix the bug"],
+                ].concat()))
+            }
+
+            // requirement: a reviewer runs on its chosen model too
+            when(model = Some("gpt-6-astra"), read_only = true) as pass_the_reviewers_model to hold {
+                have(arguments[3..5].to_vec()) equal(arguments(&["-m", "gpt-6-astra"]))
+            }
 
             // requirement: the first message starts a new conversation, which Codex names
             to start_a_conversation {

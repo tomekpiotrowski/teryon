@@ -95,6 +95,11 @@ pub struct Thread {
     #[serde(default)]
     pub named: bool,
     pub agent: String,
+    /// The model the agent runs on. Nothing leaves it to the agent program's own settings.
+    ///
+    /// Can change between messages; each turn's summary says which model did that turn.
+    #[serde(default)]
+    pub model: Option<String>,
     /// The identifier the agent program gave this conversation.
     ///
     /// Nothing until the program has started it: the program makes the
@@ -133,6 +138,9 @@ pub struct Thread {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct Reviewer {
     pub agent: String,
+    /// The model the reviewer runs on. Nothing leaves it to the agent program's own settings.
+    #[serde(default)]
+    pub model: Option<String>,
     /// The identifier the agent program gave the reviewer's conversation. Nothing until it has started it.
     #[serde(default)]
     pub conversation: Option<String>,

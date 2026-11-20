@@ -215,6 +215,7 @@ async fn run_turn(
         read_only: voice == Voice::Reviewer,
         directory: directory.clone(),
         writable_outside,
+        model: speaker.model.clone(),
     });
     let tree = match spawn(&invocation, &directory, &environment) {
         Ok(tree) => tree,
@@ -294,28 +295,31 @@ fn review_cut(journal: &dyn Journal, thread: &Thread, voice: Voice) {
     }
 }
 
-/// The agent taking a turn, and the conversation it continues.
+/// The agent taking a turn, the conversation it continues, and the model it runs.
 struct Speaker {
     voice: Voice,
     agent: Agent,
     /// Nothing when the turn starts a conversation.
     conversation: Option<String>,
+    /// Nothing leaves the model to the program.
+    model: Option<String>,
 }
 
 impl Speaker {
     /// The thread's agent, or its reviewer. Nothing when the thread has no such agent, or names one Teryon does not know.
     fn of(thread: &Thread, voice: Voice) -> Option<Self> {
-        let (agent, conversation) = match voice {
-            Voice::Author => (&thread.agent, &thread.conversation),
+        let (agent, conversation, model) = match voice {
+            Voice::Author => (&thread.agent, &thread.conversation, &thread.model),
             Voice::Reviewer => {
                 let reviewer = thread.reviewer.as_ref()?;
-                (&reviewer.agent, &reviewer.conversation)
+                (&reviewer.agent, &reviewer.conversation, &reviewer.model)
             }
         };
         Some(Self {
             voice,
             agent: Agent::parse(agent)?,
             conversation: conversation.clone(),
+            model: model.clone(),
         })
     }
 }
@@ -379,7 +383,8 @@ async fn follow(
                             summarised |= draft.kind == EntryKind::TurnSummary;
                             early |= draft.is_early_end();
                             remember_message(&mut last_message, &draft);
-                            journal.add(thread.id, timed(draft, started).by(voice).naming(speaker.agent));
+                            let draft = with_model(timed(draft, started), driver.model());
+                            journal.add(thread.id, draft.by(voice).naming(speaker.agent));
                         }
                     }
                     Err(_) => warn!("skipped a line of an agent's report that was not understood: {line}"),
@@ -559,6 +564,14 @@ fn timed(mut draft: EntryDraft, started: Instant) -> EntryDraft {
     draft
 }
 
+/// Adds the model the turn ran on to its summary, when it is known.
+fn with_model(mut draft: EntryDraft, model: Option<String>) -> EntryDraft {
+    if let (EntryKind::TurnSummary, Some(model)) = (draft.kind, model) {
+        draft.body["model"] = json!(model);
+    }
+    draft
+}
+
 /// Explains a program that ended without reporting the end of its turn.
 fn unfinished_turn(status: Option<ExitStatus>, complaints: &str) -> String {
     let complaints = complaints.trim();
@@ -597,6 +610,7 @@ mod tests {
     use std::process::Command as StdCommand;
 
     use lets_expect::lets_expect;
+    use serde_json::Value;
     use tempfile::tempdir;
 
     use super::*;
@@ -745,6 +759,16 @@ mod tests {
         expect(timed(draft, Instant::now()).body["duration_ms"].is_u64()) {
             when(draft = EntryDraft::turn_summary(None, None)) as a_turn_summary to carry_a_duration { be_true }
             when(draft = EntryDraft::notice("Hello")) as another_entry to be_left_alone { be_false }
+        }
+
+        // requirement: a turn's summary names the model it ran on, when that is known
+        expect(with_model(draft, model).body["model"].clone()) {
+            let draft = EntryDraft::turn_summary(None, None);
+            let model = Some("claude-opus-5-5".to_string());
+
+            to name_the_model { equal(json!("claude-opus-5-5")) }
+            when(model = None) as the_model_is_unknown to leave_it_out { equal(Value::Null) }
+            when(draft = EntryDraft::notice("Hello")) as another_entry to be_left_alone { equal(Value::Null) }
         }
     }
 }

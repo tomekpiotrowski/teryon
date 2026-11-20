@@ -32,9 +32,16 @@ import { askDraft } from './files.model';
 import { type Commit, revertDraft } from './history.model';
 import { WorkspaceApi } from './workspace.api';
 import {
-  type AgentName,
   agentLabel,
   barTitle,
+  type Choice,
+  choiceLabel,
+  chosen,
+  choosing,
+  FIRST_NEW_THREADS,
+  type NewThreads,
+  switchingAgent,
+  threadChoice,
   CATCH_UP_REQUEST,
   type ChangeCard,
   changeCard,
@@ -47,7 +54,6 @@ import {
   groupThreads,
   NO_PLACE,
   NOTHING_SELECTED,
-  nextAgent,
   type Place,
   placeIn,
   type Project,
@@ -129,6 +135,8 @@ export class WorkspacePage implements OnDestroy {
 
   readonly threadLabel = threadLabel;
   readonly agentLabel = agentLabel;
+  readonly choiceLabel = choiceLabel;
+  readonly threadChoice = threadChoice;
   readonly barTitle = barTitle;
   readonly runningText = runningText;
   readonly waitingText = waitingText;
@@ -137,7 +145,10 @@ export class WorkspacePage implements OnDestroy {
 
   readonly selection$ = new BehaviorSubject<Selection>(NOTHING_SELECTED);
   readonly draft$ = new BehaviorSubject('');
-  readonly agent$ = new BehaviorSubject<AgentName>('claude');
+  /** The agent and model new threads start with, and the model remembered for each agent. */
+  readonly newThreads$ = new BehaviorSubject<NewThreads>(FIRST_NEW_THREADS);
+  /** The agent and model a new thread would start with, for the button beside the message box. */
+  readonly choice$: Observable<Choice> = this.newThreads$.pipe(map(chosen));
   readonly menuOpen$ = new BehaviorSubject(false);
   /** The one section the menu was opened on, such as the thread's changes. Nothing for the whole menu. */
   readonly menuSection$ = new BehaviorSubject<CommandGroup | null>(null);
@@ -213,11 +224,13 @@ export class WorkspacePage implements OnDestroy {
   /** The commands on offer, for the menu to list and the keys to run. */
   readonly commands$: Observable<readonly Command[]> = combineLatest([
     this.view$,
-    this.agent$,
+    this.newThreads$,
     toObservable(this.theme.theme),
     this.store.opens$,
+    this.store.models$,
+    this.target$,
   ]).pipe(
-    map(([view, agent, theme, opens]) => commandList({ ...view, agent, theme, opens })),
+    map(([view, newThreads, theme, opens, models, to]) => commandList({ ...view, newThreads, theme, opens, models, to })),
     shareReplay({ bufferSize: 1, refCount: true }),
   );
 
@@ -403,8 +416,10 @@ export class WorkspacePage implements OnDestroy {
         return action.screen === 'files' ? this.showCode() : this.screen$.next(screenAfter(this.screen$.value, action.screen));
       case 'removeProject':
         return void this.confirmRemoveProject(action.project);
-      case 'useAgent':
-        return this.agent$.next(action.agent);
+      case 'useChoice':
+        return this.newThreads$.next(choosing(this.newThreads$.value, action.choice));
+      case 'useModelInThread':
+        return this.changeModel(action.thread, action.to, action.model);
       case 'toggleTheme':
         return this.theme.toggle();
       case 'stopAgent':
@@ -416,7 +431,7 @@ export class WorkspacePage implements OnDestroy {
       case 'exploreChange':
         return this.exploreChange(action.thread);
       case 'reviewChange':
-        return this.reviewChange(action.thread, action.agent);
+        return this.reviewChange(action.thread, action.choice);
       case 'passFindings':
         return this.passFindings();
       case 'discardChange':
@@ -508,9 +523,16 @@ export class WorkspacePage implements OnDestroy {
     this.to$.next(this.to$.value === 'author' ? 'reviewer' : 'author');
   }
 
-  reviewChange(thread: Thread, agent: AgentName): void {
-    this.api.reviewChange(thread.id, agent).subscribe({
+  reviewChange(thread: Thread, choice: Choice): void {
+    this.api.reviewChange(thread.id, choice).subscribe({
       error: (failure: unknown) => this.alerts.error(refusalText(failure, 'The change could not be reviewed.')),
+    });
+  }
+
+  /** Switches the model of a thread's agent, or of its reviewer, from the next message on. */
+  changeModel(thread: Thread, to: Voice, model: string | null): void {
+    this.api.changeModel(thread.id, to, model).subscribe({
+      error: (failure: unknown) => this.alerts.error(refusalText(failure, 'The model could not be changed.')),
     });
   }
 
@@ -522,9 +544,9 @@ export class WorkspacePage implements OnDestroy {
     });
   }
 
-  /** Moves the agent of new threads on to the next one, for the button beside the message box. */
+  /** Moves new threads on to the next agent, on the model last chosen for it, for the button beside the message box. */
   switchAgent(): void {
-    this.agent$.next(nextAgent(this.agent$.value));
+    this.newThreads$.next(switchingAgent(this.newThreads$.value));
   }
 
   updateDraft(event: Event): void {
@@ -547,7 +569,7 @@ export class WorkspacePage implements OnDestroy {
 
     const thread$ = view.thread
       ? of(view.thread)
-      : this.api.createThread(view.project.id, this.agent$.value).pipe(
+      : this.api.createThread(view.project.id, chosen(this.newThreads$.value)).pipe(
           tap((thread) => this.selection$.next({ projectId: thread.project_id, threadId: thread.id })),
         );
 

@@ -51,6 +51,7 @@ async fn another_thread(client: &mut Client, project: Uuid) -> Uuid {
             .call(Request::StartThread {
                 project_id: project,
                 agent: "claude".to_string(),
+                model: None,
                 title: String::new(),
             })
             .await

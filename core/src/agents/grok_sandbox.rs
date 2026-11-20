@@ -256,6 +256,7 @@ mod tests {
             program: "grok".to_string(),
             home: Some(home.path().to_path_buf()),
             writable: writable.iter().map(ToString::to_string).collect(),
+            models: None,
         })
     }
 

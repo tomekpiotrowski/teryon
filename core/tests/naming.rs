@@ -71,7 +71,7 @@ lets_expect! { #tokio_test
         let scene = Scene::new();
         let folder = project_folder();
         let project = scene.project(&folder);
-        let thread = scene.workspace.start_thread(project.id, "claude", "Named").unwrap();
+        let thread = scene.workspace.start_thread(project.id, "claude", None, "Named").unwrap();
         expect(thread.named) to be_true
 
         scene.say(&thread, "hello").unwrap();

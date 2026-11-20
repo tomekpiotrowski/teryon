@@ -288,6 +288,7 @@ mod tests {
             title: String::new(),
             named: false,
             agent: "claude".to_string(),
+            model: None,
             conversation: None,
             status: Status::Idle,
             unread: false,

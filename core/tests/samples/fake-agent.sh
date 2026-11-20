@@ -12,6 +12,13 @@
 agent="$1"
 shift
 samples="$(dirname "$0")/agents"
+
+# `grok models`, asked once when the service starts, outside any project:
+# a recording of the list it prints, and nothing written anywhere.
+if [ "$*" = "models" ]; then
+  cat "$samples/$agent-models.txt"
+  exit 0
+fi
 # Where the project is: a reviewer runs inside a thread's worktree, and
 # tests look for what it leaves in the project directory.
 common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)

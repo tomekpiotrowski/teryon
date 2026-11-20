@@ -131,7 +131,7 @@ lets_expect! { #tokio_test
         let scene = scene.restart(|_| { drop(folder); });
         expect(path.exists()) to be_false
         expect(scene.projects()[0].state) to equal(ProjectState::Missing)
-        let thread = scene.workspace.start_thread(project.id, "claude", "").map_err(|problem| problem.to_string());
+        let thread = scene.workspace.start_thread(project.id, "claude", None, "").map_err(|problem| problem.to_string());
         expect(thread.err()) to equal(Some("This project's directory is gone.".to_string()))
         expect(scene.workspace.remove_project(project.id).is_ok()) to be_true
     }
@@ -153,7 +153,7 @@ lets_expect! { #tokio_test
         let folder = project_folder();
         let project = scene.project(&folder);
 
-        let thread = scene.workspace.start_thread(project.id, "grok", " Tidy up ").unwrap();
+        let thread = scene.workspace.start_thread(project.id, "grok", None, " Tidy up ").unwrap();
         expect(thread.agent.as_str()) to equal("grok")
         expect(thread.title.as_str()) to equal("Tidy up")
         expect(thread.status) to equal(Status::Idle)
@@ -167,9 +167,9 @@ lets_expect! { #tokio_test
         let folder = project_folder();
         let project = scene.project(&folder);
 
-        let thread = scene.workspace.start_thread(project.id, "gemini", "").map_err(|problem| problem.to_string());
+        let thread = scene.workspace.start_thread(project.id, "gemini", None, "").map_err(|problem| problem.to_string());
         expect(thread.err()) to equal(Some("Choose Claude, Codex or Grok as the agent.".to_string()))
-        let elsewhere = scene.workspace.start_thread(unknown(), "claude", "").map_err(|problem| problem.to_string());
+        let elsewhere = scene.workspace.start_thread(unknown(), "claude", None, "").map_err(|problem| problem.to_string());
         expect(elsewhere.err()) to equal(Some("There is no such project.".to_string()))
     }
 
@@ -241,7 +241,7 @@ lets_expect! { #tokio_test
         let scene = Scene::new();
         let folder = project_folder();
         let project = scene.project(&folder);
-        let thread = scene.workspace.start_thread(project.id, "claude", "Named").unwrap();
+        let thread = scene.workspace.start_thread(project.id, "claude", None, "Named").unwrap();
 
         scene.say(&thread, "hello").unwrap();
         scene.wait_until_idle(&thread).await;
@@ -561,6 +561,7 @@ lets_expect! { #tokio_test
                 Event::ProjectRemoved { .. } => "project_removed",
                 Event::ThreadChanged { .. } => "thread_changed",
                 Event::EntryAdded { .. } => "entry_added",
+                Event::ModelsChanged { .. } => "models_changed",
             });
         }
         expect(names.first().copied()) to equal(Some("project_added"))

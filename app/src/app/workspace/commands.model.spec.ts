@@ -10,7 +10,17 @@ import {
   stepped,
 } from './commands.model';
 import { gitWordsIn } from './plain-words.testing';
-import { type Change, groupThreads, type KeyPress, type Project, type Thread } from './workspace.model';
+import {
+  type AgentName,
+  type Change,
+  FIRST_NEW_THREADS,
+  groupThreads,
+  type KeyPress,
+  type NewThreads,
+  NO_MODELS,
+  type Project,
+  type Thread,
+} from './workspace.model';
 
 function project(id: string, name = `Project ${id}`): Project {
   return { id, name, directory: `/work/${id}`, created_at: `2026-11-0${id.length}T10:00:00` };
@@ -24,8 +34,22 @@ function press(overrides: Partial<KeyPress> = {}): KeyPress {
   return { key: '/', ctrlKey: false, metaKey: false, altKey: false, element: 'BODY', editable: false, ...overrides };
 }
 
-function situation(overrides: Partial<Situation> = {}): Situation {
-  return { groups: [], project: null, thread: null, agent: 'claude', theme: 'light', opens: { editor: false, terminal: false }, ...overrides };
+/** What a spec changes about the situation; `agent` stands for the agent of new threads. */
+type Changes = Partial<Situation> & { readonly agent?: AgentName };
+
+function situation(overrides: Changes = {}): Situation {
+  const { agent = 'claude', ...rest } = overrides;
+  return {
+    groups: [],
+    project: null,
+    thread: null,
+    newThreads: { ...FIRST_NEW_THREADS, agent },
+    models: NO_MODELS,
+    to: 'author',
+    theme: 'light',
+    opens: { editor: false, terminal: false },
+    ...rest,
+  };
 }
 
 function entry(title: string, detail = '', overrides: Partial<Command> = {}): Command {
@@ -39,6 +63,32 @@ const newest = thread('t2', 'bb', '2026-11-05T10:00:00', { status: 'running' });
 const untitled = thread('t3', 'a', '2026-11-04T10:00:00', { title: '' });
 const groups = groupThreads([first, second], [older, newest, untitled]);
 
+/** The titles of the commands that pick an agent and model for new threads. */
+function choiceTitles(given: Situation): string[] {
+  return commandList(given)
+    .filter((candidate) => candidate.action.kind === 'useChoice')
+    .map((candidate) => candidate.title);
+}
+
+/** The titles of the commands that ask for a review. */
+function changeTitles(given: Situation): string[] {
+  return commandList(given)
+    .filter((candidate) => candidate.action.kind === 'reviewChange')
+    .map((candidate) => candidate.title);
+}
+
+const changedThread = thread('t6', 'a', '2026-11-01T10:00:00', {
+  change: {
+    name: 'fix-login',
+    path: '/work/a/.teryon/worktrees/fix-login',
+    base: 'main',
+    start: 'abc',
+    branch: 'fix-login',
+    state: { copy_present: true, base_present: true, files_changed: 1, fit: 'applies', unfinished: false },
+    review: null,
+  },
+});
+
 function ids(commands: readonly Command[]): string[] {
   return commands.map((candidate) => candidate.id);
 }
@@ -46,8 +96,8 @@ function ids(commands: readonly Command[]): string[] {
 describe('commandList', () => {
   it('offers only what needs no project when there is none', () => {
     expect(ids(commandList(situation()))).toEqual([
-      'action:useAgent:codex',
-      'action:useAgent:grok',
+      'action:use:codex:default',
+      'action:use:grok:default',
       'action:newProject',
       'action:toggleTheme',
     ]);
@@ -63,8 +113,8 @@ describe('commandList', () => {
       'action:newThread',
       'action:files',
       'action:history',
-      'action:useAgent:codex',
-      'action:useAgent:grok',
+      'action:use:codex:default',
+      'action:use:grok:default',
       'action:newProject',
       'action:removeProject',
       'action:toggleTheme',
@@ -139,7 +189,7 @@ describe('commandList', () => {
     const grokking = thread('t5', 'a', '2026-11-01T10:00:00', { agent: 'grok', commands: ['goal'] });
     const known = groupThreads([first, second], [compacting, reviewing, untitled, grokking]);
 
-    function agentRows(overrides: Partial<Situation>): [string, string, string][] {
+    function agentRows(overrides: Changes): [string, string, string][] {
       return commandList(situation({ groups: known, ...overrides }))
         .filter((candidate) => candidate.group === 'agent')
         .map((candidate) => [candidate.id, candidate.title, candidate.detail]);
@@ -186,17 +236,99 @@ describe('commandList', () => {
   });
 
   it.each([
-    ['claude', ['Use Codex for new threads', 'Use Grok for new threads']],
-    ['codex', ['Use Claude for new threads', 'Use Grok for new threads']],
-    ['grok', ['Use Claude for new threads', 'Use Codex for new threads']],
-  ] as const)('with %s chosen offers each other agent', (agent, titles) => {
-    const offeredAgents = commandList(situation({ agent })).filter((candidate) => candidate.action.kind === 'useAgent');
-    expect(offeredAgents.map((candidate) => candidate.title)).toEqual(titles);
+    ['claude', ['Use Codex · default for new threads', 'Use Grok · default for new threads']],
+    ['codex', ['Use Claude · default for new threads', 'Use Grok · default for new threads']],
+    ['grok', ['Use Claude · default for new threads', 'Use Codex · default for new threads']],
+  ] as const)('with %s chosen offers each other agent on its default', (agent, titles) => {
+    expect(choiceTitles(situation({ agent }))).toEqual(titles);
   });
 
-  it('switches to the agent a command names', () => {
-    const useGrok = commandList(situation()).find((candidate) => candidate.id === 'action:useAgent:grok');
-    expect(useGrok?.action).toEqual({ kind: 'useAgent', agent: 'grok' });
+  it('switches to the agent and model a command names', () => {
+    const useGrok = commandList(situation()).find((candidate) => candidate.id === 'action:use:grok:default');
+    expect(useGrok?.action).toEqual({ kind: 'useChoice', choice: { agent: 'grok', model: null } });
+  });
+
+  describe('choosing models', () => {
+    const models = { claude: ['opus', 'sonnet'], codex: [], grok: ['grok-4.6'] };
+
+    it('offers every agent on every model, its default first, except the current choice', () => {
+      const newThreads = { agent: 'claude' as const, models: { claude: 'opus', codex: null, grok: null } };
+      expect(choiceTitles(situation({ models, newThreads }))).toEqual([
+        'Use Claude · default for new threads',
+        'Use Claude · Sonnet for new threads',
+        'Use Codex · default for new threads',
+        'Use Grok · default for new threads',
+        'Use Grok · Grok 4.6 for new threads',
+      ]);
+    });
+
+    it('names the choice in the command\'s identifier and action', () => {
+      const sonnet = commandList(situation({ models })).find((candidate) => candidate.id === 'action:use:claude:sonnet');
+      expect(sonnet?.action).toEqual({ kind: 'useChoice', choice: { agent: 'claude', model: 'sonnet' } });
+    });
+
+    it('asks reviewers on the model remembered for them', () => {
+      const newThreads = { agent: 'claude' as const, models: { claude: null, codex: 'gpt-6-astra', grok: 'grok-4.6' } };
+      const inProject = { models, newThreads, project: first, thread: changedThread, groups: groupThreads([first], [changedThread]) };
+      expect(changeTitles(situation(inProject))).toEqual(['Ask Codex · GPT 6 astra to review', 'Ask Grok · Grok 4.6 to review']);
+      const ask = commandList(situation(inProject)).find((candidate) => candidate.id === 'change:askReview');
+      expect(ask?.action).toEqual({ kind: 'reviewChange', thread: changedThread, choice: { agent: 'codex', model: 'gpt-6-astra' } });
+    });
+
+    it('asks the thread\'s reviewer again on its own model, whatever is remembered for new threads', () => {
+      const newThreads: NewThreads = { agent: 'claude', models: { claude: null, codex: 'gpt-6-astra', grok: 'grok-4.6' } };
+      const reviewedOn = (model: string | null): Thread => ({
+        ...changedThread,
+        reviewer: { agent: 'grok', model, reviewing: false, verdict: { findings: 2, answered: true, cut: false } },
+      });
+      const ask = (given: Thread, remembered = newThreads) =>
+        commandList(situation({ models, newThreads: remembered, project: first, thread: given })).filter((candidate) => candidate.action.kind === 'reviewChange');
+
+      // Switched for the reviewer in this thread: kept on "review again".
+      const switched = reviewedOn('grok-4.5');
+      expect(ask(switched).map((candidate) => [candidate.title, candidate.action])).toEqual([
+        ['Ask Grok · Grok 4.5 to review again', { kind: 'reviewChange', thread: switched, choice: { agent: 'grok', model: 'grok-4.5' } }],
+        ['Ask Codex · GPT 6 astra to review', { kind: 'reviewChange', thread: switched, choice: { agent: 'codex', model: 'gpt-6-astra' } }],
+      ]);
+      // After reopening the app, nothing is remembered for new threads; the thread still knows its reviewer's model.
+      expect(ask(switched, FIRST_NEW_THREADS)[0].action).toEqual({ kind: 'reviewChange', thread: switched, choice: { agent: 'grok', model: 'grok-4.5' } });
+      // A reviewer on its default stays on it, rather than taking the model remembered for new threads.
+      expect(ask(reviewedOn(null))[0].title).toBe('Ask Grok · default to review again');
+    });
+
+    describe('in a thread', () => {
+      const onOpus = thread('t7', 'a', '2026-11-01T10:00:00', { model: 'opus' });
+      const reviewed = thread('t8', 'a', '2026-11-01T10:00:00', {
+        reviewer: { agent: 'grok', model: null, reviewing: false, verdict: null },
+      });
+
+      function inThread(changes: Changes): Command[] {
+        return commandList(situation({ models, project: first, ...changes })).filter((candidate) => candidate.action.kind === 'useModelInThread');
+      }
+
+      it('offers the thread\'s own agent on its other models', () => {
+        expect(inThread({ thread: onOpus }).map((candidate) => [candidate.title, candidate.detail])).toEqual([
+          ['Use Claude · default in this thread', 'Thread t7'],
+          ['Use Claude · Sonnet in this thread', 'Thread t7'],
+        ]);
+        expect(inThread({ thread: onOpus })[1].action).toEqual({ kind: 'useModelInThread', thread: onOpus, to: 'author', model: 'sonnet' });
+      });
+
+      it('offers nothing without a thread, or when its agent has no other model', () => {
+        expect(inThread({})).toEqual([]);
+        expect(inThread({ thread: thread('t9', 'a', '2026-11-01T10:00:00', { agent: 'codex' }) })).toEqual([]);
+      });
+
+      it('switches the reviewer\'s model while the message box writes to the reviewer', () => {
+        const offeredHere = inThread({ thread: reviewed, to: 'reviewer' });
+        expect(offeredHere.map((candidate) => candidate.title)).toEqual(['Use Grok · Grok 4.6 in this thread to review']);
+        expect(offeredHere[0].action).toEqual({ kind: 'useModelInThread', thread: reviewed, to: 'reviewer', model: 'grok-4.6' });
+      });
+
+      it('switches the author\'s model while the thread has no reviewer, whoever the message box last wrote to', () => {
+        expect(inThread({ thread: onOpus, to: 'reviewer' }).map((candidate) => candidate.title)[0]).toBe('Use Claude · default in this thread');
+      });
+    });
   });
 
   it.each([
@@ -475,8 +607,8 @@ describe('the commands for a thread\'s change', () => {
       'action:newThread',
       'action:files',
       'action:history',
-      'action:useAgent:codex',
-      'action:useAgent:grok',
+      'action:use:codex:default',
+      'action:use:grok:default',
       'action:newProject',
       'action:removeProject',
       'action:toggleTheme',
@@ -488,8 +620,8 @@ describe('the commands for a thread\'s change', () => {
       ['See the changes', 'Thread t9', 'W V'],
       ['Apply to the project', 'Thread t9', 'W A'],
       ['Catch up with the project', 'Thread t9', 'W U'],
-      ['Ask Codex to review', 'Thread t9', 'W C'],
-      ['Ask Grok to review', 'Thread t9', null],
+      ['Ask Codex · default to review', 'Thread t9', 'W C'],
+      ['Ask Grok · default to review', 'Thread t9', null],
       ['Discard changes', 'Thread t9', 'W D'],
       ['Copy location', 'Thread t9', 'W Y'],
       ['Open folder', 'Thread t9', 'W F'],
@@ -498,8 +630,8 @@ describe('the commands for a thread\'s change', () => {
 
   it('shows, applies, catches up and discards the open thread\'s change', () => {
     const [explore, apply, catchUp, askReview, askAnother, discard] = offered(changed);
-    expect(askReview.action).toEqual({ kind: 'reviewChange', thread: changed, agent: 'codex' });
-    expect(askAnother.action).toEqual({ kind: 'reviewChange', thread: changed, agent: 'grok' });
+    expect(askReview.action).toEqual({ kind: 'reviewChange', thread: changed, choice: { agent: 'codex', model: null } });
+    expect(askAnother.action).toEqual({ kind: 'reviewChange', thread: changed, choice: { agent: 'grok', model: null } });
     expect(explore.action).toEqual({ kind: 'exploreChange', thread: changed });
     expect(apply.action).toEqual({ kind: 'applyChange', thread: changed });
     expect(catchUp.action).toEqual({ kind: 'catchUp', thread: changed });
@@ -610,28 +742,28 @@ describe('the commands for a thread\'s change', () => {
     }
 
     it.each([
-      ['claude', [['Ask Codex to review', 'W C'], ['Ask Grok to review', null]]],
-      ['codex', [['Ask Claude to review', 'W C'], ['Ask Grok to review', null]]],
-      ['grok', [['Ask Claude to review', 'W C'], ['Ask Codex to review', null]]],
+      ['claude', [['Ask Codex · default to review', 'W C'], ['Ask Grok · default to review', null]]],
+      ['codex', [['Ask Claude · default to review', 'W C'], ['Ask Grok · default to review', null]]],
+      ['grok', [['Ask Claude · default to review', 'W C'], ['Ask Codex · default to review', null]]],
     ] as const)('offers every agent but %s, the first one on the key', (agent, titles) => {
       expect(reviewTitles({ ...changed, agent })).toEqual(titles);
     });
 
     it('puts the agent that reviewed first, asking it again, and offers the rest afresh', () => {
-      expect(reviewTitles(reviewed(2))).toEqual([['Ask Grok to review again', 'W C'], ['Ask Codex to review', null]]);
+      expect(reviewTitles(reviewed(2))).toEqual([['Ask Grok · default to review again', 'W C'], ['Ask Codex · default to review', null]]);
     });
 
-    it('names the agent to ask in the action', () => {
+    it('names the agent to ask, and its model, in the action', () => {
       const actions = offered(reviewed(2)).filter((command) => command.action.kind === 'reviewChange').map((command) => [command.id, command.action]);
       expect(actions).toEqual([
-        ['change:askReview', { kind: 'reviewChange', thread: reviewed(2), agent: 'grok' }],
-        ['change:askReview:codex', { kind: 'reviewChange', thread: reviewed(2), agent: 'codex' }],
+        ['change:askReview', { kind: 'reviewChange', thread: reviewed(2), choice: { agent: 'grok', model: null } }],
+        ['change:askReview:codex', { kind: 'reviewChange', thread: reviewed(2), choice: { agent: 'codex', model: null } }],
       ]);
     });
 
     it('asks the reviewer to review, not again, before it finished a review', () => {
       const started = { ...changed, reviewer: { agent: 'grok' as const, reviewing: false, verdict: null } };
-      expect(reviewTitles(started)[0]).toEqual(['Ask Grok to review', 'W C']);
+      expect(reviewTitles(started)[0]).toEqual(['Ask Grok · default to review', 'W C']);
     });
 
     it.each([

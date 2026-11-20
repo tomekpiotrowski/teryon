@@ -10,18 +10,27 @@
 
 import type { Opener } from '../service/protocol';
 import {
-  AGENTS,
   type AgentName,
   agentLabel,
+  allChoices,
   changeBadge,
+  type Choice,
+  choiceLabel,
+  choicesOf,
+  chosen,
   isBareLetter,
   type KeyPress,
+  type ModelLists,
+  type NewThreads,
   type Opens,
   type Project,
   type ProjectGroup,
   reviewersFor,
+  sameChoice,
   type Thread,
+  threadChoice,
   threadLabel,
+  type Voice,
 } from './workspace.model';
 
 /** The sections of the menu, in the order they are listed before anything is typed. */
@@ -34,13 +43,14 @@ export type CommandAction =
   | { readonly kind: 'showScreen'; readonly screen: 'files' | 'history' }
   | { readonly kind: 'newProject' }
   | { readonly kind: 'removeProject'; readonly project: Project }
-  | { readonly kind: 'useAgent'; readonly agent: AgentName }
+  | { readonly kind: 'useChoice'; readonly choice: Choice }
+  | { readonly kind: 'useModelInThread'; readonly thread: Thread; readonly to: Voice; readonly model: string | null }
   | { readonly kind: 'toggleTheme' }
   | { readonly kind: 'stopAgent'; readonly thread: Thread }
   | { readonly kind: 'applyChange'; readonly thread: Thread }
   | { readonly kind: 'catchUp'; readonly thread: Thread }
   | { readonly kind: 'exploreChange'; readonly thread: Thread }
-  | { readonly kind: 'reviewChange'; readonly thread: Thread; readonly agent: AgentName }
+  | { readonly kind: 'reviewChange'; readonly thread: Thread; readonly choice: Choice }
   | { readonly kind: 'passFindings'; readonly thread: Thread }
   | { readonly kind: 'discardChange'; readonly thread: Thread }
   | { readonly kind: 'sendForReview'; readonly thread: Thread }
@@ -71,8 +81,12 @@ export interface Situation {
   readonly groups: readonly ProjectGroup[];
   readonly project: Project | null;
   readonly thread: Thread | null;
-  /** The agent a new thread would be started with. */
-  readonly agent: AgentName;
+  /** The agent and model a new thread would be started with, and the model remembered for each agent. */
+  readonly newThreads: NewThreads;
+  /** The models each agent offers besides its default. */
+  readonly models: ModelLists;
+  /** Which of the open thread's agents the message box writes to. */
+  readonly to: Voice;
   readonly theme: 'light' | 'dark';
   /** What a thread's copy can be opened in, besides the file manager. */
   readonly opens: Opens;
@@ -142,10 +156,14 @@ export function commandList(situation: Situation): Command[] {
   if (thread?.status === 'running') {
     actions.push(command('action:stopAgent', 'Stop the agent', 'action', { kind: 'stopAgent', thread }, { detail: threadLabel(thread) }));
   }
+  actions.push(...threadModelCommands(situation));
+  const current = chosen(situation.newThreads);
   actions.push(
-    ...AGENTS.filter((agent) => agent !== situation.agent).map((agent) =>
-      command(`action:useAgent:${agent}`, `Use ${agentLabel(agent)} for new threads`, 'action', { kind: 'useAgent', agent }),
-    ),
+    ...allChoices(situation.models)
+      .filter((choice) => !sameChoice(choice, current))
+      .map((choice) =>
+        command(`action:use:${choiceId(choice)}`, `Use ${choiceLabel(choice)} for new threads`, 'action', { kind: 'useChoice', choice }),
+      ),
     command('action:newProject', 'New project', 'action', { kind: 'newProject' }),
   );
   if (project) {
@@ -156,6 +174,36 @@ export function commandList(situation: Situation): Command[] {
   );
 
   return [...threads, ...projects, ...changeCommands(situation), ...actions, ...agentCommands(situation)];
+}
+
+/** A choice as part of a command's identifier, such as `claude:opus` or `codex:default`. */
+function choiceId(choice: Choice): string {
+  return `${choice.agent}:${choice.model ?? 'default'}`;
+}
+
+/**
+ * Switching the model of the open thread's agent, from the next message on.
+ *
+ * Only the thread's own agent's models are offered, since a conversation
+ * cannot move to another program. When the message box writes to the
+ * reviewer, the reviewer's model is the one switched.
+ */
+function threadModelCommands(situation: Situation): Command[] {
+  const thread = situation.thread;
+  const to = thread?.reviewer ? situation.to : 'author';
+  const current = thread ? threadChoice(thread, to) : null;
+  if (!thread || !current) return [];
+  return choicesOf(current.agent, situation.models)
+    .filter((choice) => choice.model !== current.model)
+    .map((choice) =>
+      command(
+        `action:useInThread:${choiceId(choice)}`,
+        `Use ${choiceLabel(choice)} in this thread${to === 'reviewer' ? ' to review' : ''}`,
+        'action',
+        { kind: 'useModelInThread', thread, to, model: choice.model },
+        { detail: threadLabel(thread) },
+      ),
+    );
 }
 
 /**
@@ -180,22 +228,28 @@ function reviewCommands(situation: Situation, thread: Thread): Command[] {
 /**
  * Asking another agent to review the change, and passing what it found to the author.
  *
- * Every agent but the thread's own is offered. The usual one, the one that
- * reviewed before or else the first other agent, has the key; asking it
- * again continues its review, while asking another starts afresh.
+ * Every agent but the thread's own is offered. The thread's reviewer keeps
+ * the model it reviews on, which the thread stores, so a model switched for
+ * it in this thread, or chosen before the app was last opened, stays. Any
+ * other agent is offered on the model remembered for new threads. The usual one, the one that reviewed before or else the first
+ * other agent, has the key; asking it again continues its review, while
+ * asking another starts afresh.
  *
  * Passing is only offered while the last review, finished, found something
  * and the author has not worked on the change since.
  */
-function agentReviewCommands(thread: Thread): Command[] {
+function agentReviewCommands(situation: Situation, thread: Thread): Command[] {
   const extra = (key: string) => ({ detail: threadLabel(thread), key, leader: CHANGE_LEADER });
   const verdict = thread.reviewer?.verdict;
-  const [usual, ...others] = reviewersFor(thread);
-  const again = verdict && thread.reviewer?.agent === usual ? ' again' : '';
+  const reviewer = thread.reviewer;
+  const on = (agent: AgentName): Choice =>
+    reviewer?.agent === agent ? { agent, model: reviewer.model ?? null } : { agent, model: situation.newThreads.models[agent] };
+  const [usual, ...others] = reviewersFor(thread).map(on);
+  const again = verdict && thread.reviewer?.agent === usual.agent ? ' again' : '';
   const commands = [
-    command('change:askReview', `Ask ${agentLabel(usual)} to review${again}`, 'change', { kind: 'reviewChange', thread, agent: usual }, extra('c')),
-    ...others.map((agent) =>
-      command(`change:askReview:${agent}`, `Ask ${agentLabel(agent)} to review`, 'change', { kind: 'reviewChange', thread, agent }, { detail: threadLabel(thread) }),
+    command('change:askReview', `Ask ${choiceLabel(usual)} to review${again}`, 'change', { kind: 'reviewChange', thread, choice: usual }, extra('c')),
+    ...others.map((choice) =>
+      command(`change:askReview:${choice.agent}`, `Ask ${choiceLabel(choice)} to review`, 'change', { kind: 'reviewChange', thread, choice }, { detail: threadLabel(thread) }),
     ),
   ];
   if (verdict && !verdict.answered && !verdict.cut && verdict.findings !== 0) {
@@ -234,7 +288,7 @@ function changeCommands(situation: Situation): Command[] {
     command('change:explore', 'See the changes', 'change', { kind: 'exploreChange', thread }, extra('v')),
     command('change:apply', 'Apply to the project', 'change', { kind: 'applyChange', thread }, extra('a')),
     command('change:catchUp', 'Catch up with the project', 'change', { kind: 'catchUp', thread }, extra('u')),
-    ...agentReviewCommands(thread),
+    ...agentReviewCommands(situation, thread),
     ...reviewCommands(situation, thread),
     discard,
     command('change:copyLocation', 'Copy location', 'change', { kind: 'copyLocation', path: change.path }, extra('y')),
@@ -259,7 +313,7 @@ function changeCommands(situation: Situation): Command[] {
  * one, because a project can bring commands of its own, else from any.
  */
 function agentCommands(situation: Situation): Command[] {
-  const agent = situation.thread?.agent ?? situation.agent;
+  const agent = situation.thread?.agent ?? situation.newThreads.agent;
   return offeredNames(situation, agent).map((name) =>
     command(`agent:${name}`, `/${name}`, 'agent', { kind: 'draft', text: `/${name} ` }, { detail: `${agentLabel(agent)} command` }),
   );
