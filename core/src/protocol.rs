@@ -22,11 +22,12 @@ use sha2::{Digest, Sha256};
 use ts_rs::{Config, TS};
 use uuid::Uuid;
 
-use crate::changes::{Change, ChangeState, Fit, Review, ReviewState};
+use crate::agents::Voice;
+use crate::changes::{Change, ChangeState, Finish, Fit, Review, ReviewState};
 use crate::files::diff::{Line, LineChange};
 use crate::files::{Content, FileChange, FileEntry, FileView, Listing};
 use crate::history::{ChangedFile, Changes, Commit, History};
-use crate::store::{Entry, Project, Status, Thread};
+use crate::store::{Entry, Project, Reviewer, Status, Thread, Verdict};
 
 /// A message from a client.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
@@ -60,9 +61,16 @@ pub enum Request {
         #[serde(default)]
         title: String,
     },
+    /// Sends a message to the thread's agent, or to its reviewer.
     SendMessage {
         thread_id: Uuid,
         text: String,
+        #[serde(default)]
+        to: Voice,
+    },
+    /// Asks a second agent to review the thread's change, in the same thread.
+    ReviewChange {
+        thread_id: Uuid,
     },
     Stop {
         thread_id: Uuid,
@@ -324,6 +332,10 @@ pub fn typescript() -> String {
         ChangeState::decl(&config),
         Review::decl(&config),
         ReviewState::decl(&config),
+        Finish::decl(&config),
+        Reviewer::decl(&config),
+        Verdict::decl(&config),
+        Voice::decl(&config),
         Fit::decl(&config),
         Opener::decl(&config),
         Opens::decl(&config),

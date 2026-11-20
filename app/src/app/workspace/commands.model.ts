@@ -12,12 +12,14 @@ import type { Opener } from '../service/protocol';
 import {
   type AgentName,
   agentLabel,
+  changeBadge,
   isBareLetter,
   type KeyPress,
   type Opens,
   otherAgent,
   type Project,
   type ProjectGroup,
+  reviewerOf,
   type Thread,
   threadLabel,
 } from './workspace.model';
@@ -37,6 +39,9 @@ export type CommandAction =
   | { readonly kind: 'stopAgent'; readonly thread: Thread }
   | { readonly kind: 'applyChange'; readonly thread: Thread }
   | { readonly kind: 'catchUp'; readonly thread: Thread }
+  | { readonly kind: 'exploreChange'; readonly thread: Thread }
+  | { readonly kind: 'reviewChange'; readonly thread: Thread }
+  | { readonly kind: 'passFindings'; readonly thread: Thread }
   | { readonly kind: 'discardChange'; readonly thread: Thread }
   | { readonly kind: 'sendForReview'; readonly thread: Thread }
   | { readonly kind: 'openReview'; readonly thread: Thread }
@@ -56,6 +61,8 @@ export interface Command {
   readonly leader: string | null;
   /** Whether an agent is working in what the command opens. */
   readonly live: boolean;
+  /** Where the change of the thread the command opens stands, such as `ready to apply`. Nothing for other commands. */
+  readonly badge: string;
   readonly action: CommandAction;
 }
 
@@ -107,7 +114,11 @@ export function commandList(situation: Situation): Command[] {
         threadLabel(candidate),
         candidate.unread && candidate.status === 'idle' ? 'attention' : 'thread',
         { kind: 'openThread', thread: candidate },
-        { detail: projectNames.get(candidate.project_id) ?? '', live: candidate.status === 'running' },
+        {
+          detail: projectNames.get(candidate.project_id) ?? '',
+          live: candidate.status === 'running',
+          badge: changeBadge(candidate),
+        },
       ),
     )
     // A stable sort: the waiting threads move to the top and both parts stay newest first.
@@ -153,7 +164,7 @@ export function commandList(situation: Situation): Command[] {
 function reviewCommands(situation: Situation, thread: Thread): Command[] {
   const change = thread.change;
   if (!change || !situation.project?.on_github) return [];
-  const extra = (key: string) => ({ detail: change.name, key, leader: CHANGE_LEADER });
+  const extra = (key: string) => ({ detail: threadLabel(thread), key, leader: CHANGE_LEADER });
   const commands: Command[] = [];
   if (change.review?.state !== 'in_review') {
     commands.push(command('change:sendForReview', 'Send for review on GitHub', 'change', { kind: 'sendForReview', thread }, extra('r')));
@@ -164,12 +175,33 @@ function reviewCommands(situation: Situation, thread: Thread): Command[] {
   return commands;
 }
 
+/**
+ * Asking the other agent to review the change, and passing what it found to the author.
+ *
+ * Passing is only offered while the last review, finished, found something
+ * and the author has not worked on the change since.
+ */
+function agentReviewCommands(thread: Thread): Command[] {
+  const extra = (key: string) => ({ detail: threadLabel(thread), key, leader: CHANGE_LEADER });
+  const verdict = thread.reviewer?.verdict;
+  const again = verdict ? ' again' : '';
+  const commands = [
+    command('change:askReview', `Ask ${agentLabel(reviewerOf(thread))} to review${again}`, 'change', { kind: 'reviewChange', thread }, extra('c')),
+  ];
+  if (verdict && !verdict.answered && !verdict.cut && verdict.findings !== 0) {
+    commands.push(
+      command('change:passFindings', `Pass findings to ${agentLabel(thread.agent)}`, 'change', { kind: 'passFindings', thread }, extra('p')),
+    );
+  }
+  return commands;
+}
+
 /** The leader key for the commands about the open thread's change. */
 export const CHANGE_LEADER = 'w';
 
 /**
- * What can be done with the open thread's change: apply it, catch it up,
- * discard it, copy where its copy is, or open it.
+ * What can be done with the open thread's change: see it, apply it, catch
+ * it up, discard it, copy where its copy is, or open it.
  *
  * Applying and catching up are offered whenever the copy is there, and say
  * why when they cannot be done, rather than hiding: a hidden command teaches
@@ -181,12 +213,14 @@ function changeCommands(situation: Situation): Command[] {
   const thread = situation.thread;
   const change = thread?.change;
   if (!thread || !change) return [];
-  const extra = (key: string) => ({ detail: change.name, key, leader: CHANGE_LEADER });
+  const extra = (key: string) => ({ detail: threadLabel(thread), key, leader: CHANGE_LEADER });
   const discard = command('change:discard', 'Discard changes', 'change', { kind: 'discardChange', thread }, extra('d'));
   if (change.state?.copy_present === false) return [discard];
   const commands = [
+    command('change:explore', 'See the changes', 'change', { kind: 'exploreChange', thread }, extra('v')),
     command('change:apply', 'Apply to the project', 'change', { kind: 'applyChange', thread }, extra('a')),
     command('change:catchUp', 'Catch up with the project', 'change', { kind: 'catchUp', thread }, extra('u')),
+    ...agentReviewCommands(thread),
     ...reviewCommands(situation, thread),
     discard,
     command('change:copyLocation', 'Copy location', 'change', { kind: 'copyLocation', path: change.path }, extra('y')),
@@ -326,7 +360,13 @@ function command(
   title: string,
   group: CommandGroup,
   action: CommandAction,
-  extra: { readonly detail?: string; readonly key?: string; readonly leader?: string; readonly live?: boolean } = {},
+  extra: {
+    readonly detail?: string;
+    readonly key?: string;
+    readonly leader?: string;
+    readonly live?: boolean;
+    readonly badge?: string;
+  } = {},
 ): Command {
   return {
     id,
@@ -337,6 +377,7 @@ function command(
     key: extra.key ?? null,
     leader: extra.leader ?? null,
     live: extra.live ?? false,
+    badge: extra.badge ?? '',
   };
 }
 

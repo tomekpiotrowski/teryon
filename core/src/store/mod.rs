@@ -24,7 +24,7 @@ use thiserror::Error;
 use ts_rs::TS;
 use uuid::Uuid;
 
-use crate::changes::Change;
+use crate::changes::{Change, Finish};
 
 /// Why something could not be read or stored.
 #[derive(Debug, Error)]
@@ -111,7 +111,43 @@ pub struct Thread {
     /// and a thread travels in most messages.
     #[serde(default)]
     pub change: Option<Box<Change>>,
+    /// How the thread's last change ended. Nothing while one is under way, or before the first.
+    #[serde(default)]
+    pub finished: Option<Finish>,
+    /// The second agent, reviewing the change. Nothing until a review is asked for.
+    #[serde(default)]
+    pub reviewer: Option<Reviewer>,
     pub created_at: DateTime<Utc>,
+}
+
+/// The agent reviewing a thread's change, in a conversation of its own.
+///
+/// It never sees the author's conversation, only the change and what the
+/// person passes on, which keeps its judgement its own. It stays with the
+/// thread, so a second review remembers what the first one found.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct Reviewer {
+    pub agent: String,
+    /// The identifier the agent program knows the reviewer's conversation by.
+    pub conversation_id: Uuid,
+    /// Whether the agent program has seen the reviewer's conversation yet.
+    pub conversation_started: bool,
+    /// Whether the turn running in the thread is the reviewer's.
+    pub reviewing: bool,
+    /// What the last review found. Nothing until one has ended.
+    pub verdict: Option<Verdict>,
+}
+
+/// What a review found.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct Verdict {
+    /// How many problems the reviewer counted. Nothing when it did not say.
+    pub findings: Option<u32>,
+    /// Whether the author has worked on the change since, so the review may no longer fit it.
+    pub answered: bool,
+    /// Whether the review ended before the reviewer finished it, so it may be missing findings.
+    #[serde(default)]
+    pub cut: bool,
 }
 
 /// One line of a thread: a message, something the agent did, or a remark from Teryon.

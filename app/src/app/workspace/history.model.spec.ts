@@ -44,7 +44,7 @@ function commit(hash: string, overrides: Partial<Commit> = {}): Commit {
 }
 
 function thread(id: string, title = 'Fix the flaky test', agent: Thread['agent'] = 'claude'): Thread {
-  return { id, project_id: 'p', title, agent, status: 'idle', unread: false, commands: [], change: null, created_at: '2026-11-14T10:00:00' };
+  return { id, project_id: 'p', title, agent, status: 'idle', unread: false, commands: [], change: null, finished: null, reviewer: null, created_at: '2026-11-14T10:00:00' };
 }
 
 const person: Who = { kind: 'person', name: 'Ada Lovelace', thread: null };

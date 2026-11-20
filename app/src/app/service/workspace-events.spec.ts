@@ -16,6 +16,8 @@ function thread(id: string, projectId: string, title = ''): Thread {
     unread: false,
     commands: [],
     change: null,
+    finished: null,
+    reviewer: null,
     created_at: '2026-11-18T10:00:00Z',
   };
 }

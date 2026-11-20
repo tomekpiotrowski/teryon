@@ -30,8 +30,46 @@ export interface Thread {
   readonly commands: readonly string[];
   /** The change the thread's agent is working on, in its own copy of the project. Nothing until it starts one. */
   readonly change: Change | null;
+  /** How the thread's last change ended. Nothing while one is under way, or before the first. */
+  readonly finished: Finish | null;
+  /** The second agent, reviewing the change. Nothing until a review is asked for. */
+  readonly reviewer: Reviewer | null;
   readonly created_at: string;
 }
+
+/** Which of a thread's two agents something belongs to: the one making the change, or the one reviewing it. */
+export type Voice = 'author' | 'reviewer';
+
+/**
+ * The agent reviewing a thread's change, in a conversation of its own.
+ *
+ * Its lines are in the same thread as the author's, set apart, so that all
+ * the work on one change stays in one place.
+ */
+export interface Reviewer {
+  readonly agent: AgentName;
+  /** Whether the turn running in the thread is the reviewer's. */
+  readonly reviewing: boolean;
+  /** What the last review found. Nothing until one has ended. */
+  readonly verdict: Verdict | null;
+}
+
+export interface Verdict {
+  /** How many problems the reviewer counted. Nothing when it did not say. */
+  readonly findings: number | null;
+  /** Whether the author has worked on the change since, so the review may no longer fit it. */
+  readonly answered: boolean;
+  /** Whether the review ended before the reviewer finished it, so it may be missing findings. */
+  readonly cut: boolean;
+}
+
+/** The agent that reviews a thread's change: the one already reviewing, or the other program. */
+export function reviewerOf(thread: Thread): AgentName {
+  return thread.reviewer?.agent ?? otherAgent(thread.agent);
+}
+
+/** How a thread's change ended, once Teryon let go of it and its copy. */
+export type Finish = 'applied' | 'accepted' | 'discarded';
 
 /**
  * The work a thread's agent is doing in its own copy of the project.
@@ -107,8 +145,11 @@ export interface Selection {
 
 /** One line of a thread, ready to show. */
 export interface EntryLine {
-  readonly kind: 'user' | 'agent' | 'activity' | 'notice' | 'error' | 'summary';
+  /** `review` marks where a review starts. */
+  readonly kind: 'user' | 'agent' | 'activity' | 'notice' | 'review' | 'error' | 'summary';
   readonly text: string;
+  /** Whether the reviewer wrote it, or the person wrote it to the reviewer. */
+  readonly reviewer: boolean;
 }
 
 export const NOTHING_SELECTED: Selection = { projectId: null, threadId: null };
@@ -210,33 +251,120 @@ export function composerAction(press: ComposerPress): 'send' | 'leave' | null {
   return null;
 }
 
-const REVIEW_WORDS: Readonly<Record<Review['state'], string>> = {
-  in_review: 'in review on GitHub',
-  accepted: 'accepted on GitHub',
-  declined: 'declined on GitHub',
-};
+/**
+ * How a change looks at a glance, which colours its label.
+ *
+ * - `working`: the agent is still at it, or has not changed anything yet
+ * - `ready`: waiting for the person to apply it or send it for review
+ * - `waiting`: in review, waiting for someone else
+ * - `attention`: stuck until the person or the agent does something
+ * - `done`: in the project
+ * - `quiet`: thrown away
+ */
+export type ChangeTone = 'working' | 'ready' | 'waiting' | 'attention' | 'done' | 'quiet';
 
 /**
- * What the status line says about a change, after its name, one part each.
+ * Where the open thread's change stands, for the line above the message box.
  *
- * In the person's words, never git's: files changed rather than commits,
- * "ready to apply" rather than merging cleanly, newer work in the project
- * rather than conflicts with a branch. How far the project has moved on is
- * left out, since it only matters when it overlaps, and that is said.
+ * A person never needs to know that a change is a copy of the project on a
+ * branch of its own: they see that the thread changed files, where that work
+ * stands, and the likely next thing to do. Everything else is in the menu.
  */
-export function changeStatus(change: Change): string[] {
+export interface ChangeCard {
+  /** A word or two, such as `Ready to apply`. */
+  readonly title: string;
+  /**
+   * Whether the line shows the title.
+   *
+   * A change ready to apply goes without: its buttons say so already, and a
+   * label that is there most of the time stops being read.
+   */
+  readonly labelled: boolean;
+  /** A few words more, such as `2 files changed`. Can be empty. */
+  readonly note: string;
+  readonly tone: ChangeTone;
+  /** The commands offered on the line, as the likely next thing to do. */
+  readonly next: readonly string[];
+}
+
+/**
+ * The card for a thread's change, or nothing when the thread never changed anything.
+ *
+ * The state is read in order of what matters most: a missing copy or a
+ * change left half way through block everything else; an agent at work
+ * means the change is not ready whatever git says; then whether there is
+ * anything to apply, whether it overlaps with newer work, and how a review
+ * on GitHub is going. A change finished earlier is remembered on the
+ * thread, so that work that went into the project still shows it did.
+ */
+export function changeCard(thread: Thread, project: Project | null): ChangeCard | null {
+  const card = (title: string, note: string, tone: ChangeTone, next: readonly string[] = [], labelled = tone !== 'ready'): ChangeCard => ({
+    title,
+    labelled,
+    note,
+    tone,
+    next,
+  });
+  const change = thread.change;
+  if (!change) {
+    switch (thread.finished) {
+      case 'applied':
+        return card('Applied', 'in the project', 'done');
+      case 'accepted':
+        return card('Accepted', 'on GitHub, in the project', 'done');
+      case 'discarded':
+        return card('Discarded', '', 'quiet');
+      default:
+        return null;
+    }
+  }
+
   const state = change.state;
-  if (!state) return [];
-  if (!state.copy_present) return ['its copy was removed outside Teryon'];
-  if (state.unfinished) return ['the agent left this change unfinished'];
-  const files = state.files_changed;
-  const parts = [files === 0 ? 'no files changed yet' : files === 1 ? '1 file changed' : `${files} files changed`];
-  if (!state.base_present) return [...parts, 'the version of the project it started from is gone'];
-  if (state.fit === 'overlaps') return [...parts, 'overlaps with newer work in the project'];
-  const review = change.review?.state;
-  if (review) return [...parts, REVIEW_WORDS[review]];
-  if (files > 0 && state.fit === 'applies') parts.push('ready to apply');
-  return parts;
+  if (!state) return card('Changing', '', 'working');
+  if (!state.copy_present) return card('Copy missing', 'removed outside Teryon', 'attention', ['change:discard']);
+  if (state.unfinished) return card('Unfinished', 'the agent left it half way', 'attention');
+  const files = filesChanged(state.files_changed);
+  const reviewer = agentLabel(reviewerOf(thread));
+  if (thread.status === 'running' && thread.reviewer?.reviewing) return card('Reviewing', `${reviewer} is reading the change`, 'waiting');
+  if (thread.status === 'running') return card('Changing', state.files_changed ? `${files} so far` : '', 'working');
+  if (state.files_changed === 0) return card('Changing', 'no files changed yet', 'working');
+  if (!state.base_present) return card('Nowhere to apply', 'the version it started from is gone', 'attention');
+  if (state.fit === 'overlaps') return card('Needs catching up', 'overlaps with newer work', 'attention', ['change:catchUp']);
+  switch (change.review?.state) {
+    case 'in_review':
+    case 'accepted':
+      return card('In review', `${files}, on GitHub`, 'waiting', ['change:openReview']);
+    case 'declined':
+      return card('Declined', `${files}, on GitHub`, 'attention', ['change:openReview']);
+  }
+  const finish = project?.on_github ? ['change:apply', 'change:sendForReview'] : ['change:apply'];
+  const verdict = thread.reviewer?.verdict;
+  if (verdict && !verdict.answered) {
+    if (verdict.cut) return card('Review stopped', `${reviewer} stopped before finishing`, 'attention', ['change:askReview', ...finish]);
+    if (verdict.findings === 0) return card('Reviewed', `${files}, ${reviewer} found nothing`, 'ready', finish, true);
+    return card(findingsCount(verdict.findings), `from ${reviewer}`, 'attention', ['change:passFindings', ...finish]);
+  }
+  return card('Ready to apply', files, 'ready', ['change:askReview', ...finish]);
+}
+
+/**
+ * A word or two about a thread's change, for lists of threads, or nothing when it has none.
+ *
+ * Shown next to a thread in the menu, so that threads holding work not yet
+ * in the project stand out from plain conversations.
+ */
+export function changeBadge(thread: Thread): string {
+  const card = changeCard(thread, null);
+  return card && card.tone !== 'quiet' ? card.title.toLowerCase() : '';
+}
+
+function findingsCount(count: number | null): string {
+  if (count === null) return 'Findings';
+  return count === 1 ? '1 finding' : `${count} findings`;
+}
+
+function filesChanged(count: number): string {
+  return count === 1 ? '1 file changed' : `${count} files changed`;
 }
 
 /**
@@ -247,7 +375,7 @@ export function changeStatus(change: Change): string[] {
 export function discardWarning(change: Change): string {
   const files = change.state?.copy_present ? change.state.files_changed : 0;
   const lost = files === 0 ? '' : files === 1 ? ': 1 changed file' : `: ${files} changed files`;
-  return `All changes in ${change.name} will be lost${lost}. This cannot be undone.`;
+  return `All changes in this thread will be lost${lost}. This cannot be undone.`;
 }
 
 /**
@@ -326,20 +454,44 @@ export function otherAgent(agent: AgentName): AgentName {
 /** Turns a stored entry into the line the thread shows. */
 export function entryLine(entry: ThreadEntry): EntryLine {
   const text = textOf(entry.body['text']);
+  const reviewer = entry.body['reviewer'] === true;
   switch (entry.kind) {
     case 'user_message':
-      return { kind: 'user', text };
+      return { kind: 'user', text, reviewer };
     case 'agent_message':
-      return { kind: 'agent', text };
+      return { kind: 'agent', text, reviewer };
     case 'activity':
-      return { kind: 'activity', text: [textOf(entry.body['tool']), textOf(entry.body['summary'])].filter(Boolean).join('  ') };
+      return { kind: 'activity', text: [textOf(entry.body['tool']), textOf(entry.body['summary'])].filter(Boolean).join('  '), reviewer };
     case 'notice':
-      return { kind: 'notice', text };
+      return { kind: entry.body['starts_review'] === true ? 'review' : 'notice', text, reviewer };
     case 'error':
-      return { kind: 'error', text };
+      return { kind: 'error', text, reviewer };
     case 'turn_summary':
-      return { kind: 'summary', text: summaryText(entry.body) };
+      return { kind: 'summary', text: summaryText(entry.body), reviewer };
   }
+}
+
+/** The last line of a review, which counts its findings for Teryon, not for the person. */
+const COUNT_LINE = /\n*\s*[*`]*Findings:\s*\d+[*`]*\s*$/;
+
+/**
+ * What the author is asked once the person passes the latest review on.
+ *
+ * The review is the reviewer's message since the last review started that
+ * ends with a count, so an answer to a question the person asked in between
+ * is not taken for it. Without a count, its first message is the review.
+ *
+ * Put in the message box rather than sent, like every request Teryon
+ * drafts: the person may drop findings they disagree with. Nothing when the
+ * reviewer has not written anything.
+ */
+export function findingsDraft(lines: readonly EntryLine[]): string {
+  const start = lines.map((line) => line.kind).lastIndexOf('review');
+  const written = lines.slice(start + 1).filter((line) => line.reviewer && line.kind === 'agent');
+  const review = [...written].reverse().find((line) => COUNT_LINE.test(line.text)) ?? written[0];
+  if (!review) return '';
+  const findings = review.text.replace(COUNT_LINE, '').trim();
+  return `A reviewer looked at the change and found:\n\n${findings}\n\nFix what you agree with, and say why for anything you don't.`;
 }
 
 /** For example `Done in 1m 12s · $0.49`. Parts the agent did not report are left out. */

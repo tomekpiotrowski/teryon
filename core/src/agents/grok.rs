@@ -18,12 +18,17 @@ use crate::agents::{
 };
 use crate::settings::GrokSettings;
 
+/// The tools Grok edits files with, removed for a reviewer.
+const EDITING_TOOLS: &str = "write,search_replace,apply_patch,hashline_edit";
+
 pub struct GrokDriver {
     program: String,
     /// Pieces of the message the agent is writing.
     text: String,
     /// The slash commands named by the last line, until they are taken.
     commands: Option<Vec<String>>,
+    /// Whether a command waited for approval nobody could give, which ends Grok's turn.
+    unapproved: bool,
 }
 
 impl GrokDriver {
@@ -32,6 +37,7 @@ impl GrokDriver {
             program: settings.program.clone(),
             text: String::new(),
             commands: None,
+            unapproved: false,
         }
     }
 
@@ -65,6 +71,10 @@ impl AgentDriver for GrokDriver {
             "--permission-mode".to_string(),
             "auto".to_string(),
         ];
+        if turn.read_only {
+            arguments.push("--disallowed-tools".to_string());
+            arguments.push(EDITING_TOOLS.to_string());
+        }
         if let Some(brief) = &turn.brief {
             arguments.push("--rules".to_string());
             arguments.push(brief.clone());
@@ -96,10 +106,14 @@ impl AgentDriver for GrokDriver {
                 ));
                 Ok(entries)
             }
-            "tool_call_update" => Ok(failed_tool_entries(&report)),
+            "tool_call_update" => {
+                let entries = failed_tool_entries(&report);
+                self.unapproved |= unapproved(&report);
+                Ok(entries)
+            }
             "end" => {
                 let mut entries = self.message();
-                entries.extend(end_entries(&report));
+                entries.extend(end_entries(&report, self.unapproved));
                 Ok(entries)
             }
             "available_commands" => {
@@ -133,6 +147,9 @@ fn failed_tool_entries(report: &Value) -> Vec<EntryDraft> {
     if report["status"].as_str() != Some("failed") {
         return Vec::new();
     }
+    if unapproved(report) {
+        return vec![EntryDraft::notice(UNAPPROVED)];
+    }
     let reason = report["content"][0]["content"]["text"]
         .as_str()
         .filter(|text| !text.trim().is_empty())
@@ -140,19 +157,48 @@ fn failed_tool_entries(report: &Value) -> Vec<EntryDraft> {
     vec![EntryDraft::notice(reason.trim())]
 }
 
-/// The end of the turn, preceded by a notice when it did not end normally.
-fn end_entries(report: &Value) -> Vec<EntryDraft> {
+/// What the thread says when Grok asked for approval of a command.
+///
+/// Grok calls this "User cancelled", which reads as if the person did
+/// something. In Teryon nobody is at Grok's prompt to approve anything.
+const UNAPPROVED: &str = "Grok wanted approval for this command, and there is nobody at its prompt to give it, so the command did not run.";
+
+/// What the thread says when such a command ended Grok's turn.
+const STOPPED_UNAPPROVED: &str =
+    "Grok stopped, because a command it wanted to run needed approval.";
+
+/// Whether a tool call was not run for want of an approval nobody could give.
+///
+/// Grok marks it as not run because it was cancelled; older versions only
+/// said so in the text.
+fn unapproved(report: &Value) -> bool {
+    report["status"].as_str() == Some("failed")
+        && (report["_meta"]["toolNotRun"].as_str() == Some("cancelled")
+            || report["content"][0]["content"]["text"]
+                .as_str()
+                .is_some_and(|text| text.starts_with("User cancelled the execution")))
+}
+
+/// The end of the turn, preceded by a notice when it did not end normally, and then marked as early.
+fn end_entries(report: &Value, unapproved: bool) -> Vec<EntryDraft> {
     let mut entries = Vec::new();
-    match report["stopReason"].as_str() {
-        Some("end_turn") | None => {}
-        Some(reason) => entries.push(EntryDraft::notice(&format!(
-            "The agent stopped early: {reason}."
-        ))),
-    }
-    entries.push(EntryDraft::turn_summary(
+    let summary = EntryDraft::turn_summary(
         report["total_cost_usd"].as_f64(),
         report["num_turns"].as_u64(),
-    ));
+    );
+    match report["stopReason"].as_str() {
+        Some("end_turn") | None => entries.push(summary),
+        Some("cancelled") if unapproved => {
+            entries.push(EntryDraft::notice(STOPPED_UNAPPROVED));
+            entries.push(summary.ended_early());
+        }
+        Some(reason) => {
+            entries.push(EntryDraft::notice(&format!(
+                "The agent stopped early: {reason}."
+            )));
+            entries.push(summary.ended_early());
+        }
+    }
     entries
 }
 
@@ -176,10 +222,18 @@ mod tests {
 
     fn turn(message: &str, first: bool, brief: Option<&str>) -> Turn {
         Turn {
+            read_only: false,
+            ..read_only_turn(message, first, brief)
+        }
+    }
+
+    fn read_only_turn(message: &str, first: bool, brief: Option<&str>) -> Turn {
+        Turn {
             message: message.to_string(),
             conversation: Uuid::nil(),
             first,
             brief: brief.map(str::to_string),
+            read_only: true,
         }
     }
 
@@ -317,6 +371,17 @@ mod tests {
 
         }
 
+        // requirement: a reviewer's turn has Grok's editing tools removed
+        expect(driver().invocation(&read_only_turn("Review the change.", true, None)).arguments) as a_reviewers_turn {
+            to remove_the_editing_tools {
+                equal([
+                    "--single=Review the change.", "--output-format", "streaming-json", "--permission-mode", "auto",
+                    "--disallowed-tools", "write,search_replace,apply_patch,hashline_edit",
+                    "--session-id", "00000000-0000-0000-0000-000000000000",
+                ].map(String::from).to_vec())
+            }
+        }
+
         // requirement: a tool call the permission mode denied becomes a notice
         expect(text_of(&entries(TOOLS), 3).starts_with(BLOCKED)) as a_blocked_tool_call {
             to be_explained { be_true }
@@ -342,7 +407,26 @@ mod tests {
                 equal(vec![EntryDraft::notice("A tool call failed.")])
             }
             when(lines = vec![json!({"type": "end", "stopReason": "max_turns"})]) as say_why_the_turn_ended_early to hold {
-                equal(vec![EntryDraft::notice("The agent stopped early: max_turns."), EntryDraft::turn_summary(None, None)])
+                equal(vec![EntryDraft::notice("The agent stopped early: max_turns."), EntryDraft::turn_summary(None, None).ended_early()])
+            }
+            // requirement: a command nobody could approve is explained as that, not as something the person cancelled
+            when(lines = vec![
+                json!({"type": "tool_call_update", "status": "failed", "content": [{"type": "content", "content": {"type": "text", "text": "User cancelled the execution for tool `run_terminal_command`"}}], "_meta": {"toolNotRun": "cancelled"}}),
+                json!({"type": "end", "stopReason": "cancelled"}),
+            ]) as explain_a_command_nobody_could_approve to hold {
+                equal(vec![
+                    EntryDraft::notice(UNAPPROVED),
+                    EntryDraft::notice(STOPPED_UNAPPROVED),
+                    EntryDraft::turn_summary(None, None).ended_early(),
+                ])
+            }
+            when(lines = vec![
+                json!({"type": "tool_call_update", "status": "failed", "content": [{"type": "content", "content": {"type": "text", "text": "User cancelled the execution for tool `run_terminal_command`"}}]}),
+            ]) as recognise_it_by_its_text_alone to hold {
+                equal(vec![EntryDraft::notice(UNAPPROVED)])
+            }
+            when(lines = vec![json!({"type": "end", "stopReason": "cancelled"})]) as leave_another_cancellation_as_it_is to hold {
+                equal(vec![EntryDraft::notice("The agent stopped early: cancelled."), EntryDraft::turn_summary(None, None).ended_early()])
             }
             when(lines = vec![json!({"type": "end"})]) as end_without_details to hold {
                 equal(vec![EntryDraft::turn_summary(None, None)])

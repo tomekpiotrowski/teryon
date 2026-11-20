@@ -13,6 +13,7 @@ use lets_expect::lets_expect;
 use serde_json::json;
 
 use common::{invocations, kinds, mark_running, project_folder, settings_with, unknown, Scene};
+use teryon_core::agents::Voice;
 use teryon_core::protocol::{Event, ProjectState};
 use teryon_core::store::Status;
 
@@ -304,7 +305,7 @@ lets_expect! { #tokio_test
     story an_unknown_thread_is_refused {
         let scene = Scene::new();
 
-        expect(scene.workspace.send_message(unknown(), "hello").map_err(|problem| problem.to_string()).err()) to equal(Some("There is no such thread.".to_string()))
+        expect(scene.workspace.send_message(unknown(), "hello", Voice::Author).map_err(|problem| problem.to_string()).err()) to equal(Some("There is no such thread.".to_string()))
         expect(scene.workspace.stop(unknown()).is_err()) to be_true
         expect(scene.workspace.mark_seen(unknown()).is_err()) to be_true
         expect(scene.workspace.entries(unknown()).is_err()) to be_true

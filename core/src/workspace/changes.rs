@@ -30,7 +30,7 @@ use crate::changes::finish::{apply, catch_up, discard, draft_description, Caught
 use crate::changes::github::{review_now, send_for_review, tidy_after_acceptance, Tidied};
 use crate::changes::open::{browser, command_line, file_manager, CommandLine};
 use crate::changes::status::{read_state, Look};
-use crate::changes::{copies_in, Change, ChangeState, FoundCopy, Review, ReviewState};
+use crate::changes::{copies_in, Change, ChangeState, Finish, FoundCopy, Review, ReviewState};
 use crate::protocol::{Event, Opener};
 use crate::store::{Status, Thread};
 use crate::workspace::{Inner, Workspace, WorkspaceError};
@@ -66,7 +66,7 @@ impl Workspace {
         self.inner.check_idle(thread_id)?;
         apply(&directory, &change, description).await?;
         self.inner
-            .forget_change(thread_id, "Applied to the project.")?;
+            .forget_change(thread_id, Finish::Applied, "Applied to the project.")?;
         self.inner.look_at_all(project_id).await;
         Ok(())
     }
@@ -106,7 +106,8 @@ impl Workspace {
         }
         let _project = self.inner.project_lock(project_id).lock_owned().await;
         discard(&directory, &change).await?;
-        self.inner.forget_change(thread_id, "Changes discarded.")?;
+        self.inner
+            .forget_change(thread_id, Finish::Discarded, "Changes discarded.")?;
         self.inner.look_at_all(project_id).await;
         Ok(())
     }
@@ -292,13 +293,23 @@ impl Inner {
             .clone()
     }
 
-    /// Forgets a thread's change and says why in the thread.
-    fn forget_change(&self, thread_id: Uuid, note: &str) -> Result<(), WorkspaceError> {
+    /// Forgets a thread's change, remembers how it ended, and says so in the thread.
+    fn forget_change(
+        &self,
+        thread_id: Uuid,
+        finish: Finish,
+        note: &str,
+    ) -> Result<(), WorkspaceError> {
         let mut state = self.state();
         let (store, _) = state.holding(thread_id)?;
         let notice = EntryDraft::notice(note);
         let entry = store.append(thread_id, EntryKind::Notice.name(), notice.body)?;
-        let thread = store.change(thread_id, |thread| thread.change = None)?;
+        let thread = store.change(thread_id, |thread| {
+            thread.change = None;
+            thread.finished = Some(finish);
+            // The reviewer goes with the change: it only ever works inside the change's copy.
+            thread.reviewer = None;
+        })?;
         drop(state);
         self.announce(Event::EntryAdded { entry });
         self.announce(Event::ThreadChanged { thread });
@@ -355,7 +366,7 @@ impl Inner {
                         return;
                     }
                 };
-                if let Err(problem) = self.forget_change(thread_id, note) {
+                if let Err(problem) = self.forget_change(thread_id, Finish::Accepted, note) {
                     error!("could not forget an accepted change: {problem}");
                 }
                 self.look_at_all(project_id).await;
@@ -400,7 +411,12 @@ impl Inner {
         if thread.change.is_some() {
             return Ok(());
         }
-        let thread = store.change(thread_id, |thread| thread.change = Some(Box::new(change)))?;
+        let thread = store.change(thread_id, |thread| {
+            thread.change = Some(Box::new(change));
+            thread.finished = None;
+            // A new change gets a reviewer of its own: the last one's findings and conversation were about other work.
+            thread.reviewer = None;
+        })?;
         drop(state);
         self.announce(Event::ThreadChanged { thread });
         Ok(())

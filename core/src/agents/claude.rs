@@ -18,6 +18,9 @@ use crate::settings::ClaudeSettings;
 /// Variables that make Claude Code bill an API key instead of the subscription.
 const KEY_VARIABLES: [&str; 2] = ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"];
 
+/// The tools Claude Code edits files with, switched off for a reviewer.
+const READ_ONLY: &str = "Edit,Write,NotebookEdit";
+
 pub struct ClaudeDriver {
     program: String,
     use_subscription: bool,
@@ -61,6 +64,9 @@ impl AgentDriver for ClaudeDriver {
         // The snapshot is off so a later turn of the same conversation is
         // told the branch the project directory is on then, not the one it
         // was on when the conversation started.
+        if turn.read_only {
+            arguments.extend(["--disallowedTools".to_string(), READ_ONLY.to_string()]);
+        }
         if let Some(brief) = &turn.brief {
             arguments.extend([
                 "--append-system-prompt".to_string(),
@@ -180,7 +186,8 @@ fn limit_entries(report: &Value) -> Vec<EntryDraft> {
 /// The end of the turn, preceded by an error when the turn failed.
 fn result_entries(report: &Value) -> Vec<EntryDraft> {
     let mut entries = Vec::new();
-    if report["is_error"].as_bool().unwrap_or(false) {
+    let failed = report["is_error"].as_bool().unwrap_or(false);
+    if failed {
         let text = report["result"]
             .as_str()
             .filter(|text| !text.trim().is_empty())
@@ -188,10 +195,15 @@ fn result_entries(report: &Value) -> Vec<EntryDraft> {
             .unwrap_or("The agent reported a failure.");
         entries.push(EntryDraft::error(text));
     }
-    entries.push(EntryDraft::turn_summary(
+    let summary = EntryDraft::turn_summary(
         report["total_cost_usd"].as_f64(),
         report["num_turns"].as_u64(),
-    ));
+    );
+    entries.push(if failed {
+        summary.ended_early()
+    } else {
+        summary
+    });
     entries
 }
 
@@ -215,12 +227,13 @@ mod tests {
         })
     }
 
-    fn turn(message: &str, first: bool, brief: Option<&str>) -> Turn {
+    fn turn(message: &str, first: bool, brief: Option<&str>, read_only: bool) -> Turn {
         Turn {
             message: message.to_string(),
             conversation: Uuid::nil(),
             first,
             brief: brief.map(str::to_string),
+            read_only,
         }
     }
 
@@ -271,16 +284,22 @@ mod tests {
         entries(recording).iter().map(|entry| entry.kind).collect()
     }
 
+    /// Whether the last entry a report gives is the summary of a turn that ended early.
+    fn ends_early(report: Value) -> Option<bool> {
+        interpret(report).ok()?.last().map(EntryDraft::is_early_end)
+    }
+
     fn interpret(report: Value) -> Result<Vec<EntryDraft>, NotUnderstood> {
         driver(true).interpret(&report.to_string())
     }
 
     lets_expect! {
-        expect(driver(use_subscription).invocation(&turn(message, first, brief))) {
+        expect(driver(use_subscription).invocation(&turn(message, first, brief, read_only))) {
             let use_subscription = true;
             let message = "Fix the bug";
             let first = true;
             let brief: Option<&str> = None;
+            let read_only = false;
 
             // requirement: the first message starts a new conversation with an identifier chosen by Teryon
             to start_a_conversation {
@@ -313,6 +332,16 @@ mod tests {
                 ].map(String::from).to_vec())
             }
 
+            // requirement: a reviewer's turn has Claude's editing tools switched off
+            when(read_only = true) as switch_off_editing to hold {
+                have(arguments.clone()) equal([
+                    "-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "auto",
+                    "--session-id", "00000000-0000-0000-0000-000000000000",
+                    "--disallowedTools", "Edit,Write,NotebookEdit",
+                    "--", "Fix the bug",
+                ].map(String::from).to_vec())
+            }
+
             // requirement: by default the API key variables are not passed to Claude
             to remove_the_key_variables {
                 have(removed_variables.clone()) equal(vec!["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"])
@@ -322,6 +351,12 @@ mod tests {
             when(use_subscription = false) as leave_the_environment_alone to hold {
                 have(removed_variables.len()) equal(0)
             }
+        }
+
+        // requirement: a failed turn's summary says the turn ended early
+        expect(ends_early(report)) {
+            when(report = json!({"type": "result", "is_error": true, "subtype": "error_max_turns"})) as a_failed_turn to be_early { equal(Some(true)) }
+            when(report = json!({"type": "result", "is_error": false})) as a_finished_turn to be_on_time { equal(Some(false)) }
         }
 
         expect(kinds(recording)) {
@@ -403,13 +438,13 @@ mod tests {
                 equal(Ok(vec![EntryDraft::notice("The subscription's usage limit was reached.")]))
             }
             when(report = json!({"type": "result", "is_error": true, "result": "Credit balance is too low", "subtype": "success"})) as show_a_failed_turn to hold {
-                equal(Ok(vec![EntryDraft::error("Credit balance is too low"), EntryDraft::turn_summary(None, None)]))
+                equal(Ok(vec![EntryDraft::error("Credit balance is too low"), EntryDraft::turn_summary(None, None).ended_early()]))
             }
             when(report = json!({"type": "result", "is_error": true, "subtype": "error_max_turns"})) as name_the_failure_when_there_is_no_text to hold {
-                equal(Ok(vec![EntryDraft::error("error_max_turns"), EntryDraft::turn_summary(None, None)]))
+                equal(Ok(vec![EntryDraft::error("error_max_turns"), EntryDraft::turn_summary(None, None).ended_early()]))
             }
             when(report = json!({"type": "result", "is_error": true})) as show_a_failure_without_details to hold {
-                equal(Ok(vec![EntryDraft::error("The agent reported a failure."), EntryDraft::turn_summary(None, None)]))
+                equal(Ok(vec![EntryDraft::error("The agent reported a failure."), EntryDraft::turn_summary(None, None).ended_early()]))
             }
 
             // requirement: a report line Teryon does not understand is skipped

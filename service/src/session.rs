@@ -82,8 +82,16 @@ impl Session {
                 .start_thread(project_id, &agent, &title)
                 .map(|thread| Answer::Thread { thread })
                 .map_err(|problem| problem.to_string()),
-            Request::SendMessage { thread_id, text } => workspace
-                .send_message(thread_id, &text)
+            Request::SendMessage {
+                thread_id,
+                text,
+                to,
+            } => workspace
+                .send_message(thread_id, &text, to)
+                .map(|entry| Answer::Entry { entry })
+                .map_err(|problem| problem.to_string()),
+            Request::ReviewChange { thread_id } => workspace
+                .review_change(thread_id)
                 .map(|entry| Answer::Entry { entry })
                 .map_err(|problem| problem.to_string()),
             Request::Stop { thread_id } => workspace

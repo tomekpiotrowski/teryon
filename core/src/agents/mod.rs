@@ -14,8 +14,10 @@ pub mod process;
 pub mod runner;
 mod summary;
 
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use thiserror::Error;
+use ts_rs::TS;
 use uuid::Uuid;
 
 use crate::agents::claude::ClaudeDriver;
@@ -45,6 +47,38 @@ impl Agent {
             Self::Grok => "grok",
         }
     }
+
+    /// The name a person knows the agent by.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Claude => "Claude",
+            Self::Grok => "Grok",
+        }
+    }
+
+    /// The agent that reviews this one's work: the other one, since two models catch more than one twice.
+    pub fn other(self) -> Self {
+        match self {
+            Self::Claude => Self::Grok,
+            Self::Grok => Self::Claude,
+        }
+    }
+}
+
+/// Which of a thread's two agents a turn belongs to.
+///
+/// A thread has the agent that does the work, and may have a second one
+/// that reviews it, in a conversation of its own. Both write into the same
+/// thread, one at a time, so that everything about one piece of work stays
+/// in one place.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum Voice {
+    /// The agent the thread was started with, which makes the change.
+    #[default]
+    Author,
+    /// The agent that reviews the change and changes nothing.
+    Reviewer,
 }
 
 /// What a thread entry is.
@@ -111,6 +145,25 @@ impl EntryDraft {
         }
     }
 
+    /// Marks a turn's summary as the end of a turn the agent did not finish, such as one cut short by a refused command.
+    pub fn ended_early(mut self) -> Self {
+        self.body["early"] = json!(true);
+        self
+    }
+
+    /// Whether this is the summary of a turn the agent did not finish.
+    pub fn is_early_end(&self) -> bool {
+        self.kind == EntryKind::TurnSummary && self.body["early"] == json!(true)
+    }
+
+    /// Marks the entry as the reviewer's, which the thread shows apart from the author's.
+    pub fn by(mut self, voice: Voice) -> Self {
+        if voice == Voice::Reviewer {
+            self.body["reviewer"] = json!(true);
+        }
+        self
+    }
+
     fn text(kind: EntryKind, text: &str) -> Self {
         Self {
             kind,
@@ -131,6 +184,11 @@ pub struct Turn {
     /// Nothing when the project is not a git repository. The programs take
     /// this as their own extra instruction, so it is not part of the message.
     pub brief: Option<String>,
+    /// Whether the agent must leave files alone, as a reviewer must.
+    ///
+    /// Programs that can switch off their editing tools do; the brief asks
+    /// the rest, and Teryon checks afterwards.
+    pub read_only: bool,
 }
 
 /// How to start an agent program for one turn.
@@ -213,6 +271,20 @@ mod tests {
             when(name = "Claude") as be_unknown_in_capitals to hold { equal(None) }
             when(name = "") as be_unknown_when_empty to hold { equal(None) }
             when(name = "gemini") as be_unknown to hold { equal(None) }
+        }
+
+        expect(Agent::Grok.label()) to be_capitalised { equal("Grok") }
+
+        expect(EntryDraft::turn_summary(None, None).ended_early().is_early_end()) as an_early_summary to be_early { be_true }
+        expect(EntryDraft::turn_summary(None, None).is_early_end()) as a_summary to be_on_time { be_false }
+        expect(EntryDraft::notice("x").ended_early().is_early_end()) as another_entry to never_be_early { be_false }
+
+        expect(Agent::Claude.other()) to be_grok { equal(Agent::Grok) }
+        expect(Agent::Grok.other()) to be_claude { equal(Agent::Claude) }
+
+        expect(EntryDraft::agent_message("hi").by(voice).body) {
+            when(voice = Voice::Author) as the_author to be_left_unmarked { equal(json!({ "text": "hi" })) }
+            when(voice = Voice::Reviewer) as the_reviewer to be_marked { equal(json!({ "text": "hi", "reviewer": true })) }
         }
 
         expect(Agent::parse(agent.name())) {

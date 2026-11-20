@@ -92,14 +92,20 @@
               <section #thread class="thread" aria-label="Thread">
                 <div class="thread-inner">
                   @for (line of view.lines; track $index) {
-                    <article class="thread-entry" [class.user-entry]="line.kind === 'user'">
+                    <article class="thread-entry" [class.user-entry]="line.kind === 'user'" [class.reviewer-entry]="line.reviewer && line.kind !== 'review'">
                       @switch (line.kind) {
                         @case ('user') {
-                          <div class="message"><span class="prompt-mark">❯</span><p>{{ line.text }}</p></div>
+                          <div class="message">
+                            <span class="prompt-mark">❯</span>
+                            @if (line.reviewer) { <span class="speaker">to {{ agentLabel(reviewerOf(view.thread)) }}</span> }
+                            <p>{{ line.text }}</p>
+                          </div>
                         }
                         @case ('agent') {
+                          @if (line.reviewer) { <span class="speaker">{{ agentLabel(reviewerOf(view.thread)) }} · reviewing</span> }
                           <div class="markdown" [innerHTML]="line.text | markdown"></div>
                         }
+                        @case ('review') { <p class="review-divider"><span>{{ line.text }}</span></p> }
                         @case ('activity') {
                           <div class="activity-block"><div><span>◆</span><span>{{ line.text }}</span></div></div>
                         }
@@ -110,19 +116,36 @@
                     </article>
                   }
                   @if (view.running) {
-                    <div class="live-line" role="status"><span>◆</span><span>{{ agentLabel(view.thread.agent) }} is working…</span></div>
+                    @if (view.thread.reviewer?.reviewing) {
+                      <div class="live-line reviewer-entry" role="status"><span>◆</span><span>{{ agentLabel(reviewerOf(view.thread)) }} is reviewing…</span></div>
+                    } @else {
+                      <div class="live-line" role="status"><span>◆</span><span>{{ agentLabel(view.thread.agent) }} is working…</span></div>
+                    }
                   }
                 </div>
               </section>
 
               <footer class="thread-composer">
                 <div class="composer-inner">
-                  <label class="composer-field">
+                  @if (changeLine$ | async; as line) {
+                    <section class="change-strip" [attr.data-tone]="line.card.tone" aria-label="This thread’s changes">
+                      @if (line.card.labelled) { <span class="change-status" role="status">{{ line.card.title }}</span> }
+                      @if (line.card.note) { <span class="change-note">{{ line.card.note }}</span> }
+                      <span class="spacer"></span>
+                      @for (action of line.actions; track action.command.id) {
+                        <button type="button" class="change-action" [attr.aria-keyshortcuts]="action.hint" (click)="run(action.command)">{{ action.command.title }}</button>
+                      }
+                      @if (view.thread.change) {
+                        <button type="button" class="change-more" aria-label="More about this thread’s changes" (click)="openMenu(false, 'change')">more</button>
+                      }
+                    </section>
+                  }
+                  <label class="composer-field" [class.to-reviewer]="(target$ | async) === 'reviewer'">
                     <span>❯</span>
                     <textarea
                       rows="1"
                       aria-label="Reply"
-                      placeholder="Reply"
+                      [placeholder]="(target$ | async) === 'reviewer' ? 'Ask ' + agentLabel(reviewerOf(view.thread)) : 'Reply'"
                       [value]="draft$ | async"
                       (input)="updateDraft($event)"
                       (keydown)="handleComposerKeydown($event, view)"
@@ -130,19 +153,15 @@
                   </label>
                   <div class="composer-meta thread-meta">
                     <div>
-                      <span>{{ agentLabel(view.thread.agent) }}</span>
-                      @if (view.thread.change; as change) {
-                        <span class="change-line" aria-label="Changes">
-                          @if (change.state?.copy_present !== false) {
-                            <button type="button" class="code-link" [attr.aria-label]="'Explore ' + change.name" (click)="explore(view.project, change.branch ?? change.name)">{{ change.name }}</button>
-                          } @else {
-                            <span>{{ change.name }}</span>
-                          }
-                          @for (part of view.changeLine; track part) { <span class="change-part">· {{ part }}</span> }
-                        </span>
+                      @if (view.thread.reviewer) {
+                        <button type="button" class="target-switch" aria-label="Who the message goes to" (click)="toggleTarget()">
+                          to {{ (target$ | async) === 'reviewer' ? agentLabel(view.thread.reviewer.agent) : agentLabel(view.thread.agent) }} ▾
+                        </button>
+                      } @else {
+                        <span>{{ agentLabel(view.thread.agent) }}</span>
                       }
                       <button type="button" class="code-link" aria-keyshortcuts="/" (click)="openMenu()">menu <kbd>/</kbd></button>
-                    <button type="button" class="code-link" aria-keyshortcuts="h" (click)="screen$.next('history')">history <kbd>H</kbd></button>
+                      <button type="button" class="code-link" aria-keyshortcuts="h" (click)="screen$.next('history')">history <kbd>H</kbd></button>
                       <button type="button" class="code-link" aria-keyshortcuts="c" (click)="screen$.next('files')">code <kbd>C</kbd></button>
                     </div>
                     <div>
@@ -170,7 +189,7 @@
 
   @if (menuOpen$ | async) {
     <app-command-menu
-      [commands]="(commands$ | async) ?? []"
+      [commands]="(menuCommands$ | async) ?? []"
       (chosen)="run($event)"
       (closed)="closeMenu()"
       (projectAdded)="addProject($event)"

@@ -14,7 +14,7 @@ use lets_expect::lets_expect;
 use tempfile::{tempdir, TempDir};
 
 use common::{commit, fake_agents, git, noted_turn, project_folder, put, repository, setup, Scene};
-use teryon_core::changes::{Review, ReviewState};
+use teryon_core::changes::{Finish, Review, ReviewState};
 use teryon_core::protocol::ProjectView;
 use teryon_core::settings::GitHubSettings;
 use teryon_core::store::Thread;
@@ -190,6 +190,7 @@ lets_expect! { #tokio_test
         github.scene.workspace.refresh_change(thread.id).await;
         expect(github.scene.thread_now(&thread).change) to equal(None)
         expect(github.last_note(&thread)) to equal("Accepted on GitHub.".to_string())
+        expect(github.scene.thread_now(&thread).finished) to equal(Some(Finish::Accepted))
         expect(exists(&copy)) to be_false
         expect(git(github.folder.path(), &["branch", "--list", "fix-login"])) to equal(String::new())
         expect(exists(&github.folder.path().join("fix-login.txt"))) to be_true

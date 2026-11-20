@@ -550,6 +550,16 @@ a:hover {
   white-space: nowrap;
 }
 
+/* Where the change of a thread in the menu stands, so threads with work in them stand out. */
+.menu-badge {
+  flex: none;
+  border: 1px solid var(--color-divider);
+  padding: 1px 6px;
+  color: var(--color-neutral-700);
+  font: 400 10.5px/1.4 var(--font-code);
+  white-space: nowrap;
+}
+
 .menu-detail {
   min-width: 0;
   flex: 1 1 0;
@@ -941,9 +951,100 @@ a:hover {
 .thread-meta > div:first-child { overflow: hidden; }
 .thread-meta button { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* The open thread's change: its name, then where it stands, quieter. */
-.change-line { display: flex; min-width: 0; align-items: center; gap: 6px; overflow: hidden; white-space: nowrap; }
-.change-part { overflow: hidden; color: var(--color-neutral-600); text-overflow: ellipsis; }
+/*
+ * What the reviewer wrote, and what the person wrote to it.
+ *
+ * The reviewer works in the same thread as the author, so its lines are set
+ * apart by a faint tint and a bar on the left, quiet enough to read past.
+ */
+.reviewer-entry {
+  --reviewer: #85703a;
+  margin-left: -12px;
+  border-left: 2px solid color-mix(in srgb, var(--reviewer) 55%, transparent);
+  padding: 6px 0 6px 10px;
+  background: color-mix(in srgb, var(--reviewer) 7%, transparent);
+}
+
+:root[data-theme='dark'] .reviewer-entry { --reviewer: #cfbd8c; }
+.thread-entry.reviewer-entry:not(.user-entry) { padding-left: 34px; }
+
+/* The reviewer's lines in a row make one block, named once at its top. */
+.reviewer-entry + .reviewer-entry { margin-top: -22px; padding-top: 4px; }
+.reviewer-entry + .reviewer-entry > .speaker { display: none; }
+.live-line.reviewer-entry { padding-left: 34px; color: var(--reviewer); }
+
+.speaker {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--reviewer, var(--color-neutral-500));
+  font: 500 11px/1.4 var(--font-code);
+}
+
+.message > .speaker { margin: 0; }
+
+/* Where a review starts: a thin rule across the thread, with who reviews on it. */
+.review-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  color: #85703a;
+  font: 400 11.5px/1.4 var(--font-code);
+}
+
+:root[data-theme='dark'] .review-divider { color: #cfbd8c; }
+.review-divider::before,
+.review-divider::after { content: ''; height: 1px; flex: 1; background: var(--color-divider); }
+
+.composer-field.to-reviewer > span { color: #85703a; }
+:root[data-theme='dark'] .composer-field.to-reviewer > span { color: #cfbd8c; }
+
+/*
+ * The line about the open thread's change, above the message box.
+ *
+ * Its label is tinted by where the change stands, softly, so states are told
+ * apart at a glance without shouting over the conversation.
+ */
+.change-strip {
+  --tone: var(--color-neutral-600);
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  color: var(--color-neutral-600);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.change-strip[data-tone='working'] { --tone: #5a7896; }
+.change-strip[data-tone='ready'] { --tone: #4f7a57; }
+.change-strip[data-tone='waiting'] { --tone: #85703a; }
+.change-strip[data-tone='attention'] { --tone: #9a5f45; }
+.change-strip[data-tone='done'] { --tone: #4f7a57; }
+:root[data-theme='dark'] .change-strip[data-tone='working'] { --tone: #9db6cf; }
+:root[data-theme='dark'] .change-strip[data-tone='ready'],
+:root[data-theme='dark'] .change-strip[data-tone='done'] { --tone: #a3c4a8; }
+:root[data-theme='dark'] .change-strip[data-tone='waiting'] { --tone: #cfbd8c; }
+:root[data-theme='dark'] .change-strip[data-tone='attention'] { --tone: #d6a690; }
+
+.change-note { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.change-strip .spacer { flex: 1; }
+
+/* The status and the buttons share one look: the change's tone over a tint of it. */
+.change-status,
+.change-strip .change-action {
+  flex: none;
+  padding: 2px 8px;
+  background: color-mix(in srgb, var(--tone) 14%, transparent);
+  color: var(--tone);
+  font: 500 11.5px/1.4 var(--font-code);
+}
+
+.change-strip .change-action { min-height: 24px; }
+.change-strip .change-action:hover { background: color-mix(in srgb, var(--tone) 24%, transparent); }
+
+.change-strip .change-more { flex: none; min-height: 24px; color: var(--color-neutral-500); }
+.change-strip .change-more:hover { color: var(--color-text); }
 
 .settings-backdrop {
   position: fixed;

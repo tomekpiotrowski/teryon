@@ -12,7 +12,14 @@
 agent="$1"
 shift
 samples="$(dirname "$0")/agents"
-printf '%s\n' "$(printf '%s' "$*" | tr '\n' ' ')" >> .fake-agent-invocations
+# Where the project is: a reviewer runs inside a thread's worktree, and
+# tests look for what it leaves in the project directory.
+common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+case "$common" in
+  */.git) project="${common%/.git}" ;;
+  *) project="." ;;
+esac
+printf '%s\n' "$(printf '%s' "$*" | tr '\n' ' ')" >> "$project/.fake-agent-invocations"
 
 # The word after `$1` in the message, such as the name in "start a change fix-login".
 word_after() {
@@ -44,7 +51,27 @@ remember_turn() {
   printf '%s %s %s %s\n' "$TERYON_THREAD" "$TERYON_TURN" "${TERYON_DATA:-none}" "$(command -v teryon || echo none)" > .fake-agent-turn
 }
 
+# Reviews as a reviewer is asked to. With `.fake-reviewer-edits` in the
+# project, it also edits `login.txt` in the worktree it runs in, as a
+# reviewer must not. With `.fake-reviewer-slow`, it starts and then waits, to be stopped.
+review() {
+  if [ -f "$project/.fake-reviewer-edits" ]; then
+    printf 'edited by the reviewer\n' >> login.txt
+  fi
+  if [ -f "$project/.fake-reviewer-slow" ]; then
+    head -n 1 "$samples/$agent-first.jsonl"
+    exec sleep 30
+  fi
+  cat "$samples/$agent-$1.jsonl"
+}
+
 case "$*" in
+  *"Review the change."*)
+    review review "$*"
+    ;;
+  *"Review it again"*)
+    review review-again "$*"
+    ;;
   *"please fail"*)
     echo "the fake agent was told to fail" >&2
     exit 3

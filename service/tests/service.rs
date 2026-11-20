@@ -29,6 +29,7 @@ use teryon::service::{Service, ServiceError};
 use teryon::service_file::ServiceFile;
 use teryon::starting::{restarted_service, running_service, StartError};
 use teryon::stopping::{stop_service, Stopped};
+use teryon_core::agents::Voice;
 use teryon_core::paths::Folders;
 use teryon_core::protocol::{Answer, Event, Request};
 use teryon_core::store::Status;
@@ -255,7 +256,7 @@ lets_expect! { #tokio_test
         let followed = client.call(Request::FollowThread { thread_id: thread }).await.unwrap();
         expect(followed) to equal(no_entries())
 
-        client.call(Request::SendMessage { thread_id: thread, text: "hello".to_string() }).await.unwrap();
+        client.call(Request::SendMessage { thread_id: thread, text: "hello".to_string(), to: Voice::Author }).await.unwrap();
         let summary = wait_for(&mut client, |event| matches!(event, Event::EntryAdded { entry } if entry.kind == "turn_summary")).await;
         let check_5 = matches!(summary, Event::EntryAdded { .. });
         expect(check_5) to be_true
@@ -275,7 +276,7 @@ lets_expect! { #tokio_test
         let project = project_id(client.call(Request::AddProject { name: "Sample".to_string(), directory: folder.path().to_string_lossy().into_owned() }).await.unwrap());
         let thread = thread_id(client.call(Request::StartThread { project_id: project, agent: "claude".to_string(), title: String::new() }).await.unwrap());
 
-        client.call(Request::SendMessage { thread_id: thread, text: "hello".to_string() }).await.unwrap();
+        client.call(Request::SendMessage { thread_id: thread, text: "hello".to_string(), to: Voice::Author }).await.unwrap();
         wait_for(&mut client, |event| matches!(event, Event::ThreadChanged { thread: changed } if changed.status == Status::Idle)).await;
         let mut entries = 0;
         while let Ok(Ok(event)) = timeout(Duration::from_millis(200), client.event()).await {

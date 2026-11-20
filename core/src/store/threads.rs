@@ -293,6 +293,8 @@ mod tests {
             unread: false,
             commands: Vec::new(),
             change: None,
+            finished: None,
+            reviewer: None,
             created_at: Utc::now(),
         }
     }

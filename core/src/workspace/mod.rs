@@ -33,9 +33,10 @@ use tracing::error;
 use uuid::Uuid;
 
 use crate::agents::runner::{Journal, Pending, Runner, ThreadChange, TurnRequest};
-use crate::agents::{Agent, EntryDraft, EntryKind};
+use crate::agents::{Agent, EntryDraft, EntryKind, Voice};
 use crate::changes::finish::FinishError;
 use crate::changes::github::on_github;
+use crate::changes::reviewing::{REVIEW_AGAIN, REVIEW_FIRST};
 use crate::changes::status::Look;
 use crate::changes::ChangeError;
 use crate::directory::existing_directory;
@@ -47,7 +48,7 @@ use crate::protocol::{Event, Opens, ProjectState, ProjectView};
 use crate::settings::{AgentSettings, GitHubSettings, OpenSettings};
 use crate::store::projects::ProjectList;
 use crate::store::threads::ThreadStore;
-use crate::store::{Entry, Project, Status, StoreError, Thread};
+use crate::store::{Entry, Project, Reviewer, Status, StoreError, Thread, Verdict};
 use crate::workspace::changes::Noticed;
 
 /// The longest title taken from a first message.
@@ -237,6 +238,21 @@ struct Inner {
 }
 
 impl Inner {
+    /// Refuses to start an agent in a thread where one is working, or whose change is being finished.
+    fn check_free(&self, thread: &Thread) -> Result<(), WorkspaceError> {
+        if thread.status == Status::Running {
+            return Err(WorkspaceError::Busy(
+                "The agent is still working on the previous message.",
+            ));
+        }
+        if self.finishing_threads().contains(&thread.id) {
+            return Err(WorkspaceError::Busy(
+                "Teryon is finishing this thread's changes. Send the message once it is done.",
+            ));
+        }
+        Ok(())
+    }
+
     fn state(&self) -> MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -415,6 +431,8 @@ impl Workspace {
             unread: false,
             commands: Vec::new(),
             change: None,
+            finished: None,
+            reviewer: None,
             created_at: Utc::now(),
         })?;
         drop(state);
@@ -425,12 +443,19 @@ impl Workspace {
         Ok(thread)
     }
 
-    /// Stores a message and starts the thread's agent on it.
+    /// Sends a message to a thread's agent, or to its reviewer, and starts that agent on it.
     ///
     /// Checking that the thread is idle and marking it as running happen
     /// under one lock, so two messages sent at the same moment cannot both
-    /// start an agent.
-    pub fn send_message(&self, thread_id: Uuid, text: &str) -> Result<Entry, WorkspaceError> {
+    /// start an agent. Only one of a thread's two agents works at a time,
+    /// so their lines never mix. A message to the author means it may change
+    /// the code again, so the last review may no longer fit.
+    pub fn send_message(
+        &self,
+        thread_id: Uuid,
+        text: &str,
+        to: Voice,
+    ) -> Result<Entry, WorkspaceError> {
         let text = text.trim();
         if text.is_empty() {
             return Err(WorkspaceError::Invalid(
@@ -440,22 +465,28 @@ impl Workspace {
 
         let mut state = self.inner.state();
         let (store, thread) = state.holding(thread_id)?;
-        if thread.status == Status::Running {
-            return Err(WorkspaceError::Busy(
-                "The agent is still working on the previous message.",
+        self.inner.check_free(&thread)?;
+        if to == Voice::Reviewer && (thread.reviewer.is_none() || thread.change.is_none()) {
+            return Err(WorkspaceError::Invalid(
+                "Nobody reviews this thread yet. Ask for a review first.".to_string(),
             ));
         }
-        if self.inner.finishing_threads().contains(&thread_id) {
-            return Err(WorkspaceError::Busy(
-                "Teryon is finishing this thread's changes. Send the message once it is done.",
-            ));
-        }
-        let draft = EntryDraft::user_message(text);
+        let draft = EntryDraft::user_message(text).by(to);
         let entry = store.append(thread_id, draft.kind.name(), draft.body)?;
         let thread = store.change(thread_id, |thread| {
             thread.status = Status::Running;
             if thread.title.is_empty() {
                 thread.title = title_from(text);
+            }
+            if let Some(reviewer) = &mut thread.reviewer {
+                match to {
+                    Voice::Author => {
+                        if let Some(verdict) = &mut reviewer.verdict {
+                            verdict.answered = true;
+                        }
+                    }
+                    Voice::Reviewer => reviewer.reviewing = true,
+                }
             }
         })?;
         let directory = state.project(thread.project_id)?.directory.clone();
@@ -464,6 +495,84 @@ impl Workspace {
         self.inner.announce(Event::EntryAdded {
             entry: entry.clone(),
         });
+        self.start_turn(thread, to, directory, text);
+        Ok(entry)
+    }
+
+    /// Asks a second agent to review a thread's change, in the same thread.
+    ///
+    /// The reviewer is the other agent program, so a second model reads the
+    /// work, in a conversation of its own that the next review continues.
+    /// Answers with the line that marks the review's start in the thread.
+    pub fn review_change(&self, thread_id: Uuid) -> Result<Entry, WorkspaceError> {
+        let mut state = self.inner.state();
+        let (store, thread) = state.holding(thread_id)?;
+        self.inner.check_free(&thread)?;
+        let change = thread.change.as_deref().ok_or(FinishError::NoChange)?;
+        if let Some(changed) = &change.state {
+            if !changed.copy_present {
+                return Err(WorkspaceError::Invalid(
+                    "The copy of this thread's changes is gone, so there is nothing to review."
+                        .to_string(),
+                ));
+            }
+            if changed.files_changed == 0 {
+                return Err(WorkspaceError::Invalid(
+                    "No files have changed, so there is nothing to review.".to_string(),
+                ));
+            }
+        }
+        let agent = Agent::parse(&thread.agent).map_or(Agent::Claude, Agent::other);
+        // Only a finished review the author has worked on since is checked for fixes.
+        let again = thread
+            .reviewer
+            .as_ref()
+            .and_then(|reviewer| reviewer.verdict)
+            .is_some_and(|verdict| verdict.answered && !verdict.cut);
+        let label = thread
+            .reviewer
+            .as_ref()
+            .and_then(|reviewer| Agent::parse(&reviewer.agent))
+            .unwrap_or(agent)
+            .label();
+        let notice =
+            EntryDraft::notice(&format!("{label} reviews the change.")).by(Voice::Reviewer);
+        let mut body = notice.body;
+        body["starts_review"] = true.into();
+        let entry = store.append(thread_id, notice.kind.name(), body)?;
+        let thread = store.change(thread_id, |thread| {
+            thread.status = Status::Running;
+            let reviewer = thread.reviewer.get_or_insert_with(|| Reviewer {
+                agent: agent.name().to_string(),
+                conversation_id: Uuid::new_v4(),
+                conversation_started: false,
+                reviewing: false,
+                verdict: None,
+            });
+            reviewer.reviewing = true;
+            reviewer.verdict = None;
+        })?;
+        let directory = state.project(thread.project_id)?.directory.clone();
+        drop(state);
+
+        self.inner.announce(Event::EntryAdded {
+            entry: entry.clone(),
+        });
+        let message = if again { REVIEW_AGAIN } else { REVIEW_FIRST };
+        self.start_turn(thread, Voice::Reviewer, directory, message);
+        Ok(entry)
+    }
+
+    /// Tells everyone a thread is now running, and starts one of its agents.
+    ///
+    /// The reviewer runs inside the change's copy, so that a file it writes
+    /// where it stands lands where the check after its turn sees it, not in
+    /// the project folder the person may be working in.
+    fn start_turn(&self, thread: Thread, voice: Voice, directory: PathBuf, message: &str) {
+        let directory = match (voice, thread.change.as_deref()) {
+            (Voice::Reviewer, Some(change)) => change.path.clone(),
+            _ => directory,
+        };
         self.inner.announce(Event::ThreadChanged {
             thread: thread.clone(),
         });
@@ -472,8 +581,9 @@ impl Workspace {
             self.inner.setup.agents.clone(),
             TurnRequest {
                 thread,
+                voice,
                 directory,
-                message: text.to_string(),
+                message: message.to_string(),
                 environment: self
                     .inner
                     .setup
@@ -483,7 +593,6 @@ impl Workspace {
                     .unwrap_or_default(),
             },
         );
-        Ok(entry)
     }
 
     /// Asks a thread's agent to stop. Does nothing when it is not running.
@@ -636,11 +745,45 @@ impl Journal for WorkspaceJournal {
             .and_then(|(store, _)| {
                 store
                     .change(thread_id, |thread| match change {
-                        ThreadChange::ConversationStarted => thread.conversation_started = true,
+                        ThreadChange::ConversationStarted(Voice::Author) => {
+                            thread.conversation_started = true;
+                        }
+                        ThreadChange::ConversationStarted(Voice::Reviewer) => {
+                            if let Some(reviewer) = &mut thread.reviewer {
+                                reviewer.conversation_started = true;
+                            }
+                        }
                         ThreadChange::Commands(commands) => thread.commands = commands,
+                        // A reply without a count answers a question, and leaves the last review's count as it was.
+                        ThreadChange::Reviewed(findings) => {
+                            if let Some(reviewer) = &mut thread.reviewer {
+                                if findings.is_some() || reviewer.verdict.is_none() {
+                                    reviewer.verdict = Some(Verdict {
+                                        findings,
+                                        answered: false,
+                                        cut: false,
+                                    });
+                                }
+                            }
+                        }
+                        // Only a review cut short counts; a question cut short leaves the last review as it was.
+                        ThreadChange::ReviewCut => {
+                            if let Some(reviewer) = &mut thread.reviewer {
+                                if reviewer.verdict.is_none() {
+                                    reviewer.verdict = Some(Verdict {
+                                        findings: None,
+                                        answered: false,
+                                        cut: true,
+                                    });
+                                }
+                            }
+                        }
                         ThreadChange::Finished => {
                             thread.status = Status::Idle;
                             thread.unread = true;
+                            if let Some(reviewer) = &mut thread.reviewer {
+                                reviewer.reviewing = false;
+                            }
                         }
                     })
                     .map_err(|problem| problem.to_string())
@@ -670,6 +813,16 @@ fn release_interrupted(store: &mut ThreadStore) {
                 store.change(thread.id, |thread| {
                     thread.status = Status::Idle;
                     thread.unread = true;
+                    if let Some(reviewer) = &mut thread.reviewer {
+                        if reviewer.reviewing && reviewer.verdict.is_none() {
+                            reviewer.verdict = Some(Verdict {
+                                findings: None,
+                                answered: false,
+                                cut: true,
+                            });
+                        }
+                        reviewer.reviewing = false;
+                    }
                 })
             });
         if let Err(problem) = released {

@@ -4,7 +4,10 @@ import {
   CATCH_UP_REQUEST,
   type Change,
   type ChangeState,
-  changeStatus,
+  changeBadge,
+  changeCard,
+  findingsDraft,
+  type EntryLine,
   discardWarning,
   CONNECTED,
   CONNECTING,
@@ -46,7 +49,7 @@ function project(id: string, created_at: string): Project {
 }
 
 function thread(id: string, project_id: string, created_at: string, status: Thread['status'] = 'idle'): Thread {
-  return { id, project_id, title: '', agent: 'claude', status, unread: false, commands: [], change: null, created_at };
+  return { id, project_id, title: '', agent: 'claude', status, unread: false, commands: [], change: null, finished: null, reviewer: null, created_at };
 }
 
 function press(overrides: Partial<KeyPress> = {}): KeyPress {
@@ -146,17 +149,18 @@ describe('labels', () => {
 
 describe('entryLine', () => {
   it('shows a user message', () => {
-    expect(entryLine(entry('user_message', { text: 'Fix it' }))).toEqual({ kind: 'user', text: 'Fix it' });
+    expect(entryLine(entry('user_message', { text: 'Fix it' }))).toEqual({ kind: 'user', text: 'Fix it', reviewer: false });
   });
 
   it('shows an agent message', () => {
-    expect(entryLine(entry('agent_message', { text: 'Done' }))).toEqual({ kind: 'agent', text: 'Done' });
+    expect(entryLine(entry('agent_message', { text: 'Done' }))).toEqual({ kind: 'agent', text: 'Done', reviewer: false });
   });
 
   it('shows a tool with what it was used on', () => {
     expect(entryLine(entry('activity', { tool: 'Bash', summary: 'Run the tests' }))).toEqual({
       kind: 'activity',
       text: 'Bash  Run the tests',
+      reviewer: false,
     });
   });
 
@@ -165,17 +169,32 @@ describe('entryLine', () => {
   });
 
   it('shows a notice', () => {
-    expect(entryLine(entry('notice', { text: 'Stopped by you.' }))).toEqual({ kind: 'notice', text: 'Stopped by you.' });
+    expect(entryLine(entry('notice', { text: 'Stopped by you.' }))).toEqual({ kind: 'notice', text: 'Stopped by you.', reviewer: false });
   });
 
   it('shows an error', () => {
-    expect(entryLine(entry('error', { text: 'Not signed in' }))).toEqual({ kind: 'error', text: 'Not signed in' });
+    expect(entryLine(entry('error', { text: 'Not signed in' }))).toEqual({ kind: 'error', text: 'Not signed in', reviewer: false });
   });
 
   it('shows the end of a turn', () => {
     expect(entryLine(entry('turn_summary', { duration_ms: 2000, cost_usd: 0.5 }))).toEqual({
       kind: 'summary',
       text: 'Done in 2s · $0.50',
+      reviewer: false,
+    });
+  });
+
+  it('marks what the reviewer wrote, or was asked', () => {
+    expect(entryLine(entry('agent_message', { text: 'Findings: 0', reviewer: true }))).toEqual({ kind: 'agent', text: 'Findings: 0', reviewer: true });
+    expect(entryLine(entry('user_message', { text: 'Why?', reviewer: true })).reviewer).toBe(true);
+    expect(entryLine(entry('agent_message', { text: 'Done', reviewer: 'yes' })).reviewer).toBe(false);
+  });
+
+  it('shows where a review starts apart from other notices', () => {
+    expect(entryLine(entry('notice', { text: 'Grok reviews the change.', reviewer: true, starts_review: true }))).toEqual({
+      kind: 'review',
+      text: 'Grok reviews the change.',
+      reviewer: true,
     });
   });
 
@@ -471,60 +490,171 @@ describe('offersRestart', () => {
   });
 });
 
-describe('changeStatus', () => {
-  function change(state: Partial<ChangeState> | null): Change {
-    const whole: ChangeState = { copy_present: true, base_present: true, files_changed: 2, fit: 'applies', unfinished: false };
-    return { name: 'fix-login', path: '/work/a/.teryon/worktrees/fix-login', base: 'main', start: 'abc', branch: 'fix-login', state: state && { ...whole, ...state }, review: null };
+describe('changeCard', () => {
+  const local: Project = { id: 'a', name: 'App', directory: '/work/a', created_at: '2026-11-01T10:00:00' };
+  const hosted: Project = { ...local, on_github: true };
+  const whole: ChangeState = { copy_present: true, base_present: true, files_changed: 2, fit: 'applies', unfinished: false };
+
+  function change(state: Partial<ChangeState> | null, review: Change['review'] = null): Change {
+    return { name: 'fix-login', path: '/work/a/.teryon/worktrees/fix-login', base: 'main', start: 'abc', branch: 'fix-login', state: state && { ...whole, ...state }, review };
   }
 
-  it('says nothing before Teryon has looked', () => {
-    expect(changeStatus(change(null))).toEqual([]);
-  });
+  function review(state: 'in_review' | 'accepted' | 'declined'): Change['review'] {
+    return { number: 12, url: 'https://github.com/owner/app/pull/12', state };
+  }
 
-  it('counts the files changed and says it is ready to apply', () => {
-    expect(changeStatus(change({}))).toEqual(['2 files changed', 'ready to apply']);
-  });
+  function working(overrides: Partial<Thread>): Thread {
+    return { ...thread('t', 'a', '2026-11-02T10:00:00'), ...overrides };
+  }
 
-  it('counts one file as one', () => {
-    expect(changeStatus(change({ files_changed: 1 }))).toEqual(['1 file changed', 'ready to apply']);
-  });
-
-  it('has nothing to apply while no file has changed', () => {
-    expect(changeStatus(change({ files_changed: 0 }))).toEqual(['no files changed yet']);
-  });
-
-  it('says when it overlaps with newer work in the project', () => {
-    expect(changeStatus(change({ fit: 'overlaps' }))).toEqual(['2 files changed', 'overlaps with newer work in the project']);
-  });
-
-  it('leaves out whether it applies until that is known', () => {
-    expect(changeStatus(change({ fit: 'unknown' }))).toEqual(['2 files changed']);
-  });
-
-  it('says when the version of the project it started from is gone', () => {
-    expect(changeStatus(change({ base_present: false, fit: 'unknown' }))).toEqual(['2 files changed', 'the version of the project it started from is gone']);
-  });
-
-  it('says when the agent left it unfinished, and nothing else', () => {
-    expect(changeStatus(change({ unfinished: true, fit: 'overlaps' }))).toEqual(['the agent left this change unfinished']);
-  });
-
-  it('says when its copy was removed, and nothing else', () => {
-    expect(changeStatus(change({ copy_present: false, unfinished: true }))).toEqual(['its copy was removed outside Teryon']);
+  it('is nothing for a thread that never changed anything', () => {
+    expect(changeCard(working({}), local)).toBeNull();
   });
 
   it.each([
-    ['in_review', 'in review on GitHub'],
-    ['accepted', 'accepted on GitHub'],
-    ['declined', 'declined on GitHub'],
-  ] as const)('says how a review is going in place of being ready to apply: %s', (state, words) => {
-    const reviewed = { ...change({}), review: { number: 12, url: 'https://github.com/owner/app/pull/12', state } };
-    expect(changeStatus(reviewed)).toEqual(['2 files changed', words]);
+    ['applied', { title: 'Applied', labelled: true, note: 'in the project', tone: 'done', next: [] }],
+    ['accepted', { title: 'Accepted', labelled: true, note: 'on GitHub, in the project', tone: 'done', next: [] }],
+    ['discarded', { title: 'Discarded', labelled: true, note: '', tone: 'quiet', next: [] }],
+  ] as const)('remembers a change that was %s', (finished, expected) => {
+    expect(changeCard(working({ finished }), local)).toEqual(expected);
   });
 
-  it('says it overlaps rather than how its review is going', () => {
-    const reviewed = { ...change({ fit: 'overlaps' }), review: { number: 12, url: 'u', state: 'in_review' as const } };
-    expect(changeStatus(reviewed)).toEqual(['2 files changed', 'overlaps with newer work in the project']);
+  it('is changing before Teryon has looked', () => {
+    expect(changeCard(working({ change: change(null) }), local)).toEqual({ title: 'Changing', labelled: true, note: '', tone: 'working', next: [] });
+  });
+
+  it('asks for discarding once the copy is gone, whatever else is wrong', () => {
+    const gone = working({ change: change({ copy_present: false, unfinished: true, fit: 'overlaps' }), status: 'running' });
+    expect(changeCard(gone, local)).toEqual({ title: 'Copy missing', labelled: true, note: 'removed outside Teryon', tone: 'attention', next: ['change:discard'] });
+  });
+
+  it('says when the agent left it unfinished, ahead of anything but a missing copy', () => {
+    const left = working({ change: change({ unfinished: true, base_present: false, fit: 'overlaps' }, review('in_review')), status: 'running' });
+    expect(changeCard(left, local)).toEqual({ title: 'Unfinished', labelled: true, note: 'the agent left it half way', tone: 'attention', next: [] });
+  });
+
+  it.each([
+    [2, '2 files changed so far'],
+    [1, '1 file changed so far'],
+    [0, ''],
+  ])('is changing while the agent works, even when ready otherwise: %i files', (files_changed, note) => {
+    expect(changeCard(working({ change: change({ files_changed }), status: 'running' }), local)).toEqual({ title: 'Changing', labelled: true, note, tone: 'working', next: [] });
+  });
+
+  it('is changing while no file has changed', () => {
+    const subject = working({ change: change({ files_changed: 0, fit: 'overlaps', base_present: false }) });
+    expect(changeCard(subject, local)).toEqual({ title: 'Changing', labelled: true, note: 'no files changed yet', tone: 'working', next: [] });
+  });
+
+  it('says when the version of the project it started from is gone', () => {
+    expect(changeCard(working({ change: change({ base_present: false, fit: 'overlaps' }) }), local)).toEqual({
+      title: 'Nowhere to apply', labelled: true,
+      note: 'the version it started from is gone',
+      tone: 'attention',
+      next: [],
+    });
+  });
+
+  it('asks for catching up when it overlaps, even in review', () => {
+    expect(changeCard(working({ change: change({ fit: 'overlaps' }, review('in_review')) }), hosted)).toEqual({
+      title: 'Needs catching up', labelled: true,
+      note: 'overlaps with newer work',
+      tone: 'attention',
+      next: ['change:catchUp'],
+    });
+  });
+
+  it.each(['in_review', 'accepted'] as const)('waits on GitHub while %s and not yet tidied up', (state) => {
+    expect(changeCard(working({ change: change({}, review(state)) }), hosted)).toEqual({
+      title: 'In review', labelled: true,
+      note: '2 files changed, on GitHub',
+      tone: 'waiting',
+      next: ['change:openReview'],
+    });
+  });
+
+  it('says when the review was declined', () => {
+    expect(changeCard(working({ change: change({}, review('declined')) }), hosted)).toEqual({
+      title: 'Declined', labelled: true,
+      note: '2 files changed, on GitHub',
+      tone: 'attention',
+      next: ['change:openReview'],
+    });
+  });
+
+  it.each(['applies', 'unknown'] as const)('is ready to apply when it %s, which its buttons say without a label', (fit) => {
+    expect(changeCard(working({ change: change({ fit }) }), local)).toEqual({ title: 'Ready to apply', labelled: false, note: '2 files changed', tone: 'ready', next: ['change:askReview', 'change:apply'] });
+  });
+
+  it('counts one file as one', () => {
+    expect(changeCard(working({ change: change({ files_changed: 1 }) }), local)?.note).toBe('1 file changed');
+  });
+
+  it('offers sending for review next to applying in a project on GitHub', () => {
+    expect(changeCard(working({ change: change({}) }), hosted)?.next).toEqual(['change:askReview', 'change:apply', 'change:sendForReview']);
+  });
+
+  describe('reviewed by the other agent', () => {
+    function reviewed(verdict: { findings: number | null; answered: boolean; cut?: boolean } | null, reviewing = false): Thread {
+      return working({ change: change({}), reviewer: { agent: 'grok', reviewing, verdict: verdict && { cut: false, ...verdict } } });
+    }
+
+    it('offers a review before applying', () => {
+      expect(changeCard(working({ change: change({}) }), local)?.next).toEqual(['change:askReview', 'change:apply']);
+    });
+
+    it('is reviewing while the reviewer reads, and changing while the author works', () => {
+      expect(changeCard({ ...reviewed(null, true), status: 'running' }, local)).toEqual({
+        title: 'Reviewing',
+        labelled: true,
+        note: 'Grok is reading the change',
+        tone: 'waiting',
+        next: [],
+      });
+      expect(changeCard({ ...reviewed(null), status: 'running' }, local)?.title).toBe('Changing');
+    });
+
+    it.each([
+      [2, '2 findings'],
+      [1, '1 finding'],
+      [null, 'Findings'],
+    ])('counts %s findings and offers passing them to the author', (findings, title) => {
+      expect(changeCard(reviewed({ findings, answered: false }), hosted)).toEqual({
+        title,
+        labelled: true,
+        note: 'from Grok',
+        tone: 'attention',
+        next: ['change:passFindings', 'change:apply', 'change:sendForReview'],
+      });
+    });
+
+    it('says the review found nothing, and offers applying', () => {
+      expect(changeCard(reviewed({ findings: 0, answered: false }), local)).toEqual({
+        title: 'Reviewed',
+        labelled: true,
+        note: '2 files changed, Grok found nothing',
+        tone: 'ready',
+        next: ['change:apply'],
+      });
+    });
+
+    it('says the review stopped before finishing, and offers asking again', () => {
+      expect(changeCard(reviewed({ findings: null, answered: false, cut: true }), local)).toEqual({
+        title: 'Review stopped',
+        labelled: true,
+        note: 'Grok stopped before finishing',
+        tone: 'attention',
+        next: ['change:askReview', 'change:apply'],
+      });
+    });
+
+    it('is ready to review again once the author has worked on it', () => {
+      expect(changeCard(reviewed({ findings: 2, answered: true }), local)?.next).toEqual(['change:askReview', 'change:apply']);
+    });
+
+    it('puts overlapping newer work ahead of a review', () => {
+      expect(changeCard({ ...reviewed({ findings: 2, answered: false }), change: change({ fit: 'overlaps' }) }, local)?.title).toBe('Needs catching up');
+    });
   });
 
   it('never uses a git word', () => {
@@ -534,12 +664,77 @@ describe('changeStatus', () => {
         for (const files_changed of [0, 1, 2])
           for (const fit of ['applies', 'overlaps', 'unknown'] as const)
             for (const unfinished of [true, false]) states.push({ copy_present, base_present, files_changed, fit, unfinished });
-    const reviews = [null, 'in_review', 'accepted', 'declined'] as const;
-    const words = states
-      .flatMap((state) => reviews.map((review) => ({ ...change(state), review: review && { number: 1, url: 'u', state: review } })))
-      .flatMap(changeStatus)
-      .flatMap(gitWordsIn);
-    expect(words).toEqual([]);
+    const reviews = [null, review('in_review'), review('accepted'), review('declined')];
+    const threads = [
+      ...states.flatMap((state) =>
+        reviews.flatMap((reviewed) => (['idle', 'running'] as const).map((status) => working({ change: change(state, reviewed), status }))),
+      ),
+      working({ change: change(null) }),
+      ...(['applied', 'accepted', 'discarded'] as const).map((finished) => working({ finished })),
+    ];
+    const texts = threads
+      .flatMap((subject) => [local, hosted].map((project) => changeCard(subject, project)))
+      .flatMap((card) => (card ? [card.title, card.note] : []));
+    expect(texts.flatMap((text) => gitWordsIn(text))).toEqual([]);
+  });
+});
+
+describe('findingsDraft', () => {
+  const line = (kind: EntryLine['kind'], text: string, reviewer: boolean): EntryLine => ({ kind, text, reviewer });
+
+  it('asks the author about the reviewer\'s last message, without the count', () => {
+    const lines = [
+      line('agent', 'old review\n\nFindings: 1', true),
+      line('agent', 'the author answers', false),
+      line('agent', '1. A bug.\n2. No test.\n\n**Findings: 2**', true),
+      line('summary', 'Done', true),
+    ];
+    expect(findingsDraft(lines)).toBe(
+      "A reviewer looked at the change and found:\n\n1. A bug.\n2. No test.\n\nFix what you agree with, and say why for anything you don't.",
+    );
+  });
+
+  it('takes the review, not an answer to a question asked after it', () => {
+    const lines = [
+      line('review', 'Grok reviews the change.', true),
+      line('agent', '1. A bug.\n\nFindings: 1', true),
+      line('user', 'is it real?', true),
+      line('agent', 'Yes.', true),
+    ];
+    expect(findingsDraft(lines)).toContain('found:\n\n1. A bug.\n\nFix');
+  });
+
+  it('takes the first message of the latest review when the reviewer gave no count', () => {
+    const lines = [
+      line('review', 'Grok reviews the change.', true),
+      line('agent', 'old', true),
+      line('review', 'Grok reviews the change.', true),
+      line('agent', 'A bug.', true),
+      line('agent', 'Also this.', true),
+    ];
+    expect(findingsDraft(lines)).toContain('found:\n\nA bug.\n\nFix');
+  });
+
+  it('is nothing before the reviewer has written', () => {
+    expect(findingsDraft([line('agent', 'Findings: 2', false), line('review', 'Grok reviews the change.', true)])).toBe('');
+  });
+
+  it('never uses a git word', () => {
+    expect(gitWordsIn(findingsDraft([line('agent', 'x', true)]))).toEqual([]);
+  });
+});
+
+describe('changeBadge', () => {
+  const base = { ...thread('t', 'a', '2026-11-02T10:00:00') };
+
+  it('is the card\'s title in lower case', () => {
+    expect(changeBadge({ ...base, finished: 'applied' })).toBe('applied');
+    expect(changeBadge({ ...base, status: 'running', change: { name: 'n', path: 'p', base: null, start: 's', branch: 'n', state: null, review: null } })).toBe('changing');
+  });
+
+  it('is nothing for a thread with no change, or one whose change was thrown away', () => {
+    expect(changeBadge(base)).toBe('');
+    expect(changeBadge({ ...base, finished: 'discarded' })).toBe('');
   });
 });
 
@@ -560,15 +755,15 @@ describe('discardWarning', () => {
   }
 
   it('counts the changed files that will be lost', () => {
-    expect(discardWarning(change({}))).toBe('All changes in fix-login will be lost: 2 changed files. This cannot be undone.');
+    expect(discardWarning(change({}))).toBe('All changes in this thread will be lost: 2 changed files. This cannot be undone.');
   });
 
   it('counts one file as one', () => {
-    expect(discardWarning(change({ files_changed: 1 }))).toBe('All changes in fix-login will be lost: 1 changed file. This cannot be undone.');
+    expect(discardWarning(change({ files_changed: 1 }))).toBe('All changes in this thread will be lost: 1 changed file. This cannot be undone.');
   });
 
   it('counts nothing when no file changed, the copy is gone, or nobody has looked', () => {
-    const plain = 'All changes in fix-login will be lost. This cannot be undone.';
+    const plain = 'All changes in this thread will be lost. This cannot be undone.';
     expect(discardWarning(change({ files_changed: 0 }))).toBe(plain);
     expect(discardWarning(change({ copy_present: false }))).toBe(plain);
     expect(discardWarning(change(null))).toBe(plain);

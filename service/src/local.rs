@@ -117,9 +117,8 @@ async fn serve(mut socket: WebSocket, listener: Arc<Listener>) {
                     // Showing the token again changes nothing.
                     Ok(ClientMessage::Hello { .. }) => continue,
                     Err(problem) => {
-                        let message = format!("Not a request Teryon knows: {problem}");
-                        let reply = ServiceMessage::Reply { id: 0, outcome: Outcome::Failed { message } };
-                        if send(&mut socket, &reply).await.is_err() { return; }
+                        warn!("refused a request Teryon does not know: {problem}");
+                        if send(&mut socket, &unknown_request(&text)).await.is_err() { return; }
                         continue;
                     }
                 };
@@ -152,6 +151,30 @@ async fn serve(mut socket: WebSocket, listener: Arc<Listener>) {
     }
 }
 
+/// The refusal of a request this service cannot read, addressed to the call that sent it.
+///
+/// A window newer than the service sends requests the service does not
+/// know yet. Answering the call by its number lets the window say so; an
+/// answer to no call in particular left the button pressed with nothing
+/// happening. The number is read from the message as loosely as possible,
+/// because the message as a whole could not be read.
+fn unknown_request(text: &str) -> ServiceMessage {
+    let id = serde_json::from_str::<serde_json::Value>(text)
+        .ok()
+        .and_then(|message| message.get("id").and_then(serde_json::Value::as_u64))
+        .unwrap_or(0);
+    ServiceMessage::Reply {
+        id,
+        outcome: Outcome::Failed {
+            message: UNKNOWN_REQUEST.to_string(),
+        },
+    }
+}
+
+/// What the person reads when the service does not know a request.
+const UNKNOWN_REQUEST: &str =
+    "Teryon does not know this request. It may be older than this window: restart Teryon.";
+
 fn event(event: Event) -> ServiceMessage {
     ServiceMessage::Event { event }
 }
@@ -162,4 +185,29 @@ async fn send(socket: &mut WebSocket, message: &ServiceMessage) -> Result<(), ()
         .send(Message::Text(Utf8Bytes::from(text)))
         .await
         .map_err(|_| ())
+}
+
+#[cfg(test)]
+mod tests {
+    use lets_expect::lets_expect;
+
+    use super::*;
+
+    fn refused(id: u64) -> ServiceMessage {
+        ServiceMessage::Reply {
+            id,
+            outcome: Outcome::Failed {
+                message: UNKNOWN_REQUEST.to_string(),
+            },
+        }
+    }
+
+    lets_expect! {
+        // requirement: a request the service does not know is refused to the call that sent it, so the window can say so
+        expect(unknown_request(text)) {
+            when(text = r#"{"type":"call","id":7,"request":{"type":"review_change","thread_id":"x"}}"#) as a_newer_request to answer_its_call { equal(refused(7)) }
+            when(text = r#"{"type":"call","id":"seven"}"#) as a_call_numbered_oddly to answer_no_call { equal(refused(0)) }
+            when(text = "not json") as unreadable_text to answer_no_call { equal(refused(0)) }
+        }
+    }
 }

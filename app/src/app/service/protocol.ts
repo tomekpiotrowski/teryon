@@ -5,7 +5,7 @@ export type JsonValue = number | string | boolean | null | JsonValue[] | { [key:
 
 export type ClientMessage = { "type": "hello", token: string, } | { "type": "call", id: number, request: Request, };
 
-export type Request = { "type": "add_project", name: string, directory: string, } | { "type": "remove_project", project_id: string, } | { "type": "start_thread", project_id: string, agent: string, title: string, } | { "type": "send_message", thread_id: string, text: string, } | { "type": "stop", thread_id: string, } | { "type": "mark_seen", thread_id: string, } | { "type": "start_change", thread_id: string, turn: string, name: string, from: string | null, } | { "type": "draft_description", thread_id: string, } | { "type": "apply_change", thread_id: string, description: string, } | { "type": "catch_up", thread_id: string, } | { "type": "discard_change", thread_id: string, } | { "type": "send_for_review", thread_id: string, description: string, } | { "type": "open_review", thread_id: string, } | { "type": "open_copy", thread_id: string, with: Opener, } | { "type": "follow_thread", thread_id: string, } | { "type": "unfollow_thread", thread_id: string, } | { "type": "files", project_id: string, branch: string | null, commit: string | null, } | { "type": "file", project_id: string, branch: string | null, commit: string | null, path: string, } | { "type": "history", project_id: string, branch: string | null, } | { "type": "changes", project_id: string, commit: string, from: string | null, } | { "type": "change", project_id: string, commit: string, from: string | null, path: string, } | { "type": "shutdown" };
+export type Request = { "type": "add_project", name: string, directory: string, } | { "type": "remove_project", project_id: string, } | { "type": "start_thread", project_id: string, agent: string, title: string, } | { "type": "send_message", thread_id: string, text: string, to: Voice, } | { "type": "review_change", thread_id: string, } | { "type": "stop", thread_id: string, } | { "type": "mark_seen", thread_id: string, } | { "type": "start_change", thread_id: string, turn: string, name: string, from: string | null, } | { "type": "draft_description", thread_id: string, } | { "type": "apply_change", thread_id: string, description: string, } | { "type": "catch_up", thread_id: string, } | { "type": "discard_change", thread_id: string, } | { "type": "send_for_review", thread_id: string, description: string, } | { "type": "open_review", thread_id: string, } | { "type": "open_copy", thread_id: string, with: Opener, } | { "type": "follow_thread", thread_id: string, } | { "type": "unfollow_thread", thread_id: string, } | { "type": "files", project_id: string, branch: string | null, commit: string | null, } | { "type": "file", project_id: string, branch: string | null, commit: string | null, path: string, } | { "type": "history", project_id: string, branch: string | null, } | { "type": "changes", project_id: string, commit: string, from: string | null, } | { "type": "change", project_id: string, commit: string, from: string | null, path: string, } | { "type": "shutdown" };
 
 export type ServiceMessage = { "type": "reply", id: number, outcome: Outcome, } | { "type": "event", event: Event, };
 
@@ -60,7 +60,15 @@ commands: Array<string>,
  * `crate::changes::claim`. Boxed, because it is large next to the rest,
  * and a thread travels in most messages.
  */
-change: Change | null, created_at: string, };
+change: Change | null, 
+/**
+ * How the thread's last change ended. Nothing while one is under way, or before the first.
+ */
+finished: Finish | null, 
+/**
+ * The second agent, reviewing the change. Nothing until a review is asked for.
+ */
+reviewer: Reviewer | null, created_at: string, };
 
 export type Status = "idle" | "running";
 
@@ -122,6 +130,42 @@ export type Review = { number: number,
 url: string, state: ReviewState, };
 
 export type ReviewState = "in_review" | "accepted" | "declined";
+
+export type Finish = "applied" | "accepted" | "discarded";
+
+export type Reviewer = { agent: string, 
+/**
+ * The identifier the agent program knows the reviewer's conversation by.
+ */
+conversation_id: string, 
+/**
+ * Whether the agent program has seen the reviewer's conversation yet.
+ */
+conversation_started: boolean, 
+/**
+ * Whether the turn running in the thread is the reviewer's.
+ */
+reviewing: boolean, 
+/**
+ * What the last review found. Nothing until one has ended.
+ */
+verdict: Verdict | null, };
+
+export type Verdict = { 
+/**
+ * How many problems the reviewer counted. Nothing when it did not say.
+ */
+findings: number | null, 
+/**
+ * Whether the author has worked on the change since, so the review may no longer fit it.
+ */
+answered: boolean, 
+/**
+ * Whether the review ended before the reviewer finished it, so it may be missing findings.
+ */
+cut: boolean, };
+
+export type Voice = "author" | "reviewer";
 
 export type Fit = "applies" | "overlaps" | "unknown";
 

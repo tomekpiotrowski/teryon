@@ -22,6 +22,7 @@ pub mod github;
 pub mod instruction;
 pub mod name;
 pub mod open;
+pub mod reviewing;
 pub mod status;
 
 use std::fs::canonicalize;
@@ -95,6 +96,22 @@ pub enum ReviewState {
     Accepted,
     /// Closed on GitHub without merging.
     Declined,
+}
+
+/// How a thread's change ended, once Teryon let go of it.
+///
+/// A finished change is forgotten along with its copy, so without this a
+/// thread whose work went into the project looks like one that never
+/// changed anything. Kept until the thread's agent starts another change.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum Finish {
+    /// Applied to the project from Teryon.
+    Applied,
+    /// Its review was accepted on GitHub.
+    Accepted,
+    /// Thrown away.
+    Discarded,
 }
 
 /// Where a change stands, as last read from git.

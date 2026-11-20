@@ -7,9 +7,16 @@
 import { existsSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 
+import type { Page } from "@playwright/test";
+
 import { addProject, choose, commit, expect, git, menu, openWorkspace, put, test } from "./support";
 
 test.beforeEach(openWorkspace);
+
+/** The line above the message box about the open thread's change. */
+function changeLine(page: Page) {
+  return page.getByRole("region", { name: "This thread’s changes" });
+}
 
 test("an agent works in a project and the thread fills in live", async ({ page }) => {
   await addProject(page, "Sample");
@@ -44,10 +51,12 @@ test("an agent's change shows where it stands, and its copy can be found", async
 
   const thread = page.getByLabel("Thread");
   await expect(thread.getByText("ready", { exact: true })).toBeVisible();
-  const changes = page.getByLabel("Changes", { exact: true });
-  await expect(changes).toContainText("fix-login");
-  await expect(changes).toContainText("· 1 file changed");
-  await expect(changes).toContainText("· ready to apply");
+  const line = changeLine(page);
+  // Ready to apply goes without a label: the button says so.
+  await expect(line.getByRole("button")).toHaveText(["Ask Grok to review", "Apply to the project", "more"]);
+  await expect(line.getByRole("status")).toHaveCount(0);
+  await expect(line).toContainText("1 file changed");
+  await expect(page.getByText("fix-login", { exact: true })).toHaveCount(0);
   await expect(page.getByText(/\.teryon\/worktrees/)).toHaveCount(0);
 
   // W, then Y, copies where the thread's copy is, saying so in the bar while waiting for the second key.
@@ -60,16 +69,66 @@ test("an agent's change shows where it stands, and its copy can be found", async
   const copied = await page.evaluate(() => navigator.clipboard.readText());
   expect(copied).toBe(join(realpathSync(directory), ".teryon", "worktrees", "fix-login"));
 
-  // The menu lists the same, with its keys.
+  // The menu lists the same, with its keys, and marks the thread as holding a change ready to apply.
   await page.keyboard.press("Control+k");
-  await expect(menu(page).getByRole("option", { name: /^Copy location fix-login W Y$/ })).toBeVisible();
-  await expect(menu(page).getByRole("option", { name: /^Open folder fix-login W F$/ })).toBeVisible();
+  await expect(menu(page).getByRole("option", { name: /^Copy location start a change fix-login W Y$/ })).toBeVisible();
+  await expect(menu(page).getByRole("option", { name: /^Open folder start a change fix-login W F$/ })).toBeVisible();
+  await expect(menu(page).locator(".menu-badge")).toHaveText("ready to apply");
   await expect(menu(page).getByRole("option", { name: /^Open in editor/ })).toHaveCount(0);
   await page.keyboard.press("Escape");
 
-  await page.getByRole("button", { name: "Explore fix-login" }).click();
+  // "more" opens the menu on the change's commands alone.
+  await line.getByRole("button", { name: "More about this thread’s changes" }).click();
+  await expect(menu(page).locator(".menu-heading")).toHaveText(["This thread’s changes"]);
+  await menu(page).getByRole("option", { name: /^See the changes/ }).click();
   await expect(page.getByLabel("Repository files").getByRole("button", { name: "fix-login.txt" })).toBeVisible();
   await expect(page.getByText(/\.teryon\/worktrees/)).toHaveCount(0);
+});
+
+test("the other agent reviews a change in the same thread, and its findings go back to the author", async ({ page }) => {
+  await addProject(page, "Sample", (folder) => {
+    git(folder, "init", "-q", "-b", "main");
+    put(folder, "README.md", "# Sample\n");
+    commit(folder);
+  });
+
+  await page.getByLabel("New thread").fill("start a change fix-login");
+  await page.getByRole("button", { name: "Run ↵" }).click();
+  const line = changeLine(page);
+  await line.getByRole("button", { name: "Ask Grok to review" }).click();
+
+  // The review is part of the thread, set apart, and counted on the line.
+  const thread = page.getByLabel("Thread");
+  await expect(thread.locator(".review-divider")).toHaveText("Grok reviews the change.");
+  await expect(thread.locator(".reviewer-entry .markdown")).toContainText("fix-login.txt has no test.");
+  await expect(thread.locator(".reviewer-entry .speaker").first()).toHaveText("Grok · reviewing");
+  await expect(line.getByRole("status")).toHaveText("2 findings");
+  await expect(line).toContainText("from Grok");
+  await expect(page.getByText("The change could not be reviewed.")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Who the message goes to" })).toHaveText("to Claude ▾");
+
+  // The person can ask the reviewer, which leaves the count alone.
+  await page.getByRole("button", { name: "Who the message goes to" }).click();
+  await expect(page.getByLabel("Reply")).toHaveAttribute("placeholder", "Ask Grok");
+  await page.getByLabel("Reply").fill("is the second one real?");
+  await page.getByLabel("Reply").press("Enter");
+  await expect(thread.locator(".user-entry.reviewer-entry")).toContainText("to Grok");
+  await expect(thread.locator(".reviewer-entry .markdown").last()).toHaveText("ready");
+  await expect(line.getByRole("status")).toHaveText("2 findings");
+
+  // Passing the findings drafts them for the author, without the count.
+  await line.getByRole("button", { name: "Pass findings to Claude" }).click();
+  await expect(page.getByRole("button", { name: "Who the message goes to" })).toHaveText("to Claude ▾");
+  const reply = page.getByLabel("Reply");
+  await expect(reply).toHaveValue(/^A reviewer looked at the change and found:\n\n1\. `fix-login\.txt` has no test\.\n2\. The redirect is not checked\.\n\nFix what/);
+  await reply.press("Enter");
+  await expect(line.getByRole("button", { name: "Ask Grok to review again" })).toBeVisible();
+
+  // A second review finds nothing.
+  await line.getByRole("button", { name: "Ask Grok to review again" }).click();
+  await expect(line.getByRole("status")).toHaveText("Reviewed");
+  await expect(line).toContainText("Grok found nothing");
+  await expect(thread.locator(".review-divider")).toHaveCount(2);
 });
 
 test("an agent's change is applied to the project with the person's description", async ({ page }) => {
@@ -81,7 +140,7 @@ test("an agent's change is applied to the project with the person's description"
 
   await page.getByLabel("New thread").fill("start a change fix-login");
   await page.getByRole("button", { name: "Run ↵" }).click();
-  await expect(page.getByLabel("Changes", { exact: true })).toContainText("ready to apply");
+  await expect(changeLine(page).getByRole("button", { name: "Apply to the project" })).toBeVisible();
 
   await page.getByLabel("Reply").press("Escape");
   await page.keyboard.press("w");
@@ -93,7 +152,9 @@ test("an agent's change is applied to the project with the person's description"
 
   await expect(page.getByText("Applied to the project.", { exact: true }).first()).toBeVisible();
   await expect(page.getByLabel("Thread").getByText("Applied to the project.")).toBeVisible();
-  await expect(page.getByLabel("Changes", { exact: true })).toHaveCount(0);
+  await expect(changeLine(page).getByRole("status")).toHaveText("Applied");
+  await expect(changeLine(page)).toContainText("in the project");
+  await expect(changeLine(page).getByRole("button")).toHaveCount(0);
   await expect.poll(() => git(directory, "log", "-1", "--format=%B")).toBe("Fix the login\n\nIt redirected twice.");
   expect(existsSync(join(directory, "fix-login.txt"))).toBe(true);
   expect(existsSync(join(directory, ".teryon", "worktrees", "fix-login"))).toBe(false);
@@ -108,17 +169,18 @@ test("an agent's change is discarded once the person confirms", async ({ page })
 
   await page.getByLabel("New thread").fill("start a change fix-login");
   await page.getByRole("button", { name: "Run ↵" }).click();
-  await expect(page.getByLabel("Changes", { exact: true })).toContainText("1 file changed");
+  await expect(changeLine(page)).toContainText("1 file changed");
 
   await choose(page, "Discard changes");
-  await expect(page.locator("ion-alert")).toContainText("All changes in fix-login will be lost: 1 changed file. This cannot be undone.");
+  await expect(page.locator("ion-alert")).toContainText("All changes in this thread will be lost: 1 changed file. This cannot be undone.");
   await page.locator("ion-alert").getByRole("button", { name: "Cancel" }).click();
-  await expect(page.getByLabel("Changes", { exact: true })).toContainText("fix-login");
+  await expect(changeLine(page).getByRole("button", { name: "Apply to the project" })).toBeVisible();
 
   await choose(page, "Discard changes");
   await page.locator("ion-alert").getByRole("button", { name: "Discard" }).click();
   await expect(page.getByLabel("Thread").getByText("Changes discarded.")).toBeVisible();
-  await expect(page.getByLabel("Changes", { exact: true })).toHaveCount(0);
+  await expect(changeLine(page).getByRole("status")).toHaveText("Discarded");
+  await expect(changeLine(page).getByRole("button")).toHaveCount(0);
   expect(existsSync(join(directory, ".teryon", "worktrees", "fix-login"))).toBe(false);
   expect(git(directory, "rev-list", "--count", "main")).toBe("1");
 });

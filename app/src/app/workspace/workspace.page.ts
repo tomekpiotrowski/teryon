@@ -27,7 +27,7 @@ import {
 import { ThemeService } from '../theme.service';
 import { type NewProject } from './command-menu.component';
 import type { Opener } from '../service/protocol';
-import { type Command, commandList, keyOutcome, menuAsked } from './commands.model';
+import { type Command, type CommandGroup, commandList, keyHint, keyOutcome, menuAsked } from './commands.model';
 import { askDraft } from './files.model';
 import { type Commit, revertDraft } from './history.model';
 import { WorkspaceApi } from './workspace.api';
@@ -36,7 +36,8 @@ import {
   agentLabel,
   barTitle,
   CATCH_UP_REQUEST,
-  changeStatus,
+  type ChangeCard,
+  changeCard,
   discardWarning,
   composerAction,
   type EntryLine,
@@ -61,7 +62,10 @@ import {
   seenNow,
   type Thread,
   threadLabel,
+  type Voice,
   waitingText,
+  findingsDraft,
+  reviewerOf,
 } from './workspace.model';
 import { WorkspaceStore } from './workspace.store';
 
@@ -78,8 +82,21 @@ interface WorkspaceView {
   readonly projectThreads: readonly Thread[];
   /** The part of the selected project's repository the files and the history show. */
   readonly place: Place;
-  /** What the status line says about the open thread's change, after its name. */
-  readonly changeLine: readonly string[];
+  /** Where the open thread's change stands. Nothing when the thread never changed anything. */
+  readonly change: ChangeCard | null;
+}
+
+/** A button on the change line: a command with its keys. */
+interface LineAction {
+  readonly command: Command;
+  readonly hint: string | null;
+}
+
+/** The line above the message box about the open thread's change. */
+interface ChangeLine {
+  readonly card: ChangeCard;
+  /** The likely next steps, as buttons. */
+  readonly actions: readonly LineAction[];
 }
 
 /**
@@ -119,6 +136,10 @@ export class WorkspacePage implements OnDestroy {
   readonly draft$ = new BehaviorSubject('');
   readonly agent$ = new BehaviorSubject<AgentName>('claude');
   readonly menuOpen$ = new BehaviorSubject(false);
+  /** The one section the menu was opened on, such as the thread's changes. Nothing for the whole menu. */
+  readonly menuSection$ = new BehaviorSubject<CommandGroup | null>(null);
+  /** Which of the open thread's agents the message box writes to. */
+  readonly to$ = new BehaviorSubject<Voice>('author');
   /** True while a request is on its way, so a second press does not send it twice. */
   readonly sending$ = new BehaviorSubject(false);
   /** Whether the selected project's threads, files or history fill the screen. */
@@ -127,6 +148,8 @@ export class WorkspacePage implements OnDestroy {
   readonly place$ = new BehaviorSubject<Place>(NO_PLACE);
   /** A leader key pressed, waiting for the key that picks a command of its family. */
   readonly leader$ = new BehaviorSubject<string | null>(null);
+
+  readonly reviewerOf = reviewerOf;
 
   readonly view$: Observable<WorkspaceView> = combineLatest([
     combineLatest([this.store.projects$, this.store.threads$]).pipe(
@@ -149,10 +172,27 @@ export class WorkspacePage implements OnDestroy {
           liveAgents: projectThreads.filter((candidate) => candidate.status === 'running').length,
           projectThreads,
           place: project ? placeIn(place, project.id) : NO_PLACE,
-          changeLine: thread?.change ? changeStatus(thread.change) : [],
+          change: thread ? changeCard(thread, project) : null,
         })),
       );
     }),
+    shareReplay({ bufferSize: 1, refCount: true }),
+  );
+
+  /**
+   * Who the message box writes to: the agent the person picked, or the author while the thread has no reviewer.
+   *
+   * Goes back to the author whenever another thread opens.
+   */
+  readonly target$: Observable<Voice> = combineLatest([
+    this.view$.pipe(
+      map((view) => view.thread),
+      distinctUntilChanged((before, after) => before?.id === after?.id && !!before?.reviewer === !!after?.reviewer),
+      tap(() => this.to$.next('author')),
+    ),
+    this.to$,
+  ]).pipe(
+    map(([thread, to]) => (thread?.reviewer ? to : 'author')),
     shareReplay({ bufferSize: 1, refCount: true }),
   );
 
@@ -165,6 +205,28 @@ export class WorkspacePage implements OnDestroy {
   ]).pipe(
     map(([view, agent, theme, opens]) => commandList({ ...view, agent, theme, opens })),
     shareReplay({ bufferSize: 1, refCount: true }),
+  );
+
+  /**
+   * The line about the open thread's change, with its likely next steps as buttons.
+   *
+   * The buttons are the same commands the menu and the `W` keys run, so the
+   * line teaches those keys while it offers them. The rest are in the menu.
+   */
+  readonly changeLine$: Observable<ChangeLine | null> = combineLatest([this.view$, this.commands$]).pipe(
+    map(([view, commands]) => {
+      if (!view.change) return null;
+      const actions = view.change.next
+        .map((id) => commands.find((command) => command.id === id))
+        .filter((command): command is Command => command !== undefined)
+        .map((command) => ({ command, hint: keyHint(command) }));
+      return { card: view.change, actions };
+    }),
+  );
+
+  /** What the menu lists: every command, or one section when opened on it. */
+  readonly menuCommands$: Observable<readonly Command[]> = combineLatest([this.commands$, this.menuSection$]).pipe(
+    map(([commands, section]) => (section ? commands.filter((command) => command.group === section) : commands)),
   );
 
   /** The commands as last offered, for a key press, which has to be answered at once. */
@@ -294,9 +356,14 @@ export class WorkspacePage implements OnDestroy {
     if (outcome.kind === 'run') this.run(outcome.command);
   }
 
-  /** Opens the menu. `byKey` tells a key press from a tap, which should not end with a keyboard raised. */
-  openMenu(byKey = false): void {
+  /**
+   * Opens the menu, whole or on one section.
+   *
+   * `byKey` tells a key press from a tap, which should not end with a keyboard raised.
+   */
+  openMenu(byKey = false, section: CommandGroup | null = null): void {
     this.leader$.next(null);
+    this.menuSection$.next(section);
     this.menuOpenedByKey = byKey;
     this.menuOpen$.next(true);
   }
@@ -332,6 +399,12 @@ export class WorkspacePage implements OnDestroy {
         return this.applyChange(action.thread);
       case 'catchUp':
         return this.catchUp(action.thread);
+      case 'exploreChange':
+        return this.exploreChange(action.thread);
+      case 'reviewChange':
+        return this.reviewChange(action.thread);
+      case 'passFindings':
+        return this.passFindings();
       case 'discardChange':
         return void this.confirmDiscard(action.thread);
       case 'sendForReview':
@@ -370,9 +443,11 @@ export class WorkspacePage implements OnDestroy {
     this.place$.next({ projectId: project.id, branch, commit: null });
   }
 
-  /** Opens the files and the history on what a thread's agent changed. */
-  explore(project: Project, branch: string): void {
-    this.chooseBranch(project, branch);
+  /** Opens the files on what a thread's agent changed. */
+  exploreChange(thread: Thread): void {
+    const change = thread.change;
+    if (!change) return;
+    this.place$.next({ projectId: thread.project_id, branch: change.branch ?? change.name, commit: null });
     this.screen$.next('files');
   }
 
@@ -396,6 +471,25 @@ export class WorkspacePage implements OnDestroy {
   selectThread(thread: Thread): void {
     this.selection$.next({ projectId: thread.project_id, threadId: thread.id });
     this.draft$.next('');
+  }
+
+  /** Switches the message box between the thread's agent and its reviewer. */
+  toggleTarget(): void {
+    this.to$.next(this.to$.value === 'author' ? 'reviewer' : 'author');
+  }
+
+  reviewChange(thread: Thread): void {
+    this.api.reviewChange(thread.id).subscribe({
+      error: (failure: unknown) => this.alerts.error(refusalText(failure, 'The change could not be reviewed.')),
+    });
+  }
+
+  /** Puts what the reviewer found in the message box, addressed to the author, for the person to trim and send. */
+  passFindings(): void {
+    this.view$.pipe(take(1)).subscribe((view) => {
+      this.to$.next('author');
+      this.draftAndReturn(findingsDraft(view.lines));
+    });
   }
 
   toggleAgent(): void {
@@ -427,7 +521,8 @@ export class WorkspacePage implements OnDestroy {
         );
 
     this.sending$.next(true);
-    thread$.pipe(switchMap((thread) => this.api.sendMessage(thread.id, text))).subscribe({
+    const to = view.thread?.reviewer ? this.to$.value : 'author';
+    thread$.pipe(switchMap((thread) => this.api.sendMessage(thread.id, text, to))).subscribe({
       next: () => {
         this.draft$.next('');
         this.sending$.next(false);

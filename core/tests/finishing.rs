@@ -15,6 +15,7 @@ use tokio::join;
 
 use common::{commit, git, noted_turn, project_folder, put, Scene};
 use teryon_core::changes::finish::CaughtUp;
+use teryon_core::changes::Finish;
 use teryon_core::protocol::ProjectView;
 use teryon_core::store::{Status, Thread};
 
@@ -139,6 +140,26 @@ lets_expect! { #tokio_test
         expect(project.branch_exists("fix-login")) to be_false
         expect(project.scene.thread_now(&thread).change) to equal(None)
         expect(project.last_note(&thread)) to equal("Applied to the project.".to_string())
+        expect(project.scene.thread_now(&thread).finished) to equal(Some(Finish::Applied))
+    }
+
+    // requirement: a thread forgets how its last change ended once its agent starts another
+    story a_new_change_forgets_how_the_last_one_ended {
+        let project = project(|_| {});
+        let (thread, copy) = project.change("fix-login", None).await;
+        put(&copy, "login.txt", "fixed\n");
+        project.apply(&thread, "Fix the login").await.unwrap();
+
+        let _ = remove_file(project.folder.path().join(".fake-agent-turn"));
+        project.scene.say(&thread, "remember the turn and wait").unwrap();
+        let turn = noted_turn(&project.folder).await;
+        project.scene.workspace.start_change(thread.id, turn, "fix-logout", None).await.unwrap();
+        project.scene.workspace.stop(thread.id).unwrap();
+        project.scene.wait_until_idle(&thread).await;
+
+        let now = project.scene.thread_now(&thread);
+        expect(now.finished) to equal(None)
+        expect(now.change.map(|change| change.name)) to equal(Some("fix-logout".to_string()))
     }
 
     // requirement: a change to a version of the project that is checked out nowhere moves that version alone
@@ -240,6 +261,7 @@ lets_expect! { #tokio_test
         let plain = project.scene.thread(&project.project, "claude");
         expect(project.apply(&plain, "No change").await) to equal(Err("This thread has no changes.".to_string()))
         expect(project.git(&["rev-list", "--count", "main"])) to equal("1".to_string())
+        expect(project.scene.thread_now(&undescribed).finished) to equal(None)
     }
 
     // requirement: two changes applied at once in one project both land, one after the other
@@ -270,6 +292,7 @@ lets_expect! { #tokio_test
         expect(project.git(&["rev-list", "--count", "main"])) to equal("1".to_string())
         expect(project.scene.thread_now(&thread).change) to equal(None)
         expect(project.last_note(&thread)) to equal("Changes discarded.".to_string())
+        expect(project.scene.thread_now(&thread).finished) to equal(Some(Finish::Discarded))
     }
 
     // requirement: discarding stops the agent first

@@ -29,8 +29,11 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::agents::process::{ProcessTree, Signal};
-use crate::agents::{driver_for, Agent, AgentDriver, EntryDraft, EntryKind, Invocation, Turn};
+use crate::agents::{
+    driver_for, Agent, AgentDriver, EntryDraft, EntryKind, Invocation, Turn, Voice,
+};
 use crate::changes::instruction::instruction_for;
+use crate::changes::reviewing::{findings_in, fingerprint, reviewing};
 use crate::changes::status::Look;
 use crate::settings::AgentSettings;
 use crate::store::Thread;
@@ -73,10 +76,14 @@ pub trait Journal: Send + Sync + 'static {
 /// A fact about a thread that a turn learns.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ThreadChange {
-    /// The agent program has seen the conversation, so later turns continue it.
-    ConversationStarted,
+    /// The agent program has seen the conversation of one of the thread's agents, so later turns continue it.
+    ConversationStarted(Voice),
     /// The slash commands the program says it takes.
     Commands(Vec<String>),
+    /// The reviewer finished a turn, having counted this many problems, or not said.
+    Reviewed(Option<u32>),
+    /// The reviewer's turn ended before it finished: stopped, failed, or cut short by the program.
+    ReviewCut,
     /// The program has ended, however it ended. The thread takes messages again
     /// and needs the person's attention.
     Finished,
@@ -85,6 +92,8 @@ pub enum ThreadChange {
 /// A message for an agent, together with where to run it.
 pub struct TurnRequest {
     pub thread: Thread,
+    /// Whose turn it is: the thread's agent's, or its reviewer's.
+    pub voice: Voice,
     pub directory: PathBuf,
     pub message: String,
     /// Environment variables for the program, on top of Teryon's own.
@@ -164,6 +173,7 @@ async fn run_turn(
 ) {
     let TurnRequest {
         thread,
+        voice,
         directory,
         message,
         mut environment,
@@ -171,45 +181,128 @@ async fn run_turn(
     environment.push(("TERYON_THREAD".to_string(), thread.id.to_string().into()));
     environment.push(("TERYON_TURN".to_string(), turn.to_string().into()));
 
-    let Some(agent) = Agent::parse(&thread.agent) else {
+    let Some(speaker) = Speaker::of(&thread, voice) else {
         journal.add(
             thread.id,
-            EntryDraft::error("This thread names an agent Teryon does not know."),
+            EntryDraft::error("This thread names an agent Teryon does not know.").by(voice),
         );
-        return;
+        return review_cut(journal, &thread, voice);
     };
 
-    let driver = driver_for(agent, settings);
-    let brief = instruction_for(&directory, thread.change.as_deref()).await;
+    let driver = driver_for(speaker.agent, settings);
+    let change = thread.change.as_deref();
+    let brief = match voice {
+        Voice::Author => instruction_for(&directory, change).await,
+        Voice::Reviewer => change.map(reviewing),
+    };
     let watch_change = brief.is_some();
+    let before = match (voice, change) {
+        (Voice::Reviewer, Some(change)) => fingerprint(change).await,
+        _ => None,
+    };
     let invocation = driver.invocation(&Turn {
         message,
-        conversation: thread.conversation_id,
-        first: !thread.conversation_started,
+        conversation: speaker.conversation,
+        first: !speaker.conversation_started,
         brief,
+        read_only: voice == Voice::Reviewer,
     });
     let tree = match spawn(&invocation, &directory, &environment) {
         Ok(tree) => tree,
         Err(problem) => {
             let text = format!("Could not start `{}`: {problem}.", invocation.program);
-            journal.add(thread.id, EntryDraft::error(&text));
-            return;
+            journal.add(thread.id, EntryDraft::error(&text).by(voice));
+            return review_cut(journal, &thread, voice);
         }
     };
 
     let grace = Duration::from_secs(settings.stop_grace_seconds);
-    let outcome = follow(journal, &thread, watch_change, driver, tree, stopped, grace).await;
+    let outcome = follow(
+        journal,
+        &thread,
+        &speaker,
+        watch_change,
+        driver,
+        tree,
+        stopped,
+        grace,
+    )
+    .await;
+
+    if let (Some(before), Some(change)) = (before, change) {
+        if fingerprint(change)
+            .await
+            .is_some_and(|after| after != before)
+        {
+            let text = "The reviewer changed files, though it was told not to. Look at the changes before applying them.";
+            journal.add(thread.id, EntryDraft::error(text).by(voice));
+        }
+    }
 
     match outcome.stop {
-        Some(Stop::ByUser) => journal.add(thread.id, EntryDraft::notice("Stopped by you.")),
-        Some(Stop::Shutdown) => {
-            journal.add(thread.id, EntryDraft::notice("Interrupted by a restart."))
+        Some(Stop::ByUser) => {
+            journal.add(thread.id, EntryDraft::notice("Stopped by you.").by(voice))
         }
+        Some(Stop::Shutdown) => journal.add(
+            thread.id,
+            EntryDraft::notice("Interrupted by a restart.").by(voice),
+        ),
         None if !outcome.summarised => {
             let text = unfinished_turn(outcome.status, &outcome.complaints);
-            journal.add(thread.id, EntryDraft::error(&text));
+            journal.add(thread.id, EntryDraft::error(&text).by(voice));
         }
         None => {}
+    }
+    if voice == Voice::Reviewer {
+        let finished = outcome.stop.is_none() && outcome.summarised && !outcome.early;
+        let change = if finished {
+            ThreadChange::Reviewed(findings_in(&outcome.last_message))
+        } else {
+            ThreadChange::ReviewCut
+        };
+        journal.note(thread.id, change);
+    }
+}
+
+/// Records that a reviewer's turn ended before the reviewer could finish, here because it never started.
+fn review_cut(journal: &dyn Journal, thread: &Thread, voice: Voice) {
+    if voice == Voice::Reviewer {
+        journal.note(thread.id, ThreadChange::ReviewCut);
+    }
+}
+
+/// The agent taking a turn, and the conversation it continues.
+struct Speaker {
+    voice: Voice,
+    agent: Agent,
+    conversation: Uuid,
+    conversation_started: bool,
+}
+
+impl Speaker {
+    /// The thread's agent, or its reviewer. Nothing when the thread has no such agent, or names one Teryon does not know.
+    fn of(thread: &Thread, voice: Voice) -> Option<Self> {
+        let (agent, conversation, conversation_started) = match voice {
+            Voice::Author => (
+                &thread.agent,
+                thread.conversation_id,
+                thread.conversation_started,
+            ),
+            Voice::Reviewer => {
+                let reviewer = thread.reviewer.as_ref()?;
+                (
+                    &reviewer.agent,
+                    reviewer.conversation_id,
+                    reviewer.conversation_started,
+                )
+            }
+        };
+        Some(Self {
+            voice,
+            agent: Agent::parse(agent)?,
+            conversation,
+            conversation_started,
+        })
     }
 }
 
@@ -217,10 +310,14 @@ async fn run_turn(
 struct Outcome {
     /// Whether the program reported the end of its turn.
     summarised: bool,
+    /// Whether it said that turn ended before the agent finished.
+    early: bool,
     stop: Option<Stop>,
     status: Option<ExitStatus>,
     /// The end of what the program wrote to its error output.
     complaints: String,
+    /// The last message the agent wrote, where a reviewer counts its findings.
+    last_message: String,
 }
 
 /// Reads the program's report until it ends, stopping it when asked to.
@@ -228,6 +325,7 @@ struct Outcome {
 async fn follow(
     journal: &dyn Journal,
     thread: &Thread,
+    speaker: &Speaker,
     watch_change: bool,
     mut driver: Box<dyn AgentDriver>,
     mut tree: ProcessTree,
@@ -243,7 +341,10 @@ async fn follow(
         .map(|output| BufReader::new(output).lines());
 
     let mut summarised = false;
-    let mut conversation_started = thread.conversation_started;
+    let mut early = false;
+    let voice = speaker.voice;
+    let mut conversation_started = speaker.conversation_started;
+    let mut last_message = String::new();
     let mut known_commands = thread.commands.clone();
     let mut stop = None;
     let mut listening = true;
@@ -260,13 +361,15 @@ async fn follow(
                 let Ok(Some(line)) = line else { break };
                 if !conversation_started {
                     conversation_started = true;
-                    journal.note(thread.id, ThreadChange::ConversationStarted);
+                    journal.note(thread.id, ThreadChange::ConversationStarted(voice));
                 }
                 match driver.interpret(&line) {
                     Ok(drafts) => {
                         for draft in drafts {
                             summarised |= draft.kind == EntryKind::TurnSummary;
-                            journal.add(thread.id, timed(draft, started));
+                            early |= draft.is_early_end();
+                            remember_message(&mut last_message, &draft);
+                            journal.add(thread.id, timed(draft, started).by(voice));
                         }
                     }
                     Err(_) => warn!("skipped a line of an agent's report that was not understood: {line}"),
@@ -274,8 +377,9 @@ async fn follow(
                 // The programs name their commands every turn, some several
                 // times. Only a list that differs is stored, so that a turn
                 // does not send the same thread to every client again and again.
+                // The reviewer's are left out: the message box offers the author's.
                 if let Some(commands) = driver.take_commands() {
-                    if commands != known_commands {
+                    if voice == Voice::Author && commands != known_commands {
                         known_commands = commands.clone();
                         journal.note(thread.id, ThreadChange::Commands(commands));
                     }
@@ -316,14 +420,26 @@ async fn follow(
         }
     };
     for draft in driver.finish() {
-        journal.add(thread.id, draft);
+        remember_message(&mut last_message, &draft);
+        journal.add(thread.id, draft.by(voice));
     }
 
     Outcome {
         summarised,
+        early,
         stop,
         status,
         complaints: complaints.await.unwrap_or_default(),
+        last_message,
+    }
+}
+
+/// Keeps the text of the agent's latest message.
+fn remember_message(last: &mut String, draft: &EntryDraft) {
+    if draft.kind == EntryKind::AgentMessage {
+        if let Some(text) = draft.body["text"].as_str() {
+            *last = text.to_string();
+        }
     }
 }
 

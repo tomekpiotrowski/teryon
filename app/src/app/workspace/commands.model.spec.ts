@@ -17,7 +17,7 @@ function project(id: string, name = `Project ${id}`): Project {
 }
 
 function thread(id: string, project_id: string, created_at: string, overrides: Partial<Thread> = {}): Thread {
-  return { id, project_id, title: `Thread ${id}`, agent: 'claude', status: 'idle', unread: false, commands: [], change: null, created_at, ...overrides };
+  return { id, project_id, title: `Thread ${id}`, agent: 'claude', status: 'idle', unread: false, commands: [], change: null, finished: null, reviewer: null, created_at, ...overrides };
 }
 
 function press(overrides: Partial<KeyPress> = {}): KeyPress {
@@ -29,7 +29,7 @@ function situation(overrides: Partial<Situation> = {}): Situation {
 }
 
 function entry(title: string, detail = '', overrides: Partial<Command> = {}): Command {
-  return { id: title, title, detail, group: 'action', key: null, leader: null, live: false, action: { kind: 'toggleTheme' }, ...overrides };
+  return { id: title, title, detail, group: 'action', key: null, leader: null, live: false, badge: '', action: { kind: 'toggleTheme' }, ...overrides };
 }
 
 const first = project('a', 'Payments');
@@ -443,20 +443,22 @@ describe('the commands for a thread\'s change', () => {
 
   const changed = thread('t9', 'a', '2026-11-06T10:00:00', { change: change() });
   /** What is offered for a change whose copy is there, whatever is set up. */
-  const ALWAYS = ['change:apply', 'change:catchUp', 'change:discard', 'change:copyLocation', 'change:openFolder'];
+  const ALWAYS = ['change:explore', 'change:apply', 'change:catchUp', 'change:askReview', 'change:discard', 'change:copyLocation', 'change:openFolder'];
 
   it('offers nothing without an open thread, or for a thread with no change', () => {
     expect(offered(null)).toEqual([]);
     expect(offered(older)).toEqual([]);
   });
 
-  it('offers applying, catching up, discarding, copying the location and opening the folder, after the projects and before the actions', () => {
+  it('offers seeing, applying, catching up, discarding, copying the location and opening the folder, after the projects and before the actions', () => {
     const commands = commandList(situation({ groups: groupThreads([first], [changed]), project: first, thread: changed }));
     expect(ids(commands)).toEqual([
       'thread:t9',
       'project:a',
+      'change:explore',
       'change:apply',
       'change:catchUp',
+      'change:askReview',
       'change:discard',
       'change:copyLocation',
       'change:openFolder',
@@ -470,25 +472,29 @@ describe('the commands for a thread\'s change', () => {
     ]);
   });
 
-  it('names the change beside each command, with keys after W', () => {
+  it('names the thread beside each command, with keys after W', () => {
     expect(offered(changed).map((candidate) => [candidate.title, candidate.detail, keyHint(candidate)])).toEqual([
-      ['Apply to the project', 'fix-login', 'W A'],
-      ['Catch up with the project', 'fix-login', 'W U'],
-      ['Discard changes', 'fix-login', 'W D'],
-      ['Copy location', 'fix-login', 'W Y'],
-      ['Open folder', 'fix-login', 'W F'],
+      ['See the changes', 'Thread t9', 'W V'],
+      ['Apply to the project', 'Thread t9', 'W A'],
+      ['Catch up with the project', 'Thread t9', 'W U'],
+      ['Ask Grok to review', 'Thread t9', 'W C'],
+      ['Discard changes', 'Thread t9', 'W D'],
+      ['Copy location', 'Thread t9', 'W Y'],
+      ['Open folder', 'Thread t9', 'W F'],
     ]);
   });
 
-  it('applies, catches up and discards the open thread\'s change', () => {
-    const [apply, catchUp, discard] = offered(changed);
+  it('shows, applies, catches up and discards the open thread\'s change', () => {
+    const [explore, apply, catchUp, askReview, discard] = offered(changed);
+    expect(askReview.action).toEqual({ kind: 'reviewChange', thread: changed });
+    expect(explore.action).toEqual({ kind: 'exploreChange', thread: changed });
     expect(apply.action).toEqual({ kind: 'applyChange', thread: changed });
     expect(catchUp.action).toEqual({ kind: 'catchUp', thread: changed });
     expect(discard.action).toEqual({ kind: 'discardChange', thread: changed });
   });
 
   it('copies the copy\'s full location and opens the open thread\'s copy', () => {
-    const [, , , copy, folder] = offered(changed);
+    const [, , , , , copy, folder] = offered(changed);
     expect(copy.action).toEqual({ kind: 'copyLocation', path: '/work/a/.teryon/worktrees/fix-login' });
     expect(folder.action).toEqual({ kind: 'openCopy', thread: changed, opener: 'folder' });
   });
@@ -502,7 +508,7 @@ describe('the commands for a thread\'s change', () => {
   });
 
   it('offers the editor and the terminal on W E and W T', () => {
-    const [, , , , , editor, terminal] = offered(changed, { editor: true, terminal: true });
+    const [, , , , , , , editor, terminal] = offered(changed, { editor: true, terminal: true });
     expect([keyHint(editor), keyHint(terminal)]).toEqual(['W E', 'W T']);
     expect(editor.action).toEqual({ kind: 'openCopy', thread: changed, opener: 'editor' });
   });
@@ -542,8 +548,8 @@ describe('the commands for a thread\'s change', () => {
     }
 
     it('offers sending for review on W R, after catching up', () => {
-      expect(ids(onGitHub(changed))).toEqual(['change:apply', 'change:catchUp', 'change:sendForReview', 'change:discard', 'change:copyLocation', 'change:openFolder']);
-      const send = onGitHub(changed)[2];
+      expect(ids(onGitHub(changed))).toEqual(['change:explore', 'change:apply', 'change:catchUp', 'change:askReview', 'change:sendForReview', 'change:discard', 'change:copyLocation', 'change:openFolder']);
+      const send = onGitHub(changed)[4];
       expect([send.title, keyHint(send)]).toEqual(['Send for review on GitHub', 'W R']);
       expect(send.action).toEqual({ kind: 'sendForReview', thread: changed });
     });
@@ -551,17 +557,53 @@ describe('the commands for a thread\'s change', () => {
     it('offers opening the review in place of sending it, once in review', () => {
       const reviewed = { ...changed, change: change({ review: review('in_review') }) };
       const commands = onGitHub(reviewed);
-      expect(ids(commands)).toEqual(['change:apply', 'change:catchUp', 'change:openReview', 'change:discard', 'change:copyLocation', 'change:openFolder']);
-      expect(keyHint(commands[2])).toBe('W O');
+      expect(ids(commands)).toEqual(['change:explore', 'change:apply', 'change:catchUp', 'change:askReview', 'change:openReview', 'change:discard', 'change:copyLocation', 'change:openFolder']);
+      expect(keyHint(commands[4])).toBe('W O');
     });
 
     it('offers sending it again, and opening the old review, once declined', () => {
       const declined = { ...changed, change: change({ review: review('declined') }) };
-      expect(ids(onGitHub(declined)).slice(2, 4)).toEqual(['change:sendForReview', 'change:openReview']);
+      expect(ids(onGitHub(declined)).slice(4, 6)).toEqual(['change:sendForReview', 'change:openReview']);
     });
 
     it('offers nothing about reviews in a project that is not on GitHub', () => {
-      expect(ids(offered(changed)).some((id) => id.includes('Review'))).toBe(false);
+      expect(ids(offered(changed)).filter((id) => ['change:sendForReview', 'change:openReview'].includes(id))).toEqual([]);
+    });
+  });
+
+  it('marks a thread in the list with where its change stands, and only such a thread', () => {
+    const applied = thread('t8', 'a', '2026-11-07T10:00:00', { finished: 'applied' });
+    const discarded = thread('t7', 'a', '2026-11-08T10:00:00', { finished: 'discarded' });
+    const commands = commandList(situation({ groups: groupThreads([first], [changed, applied, discarded, older]), project: first }));
+    const badges = Object.fromEntries(commands.filter((candidate) => candidate.group === 'thread').map((candidate) => [candidate.id, candidate.badge]));
+    expect(badges).toEqual({ 'thread:t9': 'ready to apply', 'thread:t8': 'applied', 'thread:t7': '', 'thread:t1': '' });
+    expect(commands.filter((candidate) => candidate.group !== 'thread').every((candidate) => candidate.badge === '')).toBe(true);
+  });
+
+  describe('reviewed by the other agent', () => {
+    function reviewed(findings: number | null, answered = false, cut = false): Thread {
+      return { ...changed, reviewer: { agent: 'grok', reviewing: false, verdict: { findings, answered, cut } } };
+    }
+
+    it('asks the other agent, and asks again once it has reviewed', () => {
+      expect(offered(changed).find((candidate) => candidate.id === 'change:askReview')?.title).toBe('Ask Grok to review');
+      expect(offered({ ...changed, agent: 'grok' }).find((candidate) => candidate.id === 'change:askReview')?.title).toBe('Ask Claude to review');
+      expect(offered(reviewed(2)).find((candidate) => candidate.id === 'change:askReview')?.title).toBe('Ask Grok to review again');
+    });
+
+    it.each([
+      [2, false, true],
+      [null, false, true],
+      [0, false, false],
+      [2, true, false],
+      [null, false, false, true],
+    ])('offers passing %s findings to the author, answered %s: %s, cut %s', (findings, answered, offeredNow, cut = false) => {
+      const pass = offered(reviewed(findings, answered, cut)).find((candidate) => candidate.id === 'change:passFindings');
+      expect(pass !== undefined).toBe(offeredNow);
+      if (pass) {
+        expect([pass.title, keyHint(pass)]).toEqual(['Pass findings to Claude', 'W P']);
+        expect(pass.action).toEqual({ kind: 'passFindings', thread: reviewed(findings, answered, cut) });
+      }
     });
   });
 
@@ -572,11 +614,11 @@ describe('the commands for a thread\'s change', () => {
 
   it('never puts a git word in a title or a heading', () => {
     const hosted = { ...first, on_github: true };
-    const reviewed = { ...changed, change: change({ review: { number: 1, url: 'u', state: 'declined' } }) };
+    const reviewed = { ...changed, change: change({ review: { number: 1, url: 'u', state: 'declined' } }), reviewer: { agent: 'grok' as const, reviewing: false, verdict: { findings: 2, answered: false, cut: false } } };
     const everything = commandList(
       situation({ groups: groupThreads([hosted], [reviewed]), project: hosted, thread: reviewed, opens: { editor: true, terminal: true } }),
     );
-    const texts = [...everything.map((candidate) => candidate.title), ...menuRows(everything, '').map((row) => row.heading ?? '')];
+    const texts = [...everything.flatMap((candidate) => [candidate.title, candidate.badge]), ...menuRows(everything, '').map((row) => row.heading ?? '')];
     expect(texts.flatMap(gitWordsIn)).toEqual([]);
   });
 });

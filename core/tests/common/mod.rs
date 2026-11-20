@@ -17,6 +17,7 @@ use tempfile::{tempdir, TempDir};
 use tokio::time::sleep;
 use uuid::Uuid;
 
+use teryon_core::agents::Voice;
 use teryon_core::protocol::{Event, ProjectView};
 use teryon_core::settings::{AgentSettings, ClaudeSettings, GrokSettings};
 use teryon_core::store::{Entry, Status, Thread};
@@ -190,7 +191,14 @@ impl Scene {
 
     pub fn say(&self, thread: &Thread, text: &str) -> Result<Entry, String> {
         self.workspace
-            .send_message(thread.id, text)
+            .send_message(thread.id, text, Voice::Author)
+            .map_err(|problem| problem.to_string())
+    }
+
+    /// Sends a message to the thread's reviewer.
+    pub fn ask_reviewer(&self, thread: &Thread, text: &str) -> Result<Entry, String> {
+        self.workspace
+            .send_message(thread.id, text, Voice::Reviewer)
             .map_err(|problem| problem.to_string())
     }
 

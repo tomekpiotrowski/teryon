@@ -4,7 +4,7 @@ import type { Answer, Opener, Request } from '../service/protocol';
 import { ServiceConnection } from '../service/service-connection';
 import type { FileView, Listing } from './files.model';
 import type { Changes, History } from './history.model';
-import type { AgentName, Project, Thread, ThreadEntry } from './workspace.model';
+import type { AgentName, Project, Thread, ThreadEntry, Voice } from './workspace.model';
 
 /**
  * The requests the screens make to the local service.
@@ -33,8 +33,16 @@ export class WorkspaceApi {
     );
   }
 
-  sendMessage(threadId: string, text: string): Observable<ThreadEntry> {
-    return this.ask({ type: 'send_message', thread_id: threadId, text }, (answer) =>
+  /** Sends a message to a thread's agent, or to its reviewer. */
+  sendMessage(threadId: string, text: string, to: Voice): Observable<ThreadEntry> {
+    return this.ask({ type: 'send_message', thread_id: threadId, text, to }, (answer) =>
+      answer.type === 'entry' ? (answer.entry as ThreadEntry) : undefined,
+    );
+  }
+
+  /** Asks a second agent to review a thread's change, in the same thread. Answers with the line that starts the review. */
+  reviewChange(threadId: string): Observable<ThreadEntry> {
+    return this.ask({ type: 'review_change', thread_id: threadId }, (answer) =>
       answer.type === 'entry' ? (answer.entry as ThreadEntry) : undefined,
     );
   }

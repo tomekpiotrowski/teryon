@@ -20,6 +20,7 @@ use uuid::Uuid;
 use common::{git, program, project_id, repository, scene, scene_with, thread_id, wait_for};
 use teryon::client::{Client, ClientError};
 use teryon::session::{Origin, Session};
+use teryon_core::agents::Voice;
 use teryon_core::protocol::{Answer, Event, Opener, Opens, Request};
 use teryon_core::store::{Status, Thread};
 use teryon_core::workspace::{Setup, Workspace};
@@ -63,6 +64,7 @@ async fn turn(client: &mut Client, thread: Uuid, text: &str) -> Thread {
         .call(Request::SendMessage {
             thread_id: thread,
             text: text.to_string(),
+            to: Voice::Author,
         })
         .await
         .unwrap();
@@ -158,7 +160,7 @@ lets_expect! { #tokio_test
         let mut client = scene.client().await;
         let thread = thread_in(&mut client, &folder).await;
 
-        client.call(Request::SendMessage { thread_id: thread, text: "remember the turn and wait".to_string() }).await.unwrap();
+        client.call(Request::SendMessage { thread_id: thread, text: "remember the turn and wait".to_string(), to: Voice::Author }).await.unwrap();
         let noted = written_by_agent(&folder, ".fake-agent-turn").await;
         let parts: Vec<&str> = noted.split(' ').collect();
         expect(parts[0].to_string()) to equal(thread.to_string())
