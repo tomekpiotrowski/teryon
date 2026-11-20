@@ -15,6 +15,7 @@ import {
   shareReplay,
   startWith,
   switchMap,
+  take,
   timer,
 } from 'rxjs';
 import {
@@ -29,6 +30,8 @@ import {
   type Listing,
   liveText,
   modeAvailable,
+  NOTHING_REMEMBERED,
+  placeKey,
   rowIndent,
   sameAnswer,
   selectedEntry,
@@ -38,6 +41,7 @@ import {
   treeRows,
   type ViewMode,
 } from './files.model';
+import { FilesMemory } from './files.memory';
 import { type CodeLine, colouredLines } from './highlight';
 import { shortHash } from './history.model';
 import { WorkspaceApi } from './workspace.api';
@@ -50,6 +54,14 @@ const REFRESH_EVERY = 4000;
 interface ListingState {
   readonly listing: Listing | null;
   readonly problem: string | null;
+  /**
+   * The name under which the open file and folders of the listing are remembered. Nothing without a listing.
+   *
+   * Worked out from the branch or commit the server says it shows rather
+   * than from the one asked for, because asking for nothing and asking for
+   * the branch the directory is on show the same files.
+   */
+  readonly place: string | null;
 }
 
 /** The content of the open file, or why it could not be read. */
@@ -100,7 +112,7 @@ interface FilesView {
   readonly file: OpenFile | null;
 }
 
-const WAITING: ListingState = { listing: null, problem: null };
+const WAITING: ListingState = { listing: null, problem: null, place: null };
 const NO_CONTENT: ContentState = { path: null, content: null, problem: null };
 
 /**
@@ -112,9 +124,11 @@ const NO_CONTENT: ContentState = { path: null, content: null, problem: null };
  * requests are repeated while the screen is open, which keeps everything
  * shown here an observable of the latest answer.
  *
- * What the person picked — file, filter, opened folders, the way of showing —
- * sits in subjects. Handlers only push into those. The branch or commit
- * looked at is handed in, because the history screen shares it.
+ * What the person picked — filter and the way of showing — sits in subjects.
+ * The open file and folders are kept in `FilesMemory` instead, one set for
+ * each branch, commit or directory, so that they are as the person left them
+ * when the screen is opened again. Handlers only push into those. The branch
+ * or commit looked at is handed in, because the history screen shares it.
  */
 @Component({
   selector: 'app-files',
@@ -126,6 +140,7 @@ export class FilesComponent {
   private readonly api = inject(WorkspaceApi);
   private readonly document = inject(DOCUMENT);
   private readonly host: ElementRef<HTMLElement> = inject(ElementRef);
+  private readonly memory = inject(FilesMemory);
 
   private readonly project$ = new ReplaySubject<Project>(1);
   private readonly liveAgents$ = new BehaviorSubject(0);
@@ -165,10 +180,7 @@ export class FilesComponent {
 
   private readonly branch$ = new BehaviorSubject<string | null>(null);
   private readonly commit$ = new BehaviorSubject<string | null>(null);
-  private readonly chosenPath$ = new BehaviorSubject<string | null>(null);
   private readonly filter$ = new BehaviorSubject('');
-  /** The folders the person opened or closed themselves. */
-  private readonly toggled$ = new BehaviorSubject<ReadonlyMap<string, boolean>>(new Map());
   private readonly mode$ = new BehaviorSubject<ViewMode | null>(null);
 
   private readonly source$ = combineLatest([
@@ -181,18 +193,51 @@ export class FilesComponent {
     switchMap(([project, branch, commit]) =>
       this.repeated(() =>
         this.api.files(project.id, branch, commit).pipe(
-          map((listing): ListingState => ({ listing, problem: null })),
+          map(
+            (listing): ListingState => ({
+              listing,
+              problem: null,
+              place: placeKey(project.id, listing.branch, listing.commit),
+            }),
+          ),
           catchError((failure: unknown) => {
             // A branch can be removed while it is looked at, for example by a merge.
             const named = branch !== null || commit !== null;
             if (named && (failure as { status?: number } | null)?.status === 404) this.branchChosen.emit(null);
-            return of<ListingState>({ listing: null, problem: refusalText(failure, 'The files could not be read.') });
+            return of<ListingState>({
+              listing: null,
+              problem: refusalText(failure, 'The files could not be read.'),
+              place: null,
+            });
           }),
         ),
       ).pipe(startWith(WAITING)),
     ),
     distinctUntilChanged<ListingState>(sameAnswer),
     shareReplay({ bufferSize: 1, refCount: true }),
+  );
+
+  /** The name under which the open file and folders of what is shown are remembered. */
+  private readonly place$ = this.listing$.pipe(
+    map((state) => state.place),
+    distinctUntilChanged(),
+    shareReplay({ bufferSize: 1, refCount: true }),
+  );
+
+  private readonly remembered$ = this.place$.pipe(
+    switchMap((place) => (place === null ? of(NOTHING_REMEMBERED) : this.memory.remembered(place))),
+    shareReplay({ bufferSize: 1, refCount: true }),
+  );
+
+  private readonly chosenPath$ = this.remembered$.pipe(
+    map((remembered) => remembered.chosen),
+    distinctUntilChanged(),
+  );
+
+  /** The folders the person opened or closed themselves. */
+  private readonly toggled$ = this.remembered$.pipe(
+    map((remembered) => remembered.toggled),
+    distinctUntilChanged(),
   );
 
   private readonly selectedPath$ = combineLatest([this.listing$, this.chosenPath$]).pipe(
@@ -256,8 +301,8 @@ export class FilesComponent {
 
   constructor() {
     // Keeps the open file's row in sight: the tree can be longer than its
-    // space, most of all on a phone, and the file may have been picked for
-    // the person rather than by them.
+    // space, most of all on a phone, and the file may have been opened on an
+    // earlier visit, further down than the tree starts.
     this.view$
       .pipe(
         map((view) => view.selected),
@@ -277,12 +322,16 @@ export class FilesComponent {
 
   /** Opens a file, or opens or closes a folder. */
   choose(row: TreeRow): void {
-    if (row.kind === 'file') {
-      this.chosenPath$.next(row.path);
-      this.mode$.next(null);
-    } else {
-      this.toggled$.next(new Map(this.toggled$.value).set(row.path, !row.open));
-    }
+    // The screen is subscribed to the place while it is shown, so this answers at once.
+    this.place$.pipe(take(1)).subscribe((place) => {
+      if (place === null) return;
+      if (row.kind === 'file') {
+        this.memory.choose(place, row.path);
+        this.mode$.next(null);
+      } else {
+        this.memory.toggle(place, row.path, !row.open);
+      }
+    });
   }
 
   chooseMode(mode: ViewMode): void {
@@ -308,7 +357,7 @@ function listingNotice(state: ListingState, hasFile: boolean): string {
   if (state.problem) return state.problem;
   if (!state.listing) return 'Reading the files…';
   if (hasFile) return '';
-  return state.listing.files.length ? 'Nothing has changed. Choose a file to read it.' : 'There are no files here yet.';
+  return state.listing.files.length ? 'Choose a file to read it.' : 'There are no files here yet.';
 }
 
 /** Works out the colouring of an answer's lines, by the language its file's name tells. */

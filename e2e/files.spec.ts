@@ -51,10 +51,16 @@ test("a project's files show what changed, and follow the disk", async ({ page }
   const removedLine = content.locator(".files-line.removed");
   const addedLines = content.locator(".files-line.added");
 
-  // The screen opens on the first changed file, with the folders around it open.
+  // The screen opens with every folder closed and no file open, changes or not.
   await expect(page.getByLabel("Branch")).toHaveValue("main");
-  await expect(tree.getByRole("button", { name: "src" })).toHaveAttribute("aria-expanded", "true");
+  await expect(tree.getByRole("button", { name: "src" })).toHaveAttribute("aria-expanded", "false");
+  await expect(tree.getByRole("button", { name: "src" }).getByLabel("has changes")).toBeVisible();
+  await expect(page.getByText("Choose a file to read it.")).toBeVisible();
+
+  await tree.getByRole("button", { name: "src" }).click();
+  await tree.getByRole("button", { name: "ledger" }).click();
   await expect(tree.getByRole("button", { name: "api" })).toHaveAttribute("aria-expanded", "false");
+  await tree.getByRole("button", { name: "adapter.ts" }).click();
   await expect(tree.getByRole("button", { name: "adapter.ts" })).toHaveAttribute("aria-current", "true");
   await expect(tree.getByRole("button", { name: "adapter.ts" }).getByLabel("modified")).toHaveText("M");
   await expect(tree.getByRole("button", { name: "entry.ts" }).getByLabel("added")).toHaveText("A");
@@ -116,7 +122,7 @@ test("the C key and the code link switch between a thread and the files", async 
   await composer.press("Escape");
   await page.keyboard.press("c");
   await expect(page.getByLabel("Repository files")).toBeVisible();
-  await expect(page.getByText("Nothing has changed. Choose a file to read it.")).toBeVisible();
+  await expect(page.getByText("Choose a file to read it.")).toBeVisible();
 
   await page.getByPlaceholder("Filter files…").fill("c");
   await expect(page.getByLabel("Repository files")).toBeVisible();
@@ -152,16 +158,65 @@ test("another branch is compared with the main branch", async ({ page }) => {
     git(folder, "switch", "-q", "main");
   });
 
+  const tree = page.getByLabel("Repository files");
   await page.getByRole("button", { name: "code C" }).click();
-  await expect(page.getByText("Nothing has changed. Choose a file to read it.")).toBeVisible();
+  await expect(page.getByText("Choose a file to read it.")).toBeVisible();
 
   await page.getByLabel("Branch").selectOption("ledger-adapter");
+  await expect(page.getByText("Choose a file to read it.")).toBeVisible();
+  await tree.getByRole("button", { name: "src" }).click();
+  await tree.getByRole("button", { name: "ledger" }).click();
+  await tree.getByRole("button", { name: "adapter.ts" }).click();
   await expect(page.getByRole("heading", { name: "adapter.ts" })).toBeVisible();
   await expect(page.getByText("modified since main")).toBeVisible();
   await expect(page.locator(".files-line.removed")).toHaveText("−    return db.legacy_txn.insert(txn);");
 
   await page.getByLabel("Branch").selectOption("main");
-  await expect(page.getByText("Nothing has changed. Choose a file to read it.")).toBeVisible();
+  await expect(page.getByText("Choose a file to read it.")).toBeVisible();
+});
+
+test("the files open as they were left, apart for each branch", async ({ page }) => {
+  await addProject(page, "Payments", (folder) => {
+    repository(folder);
+    git(folder, "switch", "-q", "-c", "ledger-adapter");
+    put(folder, "src/ledger/adapter.ts", adapterAfter);
+    commit(folder);
+    git(folder, "switch", "-q", "main");
+  });
+  const tree = page.getByLabel("Repository files");
+  const composer = page.getByLabel("New thread");
+
+  await page.getByRole("button", { name: "code C" }).click();
+  await tree.getByRole("button", { name: "src" }).click();
+  await tree.getByRole("button", { name: "api" }).click();
+  await tree.getByRole("button", { name: "routes.ts" }).click();
+  await expect(page.getByRole("heading", { name: "routes.ts" })).toBeVisible();
+
+  // Left and opened again, the files are as they were.
+  await page.getByRole("button", { name: "code C" }).click();
+  await expect(composer).toBeVisible();
+  await page.getByRole("button", { name: "code C" }).click();
+  await expect(page.getByRole("heading", { name: "routes.ts" })).toBeVisible();
+  await expect(tree.getByRole("button", { name: "routes.ts" })).toHaveAttribute("aria-current", "true");
+  await expect(tree.getByRole("button", { name: "src" })).toHaveAttribute("aria-expanded", "true");
+  await expect(tree.getByRole("button", { name: "api" })).toHaveAttribute("aria-expanded", "true");
+  await expect(tree.getByRole("button", { name: "ledger" })).toHaveAttribute("aria-expanded", "false");
+
+  // Another branch starts closed, and keeps what was opened in it.
+  await page.getByLabel("Branch").selectOption("ledger-adapter");
+  await expect(page.getByText("Choose a file to read it.")).toBeVisible();
+  await expect(tree.getByRole("button", { name: "src" })).toHaveAttribute("aria-expanded", "false");
+  await tree.getByRole("button", { name: "README.md" }).click();
+  await expect(page.getByRole("heading", { name: "README.md" })).toBeVisible();
+
+  // Back on the first branch, chosen by name this time, it is as it was left.
+  await page.getByLabel("Branch").selectOption("main");
+  await expect(page.getByRole("heading", { name: "routes.ts" })).toBeVisible();
+  await expect(tree.getByRole("button", { name: "api" })).toHaveAttribute("aria-expanded", "true");
+
+  await page.getByLabel("Branch").selectOption("ledger-adapter");
+  await expect(page.getByRole("heading", { name: "README.md" })).toBeVisible();
+  await expect(tree.getByRole("button", { name: "src" })).toHaveAttribute("aria-expanded", "false");
 });
 
 test("a project that is not a git repository says so", async ({ page }) => {
@@ -183,6 +238,9 @@ test("the phone layout stacks the tree above the file", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
 
   await page.getByRole("button", { name: "code C" }).click();
+  await page.getByLabel("Repository files").getByRole("button", { name: "src" }).click();
+  await page.getByLabel("Repository files").getByRole("button", { name: "ledger" }).click();
+  await page.getByLabel("Repository files").getByRole("button", { name: "adapter.ts" }).click();
 
   const tree = await page.getByLabel("Repository files").boundingBox();
   const heading = await page.getByRole("heading", { name: "adapter.ts" }).boundingBox();

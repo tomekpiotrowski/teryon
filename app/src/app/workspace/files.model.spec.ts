@@ -11,6 +11,7 @@ import {
   lineCountText,
   liveText,
   modeAvailable,
+  placeKey,
   rowIndent,
   sameAnswer,
   selectedEntry,
@@ -53,12 +54,20 @@ const FILES: readonly FileEntry[] = [
 ];
 
 describe('treeRows', () => {
-  it('opens the folders that hold changes and leaves the others closed', () => {
+  it('leaves every folder closed, even those that hold changes', () => {
     expect(drawn(treeRows(FILES, '', NOTHING_TOGGLED, null))).toEqual([
       '▸ .github',
-      '▾ migrations ●',
-      '  0041_ledger.sql',
-      '  0042_drop_legacy.sql A',
+      '▸ migrations ●',
+      '▸ src ●',
+      'package.json',
+      'README.md',
+    ]);
+  });
+
+  it('opens only the folders around the selected file when it is changed', () => {
+    expect(drawn(treeRows(FILES, '', NOTHING_TOGGLED, 'src/ledger/adapter.ts'))).toEqual([
+      '▸ .github',
+      '▸ migrations ●',
       '▾ src ●',
       '  ▸ api',
       '  ▾ ledger ●',
@@ -66,6 +75,16 @@ describe('treeRows', () => {
       '    entry.ts A',
       '    index.ts',
       '  ▸ legacy',
+      'package.json',
+      'README.md',
+    ]);
+  });
+
+  it('lets the person close a folder around the selected file', () => {
+    expect(drawn(treeRows(FILES, '', new Map([['src', false]]), 'src/ledger/adapter.ts'))).toEqual([
+      '▸ .github',
+      '▸ migrations ●',
+      '▸ src ●',
       'package.json',
       'README.md',
     ]);
@@ -93,9 +112,7 @@ describe('treeRows', () => {
     expect(drawn(treeRows(FILES, '', toggled, null))).toEqual([
       '▾ .github',
       '  ▸ workflows',
-      '▾ migrations ●',
-      '  0041_ledger.sql',
-      '  0042_drop_legacy.sql A',
+      '▸ migrations ●',
       '▸ src ●',
       'package.json',
       'README.md',
@@ -144,7 +161,10 @@ describe('treeRows', () => {
   });
 
   it('marks a deleted file and the folder it was in', () => {
-    expect(drawn(treeRows([file('old/gone.txt', 'deleted')], '', NOTHING_TOGGLED, null))).toEqual(['▾ old ●', '  gone.txt D']);
+    expect(drawn(treeRows([file('old/gone.txt', 'deleted')], '', new Map([['old', true]]), null))).toEqual([
+      '▾ old ●',
+      '  gone.txt D',
+    ]);
   });
 
   it('gives each row its whole path', () => {
@@ -165,20 +185,46 @@ describe('selectedEntry', () => {
     expect(selectedEntry(FILES, 'README.md')).toEqual(file('README.md'));
   });
 
-  it('is the first changed file when nothing is chosen', () => {
-    expect(selectedEntry(FILES, null)).toEqual(file('migrations/0042_drop_legacy.sql', 'added'));
+  it('is a chosen changed file', () => {
+    expect(selectedEntry(FILES, 'src/ledger/entry.ts')).toEqual(file('src/ledger/entry.ts', 'added'));
   });
 
-  it('is the first changed file when the chosen one is gone', () => {
-    expect(selectedEntry(FILES, 'src/removed.ts')).toEqual(file('migrations/0042_drop_legacy.sql', 'added'));
+  it('is nothing when nothing is chosen, even though files changed', () => {
+    expect(selectedEntry(FILES, null)).toBeNull();
   });
 
-  it('is nothing when nothing is chosen and nothing changed', () => {
-    expect(selectedEntry([file('README.md')], null)).toBeNull();
+  it('is nothing when the chosen file is gone', () => {
+    expect(selectedEntry(FILES, 'src/removed.ts')).toBeNull();
   });
 
   it('is nothing without files', () => {
     expect(selectedEntry([], 'README.md')).toBeNull();
+  });
+});
+
+describe('placeKey', () => {
+  it('is the same for the same place', () => {
+    expect(placeKey('p1', 'main', null)).toEqual(placeKey('p1', 'main', null));
+  });
+
+  it('tells projects apart', () => {
+    expect(placeKey('p1', 'main', null)).not.toEqual(placeKey('p2', 'main', null));
+  });
+
+  it('tells branches apart', () => {
+    expect(placeKey('p1', 'main', null)).not.toEqual(placeKey('p1', 'fix-login', null));
+  });
+
+  it('tells a commit apart from the branch it was made on', () => {
+    expect(placeKey('p1', 'main', 'abc123')).not.toEqual(placeKey('p1', 'main', null));
+  });
+
+  it('tells the directory as it is apart from a branch', () => {
+    expect(placeKey('p1', null, null)).not.toEqual(placeKey('p1', 'main', null));
+  });
+
+  it('is not fooled by names that run together', () => {
+    expect(placeKey('p1', 'a b', null)).not.toEqual(placeKey('p1 a', 'b', null));
   });
 });
 

@@ -240,6 +240,10 @@ test("the files can be browsed as a commit left them", async ({ page }) => {
   const tree = page.getByLabel("Repository files");
   await expect(tree).toBeVisible();
   await expect(page.getByLabel("Branch").locator("option:checked")).toHaveText(entry);
+  await expect(page.getByText("Choose a file to read it.")).toBeVisible();
+  await tree.getByRole("button", { name: "src" }).click();
+  await tree.getByRole("button", { name: "ledger" }).click();
+  await tree.getByRole("button", { name: "entry.ts" }).click();
   await expect(page.getByRole("heading", { name: "entry.ts" })).toBeVisible();
   await expect(page.getByText("added since main")).toBeVisible();
   // The later commit's change to the adapter is not there yet.
@@ -249,8 +253,10 @@ test("the files can be browsed as a commit left them", async ({ page }) => {
   // Choosing a branch leaves the commit, in the files and in the history alike.
   await page.getByLabel("Branch").selectOption("main");
   await expect(page.getByLabel("Branch")).toHaveValue("main");
-  await expect(page.getByRole("heading", { name: "adapter.ts" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Diff" })).toBeDisabled();
+  await expect(page.getByText("Choose a file to read it.")).toBeVisible();
+  await tree.getByRole("button", { name: "src" }).click();
+  await tree.getByRole("button", { name: "ledger" }).click();
+  await expect(tree.getByRole("button", { name: "adapter.ts" })).toBeVisible();
   await expect(tree.getByRole("button", { name: "entry.ts" })).toHaveCount(0);
   await page.getByRole("button", { name: "history H" }).click();
   await expect(page.getByLabel("Branch")).toHaveValue("main");

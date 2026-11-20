@@ -145,11 +145,11 @@ const LANGUAGES: Readonly<Record<string, LanguageName>> = {
 /**
  * The rows of the file tree: folders before files, each level by name.
  *
- * A folder starts out open when it holds a change or the selected file, so
- * what an agent touched is in sight without any clicking, and everything
- * else stays out of the way. While a filter is typed every folder that still
- * holds something is open. A folder the person opened or closed themselves
- * stays as they left it.
+ * Folders start out closed, so the tree looks the same each time it is first
+ * opened rather than depending on what agents happened to change. Only the
+ * folders around the selected file are open, so that its row is in sight.
+ * While a filter is typed every folder that still holds something is open.
+ * A folder the person opened or closed themselves stays as they left it.
  */
 export function treeRows(
   files: readonly FileEntry[],
@@ -182,7 +182,7 @@ export function treeRows(
     for (const [name, inner] of [...folder.folders].sort(([a], [b]) => byName(a, b))) {
       const path = prefix + name;
       const holdsSelected = selected?.startsWith(`${path}/`) ?? false;
-      const open = toggled.get(path) ?? (wanted !== '' || inner.changed || holdsSelected);
+      const open = toggled.get(path) ?? (wanted !== '' || holdsSelected);
       rows.push({ kind: 'folder', path, name, depth, open, change: null, changed: inner.changed });
       if (open) walk(inner, `${path}/`, depth + 1);
     }
@@ -200,14 +200,39 @@ export function rowIndent(row: TreeRow): number {
 }
 
 /**
- * The file to show: the one the person chose, or else the first changed one.
+ * The file to show: the one the person chose. Nothing when they chose none.
  *
- * A choice can outlive its file, because an agent can remove it or the branch
- * can change. Falling back to the first change means the screen opens on what
- * an agent did.
+ * No file is picked for the person, so the screen first opens the same way
+ * every time. A choice can outlive its file, because an agent can remove it,
+ * in which case nothing is shown.
  */
 export function selectedEntry(files: readonly FileEntry[], chosen: string | null): FileEntry | null {
-  return files.find((entry) => entry.path === chosen) ?? files.find((entry) => entry.change !== null) ?? null;
+  return files.find((entry) => entry.path === chosen) ?? null;
+}
+
+/**
+ * What the file browser keeps about one place it showed: the open file and the folders.
+ *
+ * It exists so that leaving the files and coming back to the same branch,
+ * commit or project directory shows them as they were left.
+ */
+export interface Remembered {
+  /** The file the person opened. Nothing when they opened none. */
+  readonly chosen: string | null;
+  /** The folders the person opened or closed themselves. */
+  readonly toggled: ReadonlyMap<string, boolean>;
+}
+
+export const NOTHING_REMEMBERED: Remembered = { chosen: null, toggled: new Map() };
+
+/**
+ * The name under which what was shown of a place is remembered.
+ *
+ * A place is a project with either a branch, a commit or neither, which
+ * means the project's directory as it is.
+ */
+export function placeKey(project: string, branch: string | null, commit: string | null): string {
+  return JSON.stringify([project, branch, commit]);
 }
 
 /** The folders of a path as `src / ledger /`, and the file's own name. */
