@@ -228,11 +228,12 @@ export const NOTHING_REMEMBERED: Remembered = { chosen: null, toggled: new Map()
 /**
  * The name under which what was shown of a place is remembered.
  *
- * A place is a project with either a branch, a commit or neither, which
- * means the project's directory as it is.
+ * A place is a project with a thread's copy, a branch, a commit or none,
+ * which means the project's directory as it is. A copy off any branch has
+ * no branch to tell it from the directory, so its thread does.
  */
-export function placeKey(project: string, branch: string | null, commit: string | null): string {
-  return JSON.stringify([project, branch, commit]);
+export function placeKey(project: string, thread: string | null, branch: string | null, commit: string | null): string {
+  return JSON.stringify([project, thread, branch, commit]);
 }
 
 /** The folders of a path as `src / ledger /`, and the file's own name. */

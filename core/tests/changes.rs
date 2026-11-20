@@ -23,7 +23,9 @@ use common::{
     written_by_agent, Scene,
 };
 use teryon_core::changes::{Change, ChangeState, Finish, Fit};
+use teryon_core::files::{Content, FileChange, FileView, Listing};
 use teryon_core::store::{Status, Thread};
+use teryon_core::workspace::WorkspaceError;
 
 /// A project in a repository on `main`, with a thread whose agent is running and has noted its turn.
 struct Running {
@@ -115,6 +117,34 @@ fn state(files_changed: u32, fit: Fit) -> ChangeState {
         fit,
         unfinished: false,
     }
+}
+
+/// The changed files of a listing, each after the letter of its change: `M login.txt`.
+fn changed_files(listing: &Listing) -> Vec<String> {
+    listing
+        .files
+        .iter()
+        .filter_map(|entry| {
+            let letter = match entry.change? {
+                FileChange::Added => "A",
+                FileChange::Modified => "M",
+                FileChange::Deleted => "D",
+            };
+            Some(format!("{letter} {}", entry.path))
+        })
+        .collect()
+}
+
+/// The text of a file as it is now, without the lines only the version it is compared with has.
+fn current_text(view: &FileView) -> Vec<String> {
+    let Content::Text { lines } = &view.content else {
+        panic!("the file is not shown as text");
+    };
+    lines
+        .iter()
+        .filter(|line| line.number.is_some())
+        .map(|line| line.text.clone())
+        .collect()
 }
 
 lets_expect! { #tokio_test
@@ -420,4 +450,59 @@ lets_expect! { #tokio_test
 
         expect(scene.thread_now(&thread).change) to equal(None)
     }
+
+    // requirement: a thread's copy is shown from its directory, with the work not committed there, even off any branch
+    story the_files_of_a_copy_off_any_branch_are_its_own {
+        let run = running(in_repository).await;
+        let copy = run.start("fix-login", None).await.unwrap();
+        run.finish().await;
+        put(&copy, "login.txt", "first try\n");
+        commit(&copy);
+        // Half way through a rebase: off any branch, with work not committed yet.
+        git(&copy, &["checkout", "-q", "--detach", "main"]);
+        put(&copy, "login.txt", "resolved\n");
+        put(&copy, "draft.txt", "draft\n");
+
+        let project = run.thread.project_id;
+        let thread = Some(run.thread.id);
+        let listing = run.scene.workspace.files(project, thread, None, None).await.unwrap();
+        expect(changed_files(&listing)) to equal(vec!["A draft.txt".to_string(), "A login.txt".to_string()])
+        expect(listing.branch.clone()) to equal(None)
+        expect(listing.base.clone()) to equal(Some("main".to_string()))
+        let login = run.scene.workspace.file(project, thread, None, None, "login.txt").await.unwrap();
+        expect(current_text(&login)) to equal(vec!["resolved".to_string()])
+
+        // The branch alone has only what was committed on it.
+        let by_branch = run.scene.workspace.file(project, None, Some("fix-login"), None, "login.txt").await.unwrap();
+        expect(current_text(&by_branch)) to equal(vec!["first try".to_string()])
+
+        // A commit wins over the copy.
+        let start = run.head("main");
+        let at_start = run.scene.workspace.files(project, thread, None, Some(&start)).await.unwrap();
+        expect(changed_files(&at_start)) to equal(Vec::<String>::new())
+        expect(at_start.commit.clone()) to equal(Some(start.clone()))
+    }
+
+    // requirement: the files of a thread's copy are only shown for a copy of the project, while it is there
+    story the_files_of_a_copy_are_refused {
+        let run = running(in_repository).await;
+        let copy = run.start("fix-login", None).await.unwrap();
+        run.finish().await;
+        let project = run.thread.project_id;
+        let refusal = |result: Result<Listing, WorkspaceError>| result.err().map(|problem| problem.to_string());
+
+        let other_folder = project_folder();
+        repository(&other_folder);
+        let other = run.scene.project(&other_folder).id;
+        expect(refusal(run.scene.workspace.files(other, Some(run.thread.id), None, None).await)) to equal(Some("There is no such thread.".to_string()))
+        expect(refusal(run.scene.workspace.files(project, Some(unknown()), None, None).await)) to equal(Some("There is no such thread.".to_string()))
+
+        let own = run.scene.projects().into_iter().find(|candidate| candidate.id == project).unwrap();
+        let unchanged = run.scene.thread(&own, "claude");
+        expect(refusal(run.scene.workspace.files(project, Some(unchanged.id), None, None).await)) to equal(Some("This thread has no changes.".to_string()))
+
+        git(run.folder.path(), &["worktree", "remove", "--force", &copy.to_string_lossy()]);
+        expect(refusal(run.scene.workspace.files(project, Some(run.thread.id), None, None).await)) to equal(Some("This thread's copy is gone, so its files cannot be shown.".to_string()))
+    }
+
 }

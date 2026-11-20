@@ -9,6 +9,10 @@
 //! For the main branch itself that point is its own last commit, which leaves
 //! exactly the work that is not committed yet.
 //!
+//! A thread's copy is shown from its directory whatever it is on. While the
+//! agent rebases, or otherwise leaves the copy off any branch, looking it up
+//! by its branch would find the branch as last committed and miss the work.
+//!
 //! A commit can be shown in place of a branch, which is how the history
 //! screen lets a person browse the files as they were. It is read as it was
 //! committed and compared with the main branch the same way.
@@ -42,17 +46,20 @@ pub enum Place<'a> {
     /// The project's directory as it is.
     Directory,
     Branch(&'a str),
+    /// A thread's copy as it is, by its directory, on a branch or not.
+    Copy(&'a Path),
     /// A commit, by its name in hexadecimal digits, whole or shortened.
     Commit(&'a str),
 }
 
 impl<'a> Place<'a> {
-    /// The place two optional parts of a request name. A commit wins over a branch.
-    pub fn named(branch: Option<&'a str>, commit: Option<&'a str>) -> Self {
-        match (commit, branch) {
-            (Some(commit), _) => Self::Commit(commit),
-            (None, Some(branch)) => Self::Branch(branch),
-            (None, None) => Self::Directory,
+    /// The place the optional parts of a request name. A commit wins over a copy, and a copy over a branch.
+    pub fn named(copy: Option<&'a Path>, branch: Option<&'a str>, commit: Option<&'a str>) -> Self {
+        match (commit, copy, branch) {
+            (Some(commit), _, _) => Self::Commit(commit),
+            (None, Some(copy), _) => Self::Copy(copy),
+            (None, None, Some(branch)) => Self::Branch(branch),
+            (None, None, None) => Self::Directory,
         }
     }
 }
@@ -229,6 +236,17 @@ impl Repository {
                 (Some(name.to_string()), None, tree)
             }
             Place::Branch(_) => return Err(FilesError::UnknownBranch),
+            Place::Copy(directory) => {
+                if !metadata(directory).await.is_ok_and(|found| found.is_dir()) {
+                    return Err(FilesError::CopyGone);
+                }
+                let git = Git::at(directory);
+                let branch = git
+                    .attempt(&["symbolic-ref", "--short", "-q", "HEAD"])
+                    .await?
+                    .map(|printed| first_line(&printed));
+                (branch, None, Tree::Working(git))
+            }
             Place::Commit(name) => {
                 let commit = self.named_commit(name).await?;
                 (None, Some(commit.clone()), Tree::Committed(commit))
@@ -486,11 +504,18 @@ mod tests {
     }
 
     lets_expect! {
-        expect(Place::named(branch, commit)) {
-            when(branch = None, commit = None) as nothing_named to be_the_directory { match_pattern!(Place::Directory) }
-            when(branch = Some("main"), commit = None) as a_branch to be_that_branch { match_pattern!(Place::Branch("main")) }
-            when(branch = None, commit = Some("a3f9c21")) as a_commit to be_that_commit { match_pattern!(Place::Commit("a3f9c21")) }
-            when(branch = Some("main"), commit = Some("a3f9c21")) as both to be_the_commit { match_pattern!(Place::Commit("a3f9c21")) }
+        expect(Place::named(copy, branch, commit)) {
+            let copy: Option<&Path> = None;
+            let branch: Option<&str> = None;
+            let commit: Option<&str> = None;
+
+            to be_the_directory_when_nothing_is_named { match_pattern!(Place::Directory) }
+            when(branch = Some("main")) as a_branch to be_that_branch { match_pattern!(Place::Branch("main")) }
+            when(copy = Some(Path::new("/work/copy"))) as a_copy to be_that_copy { match_pattern!(Place::Copy(_)) }
+            when(commit = Some("a3f9c21")) as a_commit to be_that_commit { match_pattern!(Place::Commit("a3f9c21")) }
+            when(copy = Some(Path::new("/work/copy")), branch = Some("main")) as a_copy_and_a_branch to be_the_copy { match_pattern!(Place::Copy(_)) }
+            when(branch = Some("main"), commit = Some("a3f9c21")) as a_branch_and_a_commit to be_the_commit { match_pattern!(Place::Commit("a3f9c21")) }
+            when(copy = Some(Path::new("/work/copy")), branch = Some("main"), commit = Some("a3f9c21")) as all_three to be_the_commit { match_pattern!(Place::Commit("a3f9c21")) }
         }
 
         expect(is_commit_name(name)) {

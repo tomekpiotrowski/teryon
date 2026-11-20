@@ -101,16 +101,16 @@ export class WorkspaceApi {
     return this.ask({ type: 'open_copy', thread_id: threadId, with: opener }, () => undefined as void);
   }
 
-  /** Every file of a branch or a commit. Without either, the project's directory as it is. */
-  files(projectId: string, branch: string | null, commit: string | null): Observable<Listing> {
-    return this.ask({ type: 'files', project_id: projectId, branch, commit }, (answer) =>
+  /** Every file of a thread's copy, a branch or a commit. Without any, the project's directory as it is. */
+  files(projectId: string, threadId: string | null, branch: string | null, commit: string | null): Observable<Listing> {
+    return this.ask({ type: 'files', project_id: projectId, thread_id: threadId, branch, commit }, (answer) =>
       answer.type === 'listing' ? (answer.listing as Listing) : undefined,
     );
   }
 
-  /** One file of a branch or a commit, line by line, with its changes marked. */
-  file(projectId: string, branch: string | null, commit: string | null, path: string): Observable<FileView> {
-    return this.ask({ type: 'file', project_id: projectId, branch, commit, path }, (answer) =>
+  /** One file of a thread's copy, a branch or a commit, line by line, with its changes marked. */
+  file(projectId: string, threadId: string | null, branch: string | null, commit: string | null, path: string): Observable<FileView> {
+    return this.ask({ type: 'file', project_id: projectId, thread_id: threadId, branch, commit, path }, (answer) =>
       answer.type === 'file' ? (answer.file as FileView) : undefined,
     );
   }

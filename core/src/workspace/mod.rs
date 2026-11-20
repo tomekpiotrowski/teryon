@@ -644,26 +644,55 @@ impl Workspace {
         Ok(store.entries(thread_id)?)
     }
 
-    /// Every file of a branch or a commit. Without either, the project's directory as it is.
+    /// Every file of a thread's copy, a branch or a commit. Without any, the project's directory as it is.
     pub async fn files(
         &self,
         project_id: Uuid,
+        thread_id: Option<Uuid>,
         branch: Option<&str>,
         commit: Option<&str>,
     ) -> Result<Listing, WorkspaceError> {
         let repository = self.repository(project_id).await?;
-        Ok(repository.listing(Place::named(branch, commit)).await?)
+        let copy = self.copy_of(project_id, thread_id)?;
+        Ok(repository
+            .listing(Place::named(copy.as_deref(), branch, commit))
+            .await?)
     }
 
     pub async fn file(
         &self,
         project_id: Uuid,
+        thread_id: Option<Uuid>,
         branch: Option<&str>,
         commit: Option<&str>,
         path: &str,
     ) -> Result<FileView, WorkspaceError> {
         let repository = self.repository(project_id).await?;
-        Ok(repository.file(Place::named(branch, commit), path).await?)
+        let copy = self.copy_of(project_id, thread_id)?;
+        Ok(repository
+            .file(Place::named(copy.as_deref(), branch, commit), path)
+            .await?)
+    }
+
+    /// Where a thread's copy is. Nothing when no thread is named.
+    ///
+    /// The thread has to be one of the project's, so a request cannot read
+    /// another project's copy as if it were this one's.
+    fn copy_of(
+        &self,
+        project_id: Uuid,
+        thread_id: Option<Uuid>,
+    ) -> Result<Option<PathBuf>, WorkspaceError> {
+        let Some(thread_id) = thread_id else {
+            return Ok(None);
+        };
+        let mut state = self.inner.state();
+        let (_, thread) = state.holding(thread_id)?;
+        if thread.project_id != project_id {
+            return Err(WorkspaceError::UnknownThread);
+        }
+        let change = thread.change.as_deref().ok_or(FinishError::NoChange)?;
+        Ok(Some(change.path.clone()))
     }
 
     /// The commits of a branch, each with the thread whose agent was working when it was made.

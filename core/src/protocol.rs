@@ -136,14 +136,18 @@ pub enum Request {
     UnfollowThread {
         thread_id: Uuid,
     },
-    /// Every file of a branch or a commit. Without either, the project's directory as it is.
+    /// Every file of a thread's copy, a branch or a commit. Without any, the project's directory as it is.
+    ///
+    /// A commit wins over a thread's copy, and a copy over a branch.
     Files {
         project_id: Uuid,
+        thread_id: Option<Uuid>,
         branch: Option<String>,
         commit: Option<String>,
     },
     File {
         project_id: Uuid,
+        thread_id: Option<Uuid>,
         branch: Option<String>,
         commit: Option<String>,
         path: String,

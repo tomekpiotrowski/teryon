@@ -1,18 +1,11 @@
-import { CommonModule } from '@angular/common';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { NgModule } from '@angular/core';
+import { provideRouter } from '@angular/router';
 import { Subject } from 'rxjs';
 
 import type { DirectoryListing } from './new-project.model';
 import { type NewProject, NewProjectComponent } from './new-project.component';
 import { WorkspaceApi } from './workspace.api';
-
-/** The form, with the pipe its template uses, and nothing else from the workspace. */
-@NgModule({
-  declarations: [NewProjectComponent],
-  imports: [CommonModule],
-})
-class NewProjectTestModule {}
+import { WorkspaceModule } from './workspace.module';
 
 /** Listings the form asks for, answered when the test says so. */
 class DirectoryDouble {
@@ -49,8 +42,8 @@ describe('NewProjectComponent', () => {
     directories = new DirectoryDouble();
     added = [];
     await TestBed.configureTestingModule({
-      imports: [NewProjectTestModule],
-      providers: [{ provide: WorkspaceApi, useValue: directories }],
+      imports: [WorkspaceModule],
+      providers: [provideRouter([]), { provide: WorkspaceApi, useValue: directories }],
     }).compileComponents();
     vi.useFakeTimers();
     fixture = TestBed.createComponent(NewProjectComponent);

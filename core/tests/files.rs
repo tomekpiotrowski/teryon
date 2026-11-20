@@ -44,7 +44,7 @@ async fn files(
 ) -> Result<Listing, String> {
     scene
         .workspace
-        .files(project, branch, commit)
+        .files(project, None, branch, commit)
         .await
         .map_err(|problem| problem.to_string())
 }
@@ -59,7 +59,7 @@ async fn file(
 ) -> Result<FileView, String> {
     scene
         .workspace
-        .file(project, branch, commit, path)
+        .file(project, None, branch, commit, path)
         .await
         .map_err(|problem| problem.to_string())
 }

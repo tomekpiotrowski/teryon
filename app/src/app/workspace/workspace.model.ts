@@ -202,13 +202,21 @@ export interface KeyPress {
 export interface Place {
   /** The project the choice was made in. A choice does not carry over to another project. */
   readonly projectId: string | null;
-  /** Nothing means whatever the project's directory is on. */
+  /**
+   * The thread whose copy the files show, read from its directory whatever it is on.
+   *
+   * A copy is named by its thread rather than its branch, because while the
+   * agent rebases the copy is on no branch, and the branch alone holds only
+   * what was committed on it.
+   */
+  readonly threadId: string | null;
+  /** Nothing means whatever the project's directory is on. For a thread's copy, the branch the copy is on, for the history. */
   readonly branch: string | null;
   /** A commit shown in place of a branch, in the file browser only. */
   readonly commit: string | null;
 }
 
-export const NO_PLACE: Place = { projectId: null, branch: null, commit: null };
+export const NO_PLACE: Place = { projectId: null, threadId: null, branch: null, commit: null };
 
 /** Projects oldest first, each with its threads newest first. */
 export function groupThreads(projects: readonly Project[], threads: readonly Thread[]): ProjectGroup[] {
@@ -427,7 +435,26 @@ export function screenAfter(current: Screen, asked: Exclude<Screen, 'thread'>): 
 
 /** The place chosen in a project, or the project's directory as it is when the choice was made elsewhere. */
 export function placeIn(place: Place, projectId: string): Place {
-  return place.projectId === projectId ? place : { projectId, branch: null, commit: null };
+  return place.projectId === projectId ? place : { projectId, threadId: null, branch: null, commit: null };
+}
+
+/** The copy where a thread's agent works, as a place to show. */
+export function copyPlace(thread: Thread, change: Change): Place {
+  return { projectId: thread.project_id, threadId: thread.id, branch: change.branch, commit: null };
+}
+
+/**
+ * What the code screen shows when asked for: the open thread's copy, or else the place chosen in the project.
+ *
+ * A person opening the code from a thread wants the work of its agent, not
+ * the project as it was before. A copy Teryon has not looked at yet counts
+ * as there, the way the thread's change commands treat it. Once the copy is
+ * gone, or for a thread that never had one, the last choice stands.
+ */
+export function codePlace(place: Place, projectId: string, thread: Thread | null): Place {
+  const change = thread?.project_id === projectId ? thread.change : null;
+  if (!thread || !change || change.state?.copy_present === false) return placeIn(place, projectId);
+  return copyPlace(thread, change);
 }
 
 /** What the bar at the top names: the selected project, and the open thread after it. */

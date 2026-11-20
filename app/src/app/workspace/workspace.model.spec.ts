@@ -32,7 +32,10 @@ import {
   NO_PLACE,
   NOTHING_SELECTED,
   nextAgent,
+  type Place,
   placeIn,
+  codePlace,
+  copyPlace,
   refusalText,
   resolveSelection,
   runningText,
@@ -491,17 +494,59 @@ describe('screenAfter', () => {
 });
 
 describe('placeIn', () => {
+  const chosen: Place = { projectId: 'a', threadId: 't', branch: 'feature', commit: 'a3f9c21' };
+
   it('keeps a choice made in the same project', () => {
-    const place = { projectId: 'a', branch: 'feature', commit: 'a3f9c21' };
-    expect(placeIn(place, 'a')).toEqual(place);
+    expect(placeIn(chosen, 'a')).toEqual(chosen);
   });
 
   it('starts over in another project', () => {
-    expect(placeIn({ projectId: 'a', branch: 'feature', commit: 'a3f9c21' }, 'b')).toEqual({ projectId: 'b', branch: null, commit: null });
+    expect(placeIn(chosen, 'b')).toEqual({ projectId: 'b', threadId: null, branch: null, commit: null });
   });
 
   it('starts from the directory as it is when nothing was chosen', () => {
-    expect(placeIn(NO_PLACE, 'a')).toEqual({ projectId: 'a', branch: null, commit: null });
+    expect(placeIn(NO_PLACE, 'a')).toEqual({ projectId: 'a', threadId: null, branch: null, commit: null });
+  });
+});
+
+describe('codePlace', () => {
+  const chosen: Place = { projectId: 'a', threadId: null, branch: 'feature', commit: 'a3f9c21' };
+  const whole: ChangeState = { copy_present: true, base_present: true, files_changed: 2, fit: 'applies', unfinished: false };
+
+  function changed(state: Partial<ChangeState> | null, branch: string | null = 'fix-login'): Thread {
+    const change: Change = { name: 'fix-login', path: '/work/a/.teryon/worktrees/fix-login', base: 'main', start: 'abc', branch, state: state && { ...whole, ...state }, review: null };
+    return { ...thread('t', 'a', '2026-11-02T10:00:00'), change };
+  }
+
+  it('shows the copy of the open thread, by its thread, with its branch for the history', () => {
+    expect(codePlace(chosen, 'a', changed({}))).toEqual({ projectId: 'a', threadId: 't', branch: 'fix-login', commit: null });
+  });
+
+  it('shows the copy before Teryon has looked at it', () => {
+    expect(codePlace(NO_PLACE, 'a', changed(null))).toEqual({ projectId: 'a', threadId: 't', branch: 'fix-login', commit: null });
+  });
+
+  it('shows a copy that is on no branch, such as half way through a rebase, by its thread alone', () => {
+    expect(codePlace(NO_PLACE, 'a', changed({}, null))).toEqual({ projectId: 'a', threadId: 't', branch: null, commit: null });
+  });
+
+  it.each([
+    ['no thread is open', null],
+    ['the thread never changed anything', thread('t', 'a', '2026-11-02T10:00:00')],
+    ['the copy is gone', changed({ copy_present: false })],
+  ])('keeps the choice made in the project when %s', (_, open) => {
+    expect(codePlace(chosen, 'a', open)).toEqual(chosen);
+  });
+
+  it('starts from the directory as it is in another project when the thread is of a different one', () => {
+    expect(codePlace(chosen, 'b', changed({}))).toEqual({ projectId: 'b', threadId: null, branch: null, commit: null });
+  });
+});
+
+describe('copyPlace', () => {
+  it('names the copy by its thread and keeps the branch it is on', () => {
+    const change: Change = { name: 'fix-login', path: '/work/a/.teryon/worktrees/fix-login', base: 'main', start: 'abc', branch: 'fix-login-2', state: null, review: null };
+    expect(copyPlace(thread('t', 'a', '2026-11-02T10:00:00'), change)).toEqual({ projectId: 'a', threadId: 't', branch: 'fix-login-2', commit: null });
   });
 });
 

@@ -38,6 +38,8 @@ import {
   CATCH_UP_REQUEST,
   type ChangeCard,
   changeCard,
+  codePlace,
+  copyPlace,
   discardWarning,
   composerAction,
   type EntryLine,
@@ -153,15 +155,25 @@ export class WorkspacePage implements OnDestroy {
   readonly reviewerOf = reviewerOf;
   readonly reviewerLabel = reviewerLabel;
 
-  readonly view$: Observable<WorkspaceView> = combineLatest([
+  /**
+   * The open project and thread, as soon as they are chosen.
+   *
+   * Apart from `view$`, which waits for the thread's conversation to arrive
+   * and until then still holds the thread opened before. A key pressed in
+   * between has to act on the thread the person just opened.
+   */
+  private readonly selected$ = combineLatest([
     combineLatest([this.store.projects$, this.store.threads$]).pipe(
       map(([projects, threads]) => groupThreads(projects, threads)),
     ),
     this.selection$,
-    this.place$,
   ]).pipe(
-    switchMap(([groups, selection, place]) => {
-      const { project, thread } = resolveSelection(groups, selection);
+    map(([groups, selection]) => ({ groups, ...resolveSelection(groups, selection) })),
+    shareReplay({ bufferSize: 1, refCount: true }),
+  );
+
+  readonly view$: Observable<WorkspaceView> = combineLatest([this.selected$, this.place$]).pipe(
+    switchMap(([{ groups, project, thread }, place]) => {
       const projectThreads = groups.find((group) => group.project.id === project?.id)?.threads ?? [];
       const entries$ = thread ? this.store.entries$(thread.id) : of([]);
       return entries$.pipe(
@@ -388,7 +400,7 @@ export class WorkspacePage implements OnDestroy {
         this.selectProject(action.project);
         return this.screen$.next('thread');
       case 'showScreen':
-        return this.screen$.next(screenAfter(this.screen$.value, action.screen));
+        return action.screen === 'files' ? this.showCode() : this.screen$.next(screenAfter(this.screen$.value, action.screen));
       case 'removeProject':
         return void this.confirmRemoveProject(action.project);
       case 'useAgent':
@@ -442,14 +454,30 @@ export class WorkspacePage implements OnDestroy {
 
   /** Shows a branch of a project in the files and the history. Nothing means the directory as it is. */
   chooseBranch(project: Project, branch: string | null): void {
-    this.place$.next({ projectId: project.id, branch, commit: null });
+    this.place$.next({ projectId: project.id, threadId: null, branch, commit: null });
+  }
+
+  /**
+   * Shows the code, or goes back to the thread when it is already shown.
+   *
+   * Asked for from a thread with a copy of its own, the code is that copy's,
+   * where its agent works. From the history the place chosen there stays,
+   * since the two screens share it.
+   */
+  showCode(): void {
+    if (this.screen$.value === 'thread') {
+      this.selected$.pipe(take(1)).subscribe(({ project, thread }) => {
+        if (project) this.place$.next(codePlace(this.place$.value, project.id, thread));
+      });
+    }
+    this.screen$.next(screenAfter(this.screen$.value, 'files'));
   }
 
   /** Opens the files on what a thread's agent changed. */
   exploreChange(thread: Thread): void {
     const change = thread.change;
     if (!change) return;
-    this.place$.next({ projectId: thread.project_id, branch: change.branch ?? change.name, commit: null });
+    this.place$.next(copyPlace(thread, change));
     this.screen$.next('files');
   }
 

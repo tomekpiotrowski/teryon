@@ -154,6 +154,11 @@ export class FilesComponent {
     this.liveAgents$.next(count);
   }
 
+  /** The thread whose copy to show, whatever branch the copy is on. Wins over a branch. */
+  @Input() set thread(thread: string | null) {
+    this.thread$.next(thread);
+  }
+
   /** The branch to show. Nothing means the project's directory as it is. */
   @Input() set branch(branch: string | null) {
     this.branch$.next(branch);
@@ -178,6 +183,7 @@ export class FilesComponent {
   readonly rowIndent = rowIndent;
   readonly changeLetter = changeLetter;
 
+  private readonly thread$ = new BehaviorSubject<string | null>(null);
   private readonly branch$ = new BehaviorSubject<string | null>(null);
   private readonly commit$ = new BehaviorSubject<string | null>(null);
   private readonly filter$ = new BehaviorSubject('');
@@ -185,24 +191,25 @@ export class FilesComponent {
 
   private readonly source$ = combineLatest([
     this.project$.pipe(distinctUntilChanged((a, b) => a.id === b.id)),
+    this.thread$.pipe(distinctUntilChanged()),
     this.branch$.pipe(distinctUntilChanged()),
     this.commit$.pipe(distinctUntilChanged()),
   ]).pipe(shareReplay({ bufferSize: 1, refCount: true }));
 
   private readonly listing$: Observable<ListingState> = this.source$.pipe(
-    switchMap(([project, branch, commit]) =>
+    switchMap(([project, thread, branch, commit]) =>
       this.repeated(() =>
-        this.api.files(project.id, branch, commit).pipe(
+        this.api.files(project.id, thread, branch, commit).pipe(
           map(
             (listing): ListingState => ({
               listing,
               problem: null,
-              place: placeKey(project.id, listing.branch, listing.commit),
+              place: placeKey(project.id, listing.commit ? null : thread, listing.branch, listing.commit),
             }),
           ),
           catchError((failure: unknown) => {
             // A branch can be removed while it is looked at, for example by a merge.
-            const named = branch !== null || commit !== null;
+            const named = thread !== null || branch !== null || commit !== null;
             if (named && (failure as { status?: number } | null)?.status === 404) this.branchChosen.emit(null);
             return of<ListingState>({
               listing: null,
@@ -253,10 +260,10 @@ export class FilesComponent {
    * again on every key typed into the filter.
    */
   private readonly content$: Observable<ColouredContent> = combineLatest([this.source$, this.selectedPath$]).pipe(
-    switchMap(([[project, branch, commit], path]): Observable<ContentState> => {
+    switchMap(([[project, thread, branch, commit], path]): Observable<ContentState> => {
       if (path === null) return of(NO_CONTENT);
       return this.repeated(() =>
-        this.api.file(project.id, branch, commit, path).pipe(
+        this.api.file(project.id, thread, branch, commit, path).pipe(
           map((file): ContentState => ({ path, content: file.content, problem: null })),
           catchError((failure: unknown) =>
             of<ContentState>({ path, content: null, problem: refusalText(failure, 'The file could not be read.') }),

@@ -33,6 +33,8 @@ pub enum FilesError {
     UnknownCommit,
     #[error("There is no such file.")]
     UnknownFile,
+    #[error("This thread's copy is gone, so its files cannot be shown.")]
+    CopyGone,
     #[error(transparent)]
     Git(#[from] GitError),
 }

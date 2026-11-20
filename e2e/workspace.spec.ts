@@ -78,6 +78,13 @@ test("an agent's change shows where it stands, and its copy can be found", async
   await expect(menu(page).getByRole("option", { name: /^Open in editor/ })).toHaveCount(0);
   await page.keyboard.press("Escape");
 
+  // C shows the code of the thread's copy, where the agent's file is, and C again goes back.
+  await page.getByLabel("Reply").press("Escape");
+  await page.keyboard.press("c");
+  await expect(page.getByLabel("Repository files").getByRole("button", { name: "fix-login.txt" })).toBeVisible();
+  await page.keyboard.press("c");
+  await expect(page.getByLabel("Repository files")).toHaveCount(0);
+
   // "more" opens the menu on the change's commands alone.
   await line.getByRole("button", { name: "More about this thread’s changes" }).click();
   await expect(menu(page).locator(".menu-heading")).toHaveText(["This thread’s changes"]);

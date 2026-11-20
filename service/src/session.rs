@@ -183,20 +183,28 @@ impl Session {
             }
             Request::Files {
                 project_id,
+                thread_id,
                 branch,
                 commit,
             } => workspace
-                .files(project_id, branch.as_deref(), commit.as_deref())
+                .files(project_id, thread_id, branch.as_deref(), commit.as_deref())
                 .await
                 .map(|listing| Answer::Listing { listing })
                 .map_err(|problem| problem.to_string()),
             Request::File {
                 project_id,
+                thread_id,
                 branch,
                 commit,
                 path,
             } => workspace
-                .file(project_id, branch.as_deref(), commit.as_deref(), &path)
+                .file(
+                    project_id,
+                    thread_id,
+                    branch.as_deref(),
+                    commit.as_deref(),
+                    &path,
+                )
                 .await
                 .map(|file| Answer::File { file })
                 .map_err(|problem| problem.to_string()),

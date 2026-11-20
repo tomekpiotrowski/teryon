@@ -204,27 +204,35 @@ describe('selectedEntry', () => {
 
 describe('placeKey', () => {
   it('is the same for the same place', () => {
-    expect(placeKey('p1', 'main', null)).toEqual(placeKey('p1', 'main', null));
+    expect(placeKey('p1', null, 'main', null)).toEqual(placeKey('p1', null, 'main', null));
   });
 
   it('tells projects apart', () => {
-    expect(placeKey('p1', 'main', null)).not.toEqual(placeKey('p2', 'main', null));
+    expect(placeKey('p1', null, 'main', null)).not.toEqual(placeKey('p2', null, 'main', null));
   });
 
   it('tells branches apart', () => {
-    expect(placeKey('p1', 'main', null)).not.toEqual(placeKey('p1', 'fix-login', null));
+    expect(placeKey('p1', null, 'main', null)).not.toEqual(placeKey('p1', null, 'fix-login', null));
   });
 
   it('tells a commit apart from the branch it was made on', () => {
-    expect(placeKey('p1', 'main', 'abc123')).not.toEqual(placeKey('p1', 'main', null));
+    expect(placeKey('p1', null, 'main', 'abc123')).not.toEqual(placeKey('p1', null, 'main', null));
   });
 
   it('tells the directory as it is apart from a branch', () => {
-    expect(placeKey('p1', null, null)).not.toEqual(placeKey('p1', 'main', null));
+    expect(placeKey('p1', null, null, null)).not.toEqual(placeKey('p1', null, 'main', null));
+  });
+
+  it('tells a thread\'s copy apart from the directory as it is', () => {
+    expect(placeKey('p1', 't1', null, null)).not.toEqual(placeKey('p1', null, null, null));
+  });
+
+  it('tells the copies of two threads apart', () => {
+    expect(placeKey('p1', 't1', null, null)).not.toEqual(placeKey('p1', 't2', null, null));
   });
 
   it('is not fooled by names that run together', () => {
-    expect(placeKey('p1', 'a b', null)).not.toEqual(placeKey('p1 a', 'b', null));
+    expect(placeKey('p1', null, 'a b', null)).not.toEqual(placeKey('p1 a', null, 'b', null));
   });
 });
 
