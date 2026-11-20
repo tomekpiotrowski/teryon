@@ -21,6 +21,8 @@
 //!
 //! [agents.grok]
 //! program = "grok"
+//! home = "~/.grok"
+//! writable = ["~/.cache", "~/.cargo", "~/.rustup", "~/.bun", "~/.npm", "~/go", "~/.gradle", "~/.m2"]
 //!
 //! [open]
 //! editor = "code {path}"
@@ -206,12 +208,35 @@ impl Default for CodexSettings {
 #[serde(default, deny_unknown_fields)]
 pub struct GrokSettings {
     pub program: String,
+    /// Grok's own folder, where Teryon keeps Grok's sandbox profiles.
+    ///
+    /// Nothing means where Grok looks: `GROK_HOME`, else `~/.grok`.
+    pub home: Option<PathBuf>,
+    /// Folders outside the project an author may write, `~` standing for the home folder.
+    ///
+    /// Grok runs in a sandbox, as nobody is at its prompt to approve
+    /// anything. Build tools keep caches in the home folder and fill them
+    /// when they fetch a dependency, so the usual ones are listed.
+    pub writable: Vec<String>,
 }
 
 impl Default for GrokSettings {
     fn default() -> Self {
         Self {
             program: "grok".to_string(),
+            home: None,
+            writable: [
+                "~/.cache",
+                "~/.cargo",
+                "~/.rustup",
+                "~/.bun",
+                "~/.npm",
+                "~/go",
+                "~/.gradle",
+                "~/.m2",
+            ]
+            .map(String::from)
+            .to_vec(),
         }
     }
 }

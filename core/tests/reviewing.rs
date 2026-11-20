@@ -6,6 +6,7 @@
 
 mod common;
 
+use std::env::temp_dir;
 use std::fs::{read_to_string, remove_file, write};
 use std::path::{Path, PathBuf};
 
@@ -349,7 +350,7 @@ lets_expect! { #tokio_test
     // requirement: a reviewer that cannot be started leaves the review recorded as cut
     story a_reviewer_that_cannot_start_cuts_the_review {
         let project = project_with(AgentSettings {
-            grok: GrokSettings { program: "a-program-nobody-has".to_string() },
+            grok: GrokSettings { program: "a-program-nobody-has".to_string(), home: Some(temp_dir().join("teryon-core-tests-grok")), ..GrokSettings::default() },
             ..fake_agents()
         });
         let (thread, _) = project.changed("claude").await;

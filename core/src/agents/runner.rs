@@ -12,6 +12,7 @@
 use std::collections::HashMap;
 use std::env::current_dir;
 use std::ffi::OsString;
+use std::fs::canonicalize;
 use std::future::Future;
 use std::io::Error as IoError;
 use std::path::{Path, PathBuf};
@@ -35,6 +36,7 @@ use crate::agents::{
 use crate::changes::instruction::instruction_for;
 use crate::changes::reviewing::{findings_in, fingerprint, reviewing};
 use crate::changes::status::Look;
+use crate::files::git::{first_line, Git};
 use crate::settings::AgentSettings;
 use crate::store::Thread;
 
@@ -200,11 +202,14 @@ async fn run_turn(
         (Voice::Reviewer, Some(change)) => fingerprint(change).await,
         _ => None,
     };
+    let writable_outside = history_outside(&directory).await.into_iter().collect();
     let invocation = driver.invocation(&Turn {
         message,
         conversation: speaker.conversation.clone(),
         brief,
         read_only: voice == Voice::Reviewer,
+        directory: directory.clone(),
+        writable_outside,
     });
     let tree = match spawn(&invocation, &directory, &environment) {
         Ok(tree) => tree,
@@ -452,6 +457,27 @@ fn remember_message(last: &mut String, draft: &EntryDraft) {
     }
 }
 
+/// The repository's history, when it lies outside `directory`.
+///
+/// It lies inside for a project at the top of its repository, and outside
+/// for a worktree of another repository. Nothing when `directory` is not a
+/// repository, including a folder within one, which Teryon does not take
+/// for a repository at all.
+async fn history_outside(directory: &Path) -> Option<PathBuf> {
+    let printed = Git::at(directory)
+        .attempt(&["rev-parse", "--path-format=absolute", "--git-common-dir"])
+        .await
+        .ok()??;
+    let history = PathBuf::from(first_line(&printed));
+    let inside = |folder: &Path| history.starts_with(folder);
+    let directory_now = canonicalize(directory).unwrap_or_else(|_| directory.to_path_buf());
+    if history.as_os_str().is_empty() || inside(directory) || inside(&directory_now) {
+        None
+    } else {
+        Some(history)
+    }
+}
+
 /// Starts the program in the project directory, at the head of a process tree.
 fn spawn(
     invocation: &Invocation,
@@ -562,9 +588,78 @@ mod tests {
     #[cfg(windows)]
     use std::os::windows::process::ExitStatusExt;
 
+    use std::fs::create_dir;
+    use std::process::Command as StdCommand;
+
     use lets_expect::lets_expect;
+    use tempfile::tempdir;
 
     use super::*;
+
+    /// Where a project's history lies, for a project made by `make` in a fresh folder.
+    ///
+    /// Paths are given relative to the fresh folder, so the answer does not
+    /// depend on where temporary folders are.
+    async fn history_of(make: fn(&Path) -> PathBuf) -> Option<String> {
+        let folder = tempdir().unwrap();
+        let top = canonicalize(folder.path()).unwrap();
+        let project = make(&top);
+        history_outside(&project).await.map(|history| {
+            history
+                .strip_prefix(&top)
+                .unwrap_or(&history)
+                .display()
+                .to_string()
+        })
+    }
+
+    fn run_git(directory: &Path, arguments: &[&str]) {
+        let status = StdCommand::new("git")
+            .args(arguments)
+            .current_dir(directory)
+            .status()
+            .unwrap();
+        assert!(status.success(), "git {arguments:?} failed");
+    }
+
+    /// A repository with one commit, at `top`.
+    fn repository(top: &Path) -> PathBuf {
+        run_git(top, &["init", "-q", "-b", "main"]);
+        run_git(
+            top,
+            &[
+                "-c",
+                "user.name=T",
+                "-c",
+                "user.email=t@example.com",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "start",
+            ],
+        );
+        top.to_path_buf()
+    }
+
+    fn folder_inside(top: &Path) -> PathBuf {
+        repository(top);
+        let inside = top.join("app");
+        create_dir(&inside).unwrap();
+        inside
+    }
+
+    fn worktree_beside(top: &Path) -> PathBuf {
+        let main = top.join("main");
+        create_dir(&main).unwrap();
+        repository(&main);
+        run_git(&main, &["worktree", "add", "-q", "../other", "-b", "other"]);
+        top.join("other")
+    }
+
+    fn no_repository(top: &Path) -> PathBuf {
+        top.to_path_buf()
+    }
 
     #[cfg(unix)]
     fn exit_code(code: i32) -> Option<ExitStatus> {
@@ -591,6 +686,18 @@ mod tests {
     const ABSOLUTE: &str = "/usr/bin/claude";
     #[cfg(windows)]
     const ABSOLUTE: &str = r"C:\Programs\claude.exe";
+
+    lets_expect! { #tokio_test
+        // requirement: an agent confined to its project may still write the repository's history when that lies outside the project
+        expect(history_of(make).await) {
+            let make: fn(&Path) -> PathBuf = repository;
+
+            when(make = repository) as a_project_at_the_top_of_its_repository to need_nothing_more { equal(None) }
+            when(make = folder_inside) as a_folder_inside_a_repository to be_taken_for_no_repository { equal(None) }
+            when(make = worktree_beside) as a_worktree_of_another_repository to name_that_history { equal(Some("main/.git".to_string())) }
+            when(make = no_repository) as a_folder_outside_any_repository to need_nothing { equal(None) }
+        }
+    }
 
     lets_expect! {
         expect(windows_names(program)) {

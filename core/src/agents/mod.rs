@@ -11,9 +11,12 @@
 pub mod claude;
 pub mod codex;
 pub mod grok;
+pub mod grok_sandbox;
 pub mod process;
 pub mod runner;
 mod summary;
+
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -227,6 +230,14 @@ pub struct Turn {
     /// Programs that can switch off their editing tools do; the brief asks
     /// the rest, and Teryon checks afterwards.
     pub read_only: bool,
+    /// The folder the program runs in.
+    pub directory: PathBuf,
+    /// Folders beyond [`Turn::directory`] the agent's commands must write.
+    ///
+    /// The repository's history, when the project is a worktree of another
+    /// repository: committing writes there.
+    /// Programs that confine their commands to the project let them in.
+    pub writable_outside: Vec<PathBuf>,
 }
 
 /// How to start an agent program for one turn.

@@ -8,6 +8,7 @@
 //! Each test file compiles this module for itself and uses only part of it.
 #![allow(dead_code)]
 
+use std::env::temp_dir;
 use std::fs::{create_dir_all, read_to_string, write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -35,8 +36,11 @@ pub fn fake_agents() -> AgentSettings {
             program: "tests/samples/fake-codex.sh".to_string(),
             use_subscription: true,
         },
+        // Grok's sandbox profiles go to a folder of the tests' own, never to the real `~/.grok`.
         grok: GrokSettings {
             program: "tests/samples/fake-grok.sh".to_string(),
+            home: Some(temp_dir().join("teryon-core-tests-grok")),
+            ..GrokSettings::default()
         },
     }
 }

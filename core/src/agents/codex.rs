@@ -271,6 +271,8 @@ fn shell_command(command: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use lets_expect::lets_expect;
     use serde_json::json;
 
@@ -303,6 +305,8 @@ mod tests {
             conversation: conversation.map(str::to_string),
             brief: brief.map(str::to_string),
             read_only,
+            directory: PathBuf::from("/work/app"),
+            writable_outside: Vec::new(),
         }
     }
 

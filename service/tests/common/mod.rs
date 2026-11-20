@@ -50,9 +50,10 @@ pub async fn scene_with(more: &str) -> Scene {
             "[service]\nport = {}\nallowed_origins = [\"{DEVELOPMENT}\"]\n\n\
              [agents]\nstop_grace_seconds = 1\n\n\
              [agents.claude]\nprogram = \"../core/tests/samples/fake-claude.sh\"\n\n\
-             [agents.grok]\nprogram = \"../core/tests/samples/fake-grok.sh\"\n\n\
+             [agents.grok]\nprogram = \"../core/tests/samples/fake-grok.sh\"\nhome = \"{}\"\n\n\
              {more}",
-            free_port().await
+            free_port().await,
+            home.path().join("grok").display()
         ),
     )
     .unwrap();

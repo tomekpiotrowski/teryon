@@ -9,6 +9,10 @@
 //! Grok names a conversation only on the last line of a turn, which a
 //! stopped turn never prints. So the driver gives a new conversation its
 //! identifier itself, and hands it over as soon as Grok has started.
+//!
+//! Grok runs without asking for approval, because a command it asks about
+//! ends its turn: nobody is at its prompt to answer. Its sandbox sets the
+//! limits instead, see [`crate::agents::grok_sandbox`].
 
 use std::mem::take;
 
@@ -18,6 +22,7 @@ use uuid::Uuid;
 
 use crate::agents::summary::summarise_input;
 
+use crate::agents::grok_sandbox::{GrokSandbox, REVIEWER_PROFILE};
 use crate::agents::{
     command_names, typed_report, AgentDriver, EntryDraft, Invocation, NotUnderstood, Tokens, Turn,
 };
@@ -28,6 +33,7 @@ const EDITING_TOOLS: &str = "write,search_replace,apply_patch,hashline_edit";
 
 pub struct GrokDriver {
     program: String,
+    sandbox: GrokSandbox,
     /// Pieces of the message the agent is writing.
     text: String,
     /// The slash commands named by the last line, until they are taken.
@@ -42,6 +48,7 @@ impl GrokDriver {
     pub fn new(settings: &GrokSettings) -> Self {
         Self {
             program: settings.program.clone(),
+            sandbox: GrokSandbox::new(settings),
             text: String::new(),
             commands: None,
             unapproved: false,
@@ -66,7 +73,18 @@ impl AgentDriver for GrokDriver {
     ///
     /// The message is attached to its option with `=`, so a message that
     /// begins with a dash is not read as an option.
+    ///
+    /// Only a new conversation names its sandbox: Grok refuses to resume a
+    /// conversation under another one, and restores the one it began with.
+    /// An author's profile is written on every turn all the same, so a
+    /// resumed conversation finds it, with the folders the settings name now.
     fn invocation(&mut self, turn: &Turn) -> Invocation {
+        let profile = if turn.read_only {
+            REVIEWER_PROFILE.to_string()
+        } else {
+            self.sandbox
+                .author_profile(&turn.directory, &turn.writable_outside)
+        };
         let (conversation_option, conversation) = match &turn.conversation {
             Some(conversation) => ("--resume", conversation.clone()),
             None => {
@@ -79,9 +97,12 @@ impl AgentDriver for GrokDriver {
             format!("--single={}", turn.message),
             "--output-format".to_string(),
             "streaming-json".to_string(),
-            "--permission-mode".to_string(),
-            "auto".to_string(),
+            "--always-approve".to_string(),
         ];
+        if turn.conversation.is_none() {
+            arguments.push("--sandbox".to_string());
+            arguments.push(profile);
+        }
         if turn.read_only {
             arguments.push("--disallowed-tools".to_string());
             arguments.push(EDITING_TOOLS.to_string());
@@ -234,16 +255,31 @@ mod tests {
     use lets_expect::lets_expect;
     use serde_json::{from_str, json};
 
+    use std::env::temp_dir;
+    use std::path::{Path, PathBuf};
+
     use super::*;
+    use crate::agents::grok_sandbox::profile_name;
     use crate::agents::EntryKind;
 
     const FIRST: &str = include_str!("../../tests/samples/agents/grok-first.jsonl");
     const TOOLS: &str = include_str!("../../tests/samples/agents/grok-tools.jsonl");
 
+    /// The folder the turns run in.
+    const PROJECT: &str = "/work/app";
+
+    /// A driver whose sandbox profiles go to a folder of the tests' own.
     fn driver() -> GrokDriver {
         GrokDriver::new(&GrokSettings {
             program: "grok".to_string(),
+            home: Some(temp_dir().join("teryon-grok-driver-tests")),
+            writable: vec!["/opt/cache".to_string()],
         })
+    }
+
+    /// The profile an author in the project works in.
+    fn profile() -> String {
+        profile_name(Path::new(PROJECT))
     }
 
     const KNOWN: &str = "9da215a9-ae45-46d5-9c87-8f5220bd7207";
@@ -261,6 +297,8 @@ mod tests {
             conversation: conversation.map(str::to_string),
             brief: brief.map(str::to_string),
             read_only: true,
+            directory: PathBuf::from(PROJECT),
+            writable_outside: Vec::new(),
         }
     }
 
@@ -362,7 +400,7 @@ mod tests {
             to resume_the_conversation {
                 have(program.as_str()) equal("grok"),
                 have(arguments.clone()) equal([
-                    "--single=Fix the bug", "--output-format", "streaming-json", "--permission-mode", "auto",
+                    "--single=Fix the bug", "--output-format", "streaming-json", "--always-approve",
                     "--resume", KNOWN,
                 ].map(String::from).to_vec()),
                 have(removed_variables.len()) equal(0)
@@ -375,7 +413,7 @@ mod tests {
             // requirement: a worktree instruction is added beside the message
             when(brief = Some("Stay in the worktree.")) as pass_the_worktree_instruction to hold {
                 have(arguments.clone()) equal([
-                    "--single=Fix the bug", "--output-format", "streaming-json", "--permission-mode", "auto",
+                    "--single=Fix the bug", "--output-format", "streaming-json", "--always-approve",
                     "--rules", "Stay in the worktree.",
                     "--resume", KNOWN,
                 ].map(String::from).to_vec())
@@ -383,10 +421,12 @@ mod tests {
         }
 
         // requirement: the first message starts a new conversation, with an identifier the driver chooses and hands over once
+        // requirement: Grok runs without asking for approval, held in by the project's sandbox profile, which a new conversation names
         expect(started(&turn("Fix the bug", None, None))) as a_new_conversation {
             to start_one_and_hand_it_over {
                 have(arguments.clone()) equal([
-                    "--single=Fix the bug", "--output-format", "streaming-json", "--permission-mode", "auto", "--session-id",
+                    "--single=Fix the bug", "--output-format", "streaming-json", "--always-approve",
+                    "--sandbox", &profile(), "--session-id",
                 ].map(String::from).to_vec()),
                 have(fresh) be_true,
                 have(handed_over) be_true,
@@ -440,9 +480,20 @@ mod tests {
         expect(driver().invocation(&read_only_turn("Review the change.", Some(KNOWN), None)).arguments) as a_reviewers_turn {
             to remove_the_editing_tools {
                 equal([
-                    "--single=Review the change.", "--output-format", "streaming-json", "--permission-mode", "auto",
+                    "--single=Review the change.", "--output-format", "streaming-json", "--always-approve",
                     "--disallowed-tools", "write,search_replace,apply_patch,hashline_edit",
                     "--resume", KNOWN,
+                ].map(String::from).to_vec())
+            }
+        }
+
+        // requirement: a reviewer's new conversation runs in Grok's read-only sandbox
+        expect(started(&read_only_turn("Review the change.", None, None)).arguments) as a_reviewers_first_turn {
+            to read_only {
+                equal([
+                    "--single=Review the change.", "--output-format", "streaming-json", "--always-approve",
+                    "--sandbox", "read-only",
+                    "--disallowed-tools", "write,search_replace,apply_patch,hashline_edit", "--session-id",
                 ].map(String::from).to_vec())
             }
         }
