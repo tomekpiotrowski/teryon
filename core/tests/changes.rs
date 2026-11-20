@@ -12,7 +12,9 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use lets_expect::lets_expect;
+use serde_json::Value;
 use tempfile::TempDir;
+use tokio::join;
 use tokio::time::sleep;
 use uuid::Uuid;
 
@@ -20,7 +22,7 @@ use common::{
     commit, git, invocations, noted_turn, project_folder, put, repository, unknown,
     written_by_agent, Scene,
 };
-use teryon_core::changes::{Change, ChangeState, Fit};
+use teryon_core::changes::{Change, ChangeState, Finish, Fit};
 use teryon_core::store::{Status, Thread};
 
 /// A project in a repository on `main`, with a thread whose agent is running and has noted its turn.
@@ -302,6 +304,45 @@ lets_expect! { #tokio_test
 
         git(run.folder.path(), &["worktree", "remove", "--force", &run.copy("fix-login").to_string_lossy()]);
         expect(run.state().await) to equal(ChangeState::gone())
+    }
+
+    // requirement: a change whose copy is removed is kept while its branch is left, and comes back with its copy
+    story a_removed_copy_whose_branch_is_left {
+        let run = running(in_repository).await;
+        let copy = run.start("fix-login", None).await.unwrap();
+        run.finish().await;
+        put(&copy, "login.txt", "fixed\n");
+        commit(&copy);
+
+        git(run.folder.path(), &["worktree", "remove", "--force", &copy.to_string_lossy()]);
+        expect(run.state().await) to equal(ChangeState::gone())
+        expect(run.scene.thread_now(&run.thread).finished) to equal(None)
+
+        git(run.folder.path(), &["worktree", "add", "-q", &copy.to_string_lossy(), "fix-login"]);
+        expect(run.state().await) to equal(state(1, Fit::Applies))
+    }
+
+    // requirement: a change whose copy and branch are both removed is let go quietly, once
+    story a_removed_copy_and_branch {
+        let run = running(in_repository).await;
+        let copy = run.start("fix-login", None).await.unwrap();
+        run.finish().await;
+
+        git(run.folder.path(), &["worktree", "remove", "--force", &copy.to_string_lossy()]);
+        git(run.folder.path(), &["branch", "-D", "fix-login"]);
+        let entries = run.scene.entries(&run.thread).len();
+        join!(
+            run.scene.workspace.refresh_change(run.thread.id),
+            run.scene.workspace.refresh_change(run.thread.id),
+        );
+        let thread = run.scene.thread_now(&run.thread);
+        expect(thread.change) to equal(None)
+        expect(thread.finished) to equal(Some(Finish::Removed))
+        let added: Vec<_> = run.scene.entries(&run.thread)[entries..]
+            .iter()
+            .map(|entry| entry.body["text"].clone())
+            .collect();
+        expect(added) to equal(vec![Value::from("Copy removed.")])
     }
 
     // requirement: a copy an agent makes by hand in `.teryon/worktrees/` goes to its thread when it is the only one running

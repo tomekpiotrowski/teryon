@@ -112,6 +112,8 @@ pub enum Finish {
     Accepted,
     /// Thrown away.
     Discarded,
+    /// Its copy was removed outside Teryon, which then let go of it.
+    Removed,
 }
 
 /// Where a change stands, as last read from git.

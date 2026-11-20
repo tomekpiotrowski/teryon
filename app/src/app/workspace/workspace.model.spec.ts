@@ -515,6 +515,7 @@ describe('changeCard', () => {
     ['applied', { title: 'Applied', labelled: true, note: 'in the project', tone: 'done', next: [] }],
     ['accepted', { title: 'Accepted', labelled: true, note: 'on GitHub, in the project', tone: 'done', next: [] }],
     ['discarded', { title: 'Discarded', labelled: true, note: '', tone: 'quiet', next: [] }],
+    ['removed', { title: 'Copy removed', labelled: true, note: '', tone: 'quiet', next: [] }],
   ] as const)('remembers a change that was %s', (finished, expected) => {
     expect(changeCard(working({ finished }), local)).toEqual(expected);
   });
@@ -523,9 +524,19 @@ describe('changeCard', () => {
     expect(changeCard(working({ change: change(null) }), local)).toEqual({ title: 'Changing', labelled: true, note: '', tone: 'working', next: [] });
   });
 
-  it('asks for discarding once the copy is gone, whatever else is wrong', () => {
+  it('takes a removed copy calmly, whatever else is wrong', () => {
     const gone = working({ change: change({ copy_present: false, unfinished: true, fit: 'overlaps' }), status: 'running' });
-    expect(changeCard(gone, local)).toEqual({ title: 'Copy missing', labelled: true, note: 'removed outside Teryon', tone: 'attention', next: ['change:discard'] });
+    expect(changeCard(gone, local)).toEqual({ title: 'Copy removed', labelled: true, note: '', tone: 'quiet', next: [] });
+  });
+
+  it.each(['in_review', 'accepted'] as const)('is in review once the copy is gone while GitHub has it %s', (state) => {
+    const gone = working({ change: change({ copy_present: false }, review(state)) });
+    expect(changeCard(gone, hosted)).toEqual({ title: 'In review', labelled: true, note: 'on GitHub', tone: 'waiting', next: ['change:openReview'] });
+  });
+
+  it('takes a removed copy calmly once its review was declined', () => {
+    const gone = working({ change: change({ copy_present: false }, review('declined')) });
+    expect(changeCard(gone, hosted)?.title).toBe('Copy removed');
   });
 
   it('says when the agent left it unfinished, ahead of anything but a missing copy', () => {
@@ -670,7 +681,7 @@ describe('changeCard', () => {
         reviews.flatMap((reviewed) => (['idle', 'running'] as const).map((status) => working({ change: change(state, reviewed), status }))),
       ),
       working({ change: change(null) }),
-      ...(['applied', 'accepted', 'discarded'] as const).map((finished) => working({ finished })),
+      ...(['applied', 'accepted', 'discarded', 'removed'] as const).map((finished) => working({ finished })),
     ];
     const texts = threads
       .flatMap((subject) => [local, hosted].map((project) => changeCard(subject, project)))
@@ -732,9 +743,10 @@ describe('changeBadge', () => {
     expect(changeBadge({ ...base, status: 'running', change: { name: 'n', path: 'p', base: null, start: 's', branch: 'n', state: null, review: null } })).toBe('changing');
   });
 
-  it('is nothing for a thread with no change, or one whose change was thrown away', () => {
+  it('is nothing for a thread with no change, or one whose change was thrown away or removed', () => {
     expect(changeBadge(base)).toBe('');
     expect(changeBadge({ ...base, finished: 'discarded' })).toBe('');
+    expect(changeBadge({ ...base, finished: 'removed' })).toBe('');
   });
 });
 

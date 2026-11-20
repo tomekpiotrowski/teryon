@@ -205,9 +205,10 @@ export const CHANGE_LEADER = 'w';
  *
  * Applying and catching up are offered whenever the copy is there, and say
  * why when they cannot be done, rather than hiding: a hidden command teaches
- * nothing. Once the copy is gone only discarding is left, which then just
- * forgets the change. The editor and the terminal are only offered when set
- * up, since Teryon cannot guess which a person uses.
+ * nothing. Once the copy is gone only discarding is left, which tidies
+ * away what remains, and opening the review on GitHub when there is one.
+ * The editor and the terminal are only offered when set up, since Teryon
+ * cannot guess which a person uses.
  */
 function changeCommands(situation: Situation): Command[] {
   const thread = situation.thread;
@@ -215,7 +216,10 @@ function changeCommands(situation: Situation): Command[] {
   if (!thread || !change) return [];
   const extra = (key: string) => ({ detail: threadLabel(thread), key, leader: CHANGE_LEADER });
   const discard = command('change:discard', 'Discard changes', 'change', { kind: 'discardChange', thread }, extra('d'));
-  if (change.state?.copy_present === false) return [discard];
+  if (change.state?.copy_present === false) {
+    const review = change.review ? [command('change:openReview', 'Open review on GitHub', 'change', { kind: 'openReview', thread }, extra('o'))] : [];
+    return [...review, discard];
+  }
   const commands = [
     command('change:explore', 'See the changes', 'change', { kind: 'exploreChange', thread }, extra('v')),
     command('change:apply', 'Apply to the project', 'change', { kind: 'applyChange', thread }, extra('a')),

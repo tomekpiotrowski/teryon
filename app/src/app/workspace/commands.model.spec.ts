@@ -518,6 +518,11 @@ describe('the commands for a thread\'s change', () => {
     expect(ids(offered(gone, { editor: true, terminal: true }))).toEqual(['change:discard']);
   });
 
+  it('offers opening the review too once the copy is gone, while it has one', () => {
+    const gone = { ...changed, change: change({ state: { copy_present: false, base_present: false, files_changed: 0, fit: 'unknown', unfinished: false }, review: { number: 1, url: 'u', state: 'in_review' } }) };
+    expect(ids(offered(gone))).toEqual(['change:openReview', 'change:discard']);
+  });
+
   it('offers them all before Teryon has looked at the change', () => {
     const unread = { ...changed, change: change({ state: null }) };
     expect(ids(offered(unread))).toEqual(ALWAYS);

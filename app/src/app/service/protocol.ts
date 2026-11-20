@@ -131,7 +131,7 @@ url: string, state: ReviewState, };
 
 export type ReviewState = "in_review" | "accepted" | "declined";
 
-export type Finish = "applied" | "accepted" | "discarded";
+export type Finish = "applied" | "accepted" | "discarded" | "removed";
 
 export type Reviewer = { agent: string, 
 /**

@@ -69,7 +69,7 @@ export function reviewerOf(thread: Thread): AgentName {
 }
 
 /** How a thread's change ended, once Teryon let go of it and its copy. */
-export type Finish = 'applied' | 'accepted' | 'discarded';
+export type Finish = 'applied' | 'accepted' | 'discarded' | 'removed';
 
 /**
  * The work a thread's agent is doing in its own copy of the project.
@@ -259,7 +259,7 @@ export function composerAction(press: ComposerPress): 'send' | 'leave' | null {
  * - `waiting`: in review, waiting for someone else
  * - `attention`: stuck until the person or the agent does something
  * - `done`: in the project
- * - `quiet`: thrown away
+ * - `quiet`: thrown away, or its copy removed
  */
 export type ChangeTone = 'working' | 'ready' | 'waiting' | 'attention' | 'done' | 'quiet';
 
@@ -290,8 +290,11 @@ export interface ChangeCard {
 /**
  * The card for a thread's change, or nothing when the thread never changed anything.
  *
- * The state is read in order of what matters most: a missing copy or a
- * change left half way through block everything else; an agent at work
+ * The state is read in order of what matters most: a removed copy is
+ * fine, since copies get removed for all kinds of reasons, so it is shown
+ * calmly, or as in review when GitHub still has the work, and Teryon lets
+ * go of the change once nothing of it is left; a change left half way
+ * through blocks everything else; an agent at work
  * means the change is not ready whatever git says; then whether there is
  * anything to apply, whether it overlaps with newer work, and how a review
  * on GitHub is going. A change finished earlier is remembered on the
@@ -314,6 +317,8 @@ export function changeCard(thread: Thread, project: Project | null): ChangeCard 
         return card('Accepted', 'on GitHub, in the project', 'done');
       case 'discarded':
         return card('Discarded', '', 'quiet');
+      case 'removed':
+        return card('Copy removed', '', 'quiet');
       default:
         return null;
     }
@@ -321,7 +326,11 @@ export function changeCard(thread: Thread, project: Project | null): ChangeCard 
 
   const state = change.state;
   if (!state) return card('Changing', '', 'working');
-  if (!state.copy_present) return card('Copy missing', 'removed outside Teryon', 'attention', ['change:discard']);
+  if (!state.copy_present) {
+    const review = change.review?.state;
+    if (review === 'in_review' || review === 'accepted') return card('In review', 'on GitHub', 'waiting', ['change:openReview']);
+    return card('Copy removed', '', 'quiet');
+  }
   if (state.unfinished) return card('Unfinished', 'the agent left it half way', 'attention');
   const files = filesChanged(state.files_changed);
   const reviewer = agentLabel(reviewerOf(thread));

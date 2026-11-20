@@ -103,6 +103,18 @@ pub async fn read_state(
     ))
 }
 
+/// Whether the branch called `name` is in the project.
+///
+/// A copy removed with `git worktree remove` leaves its branch and the
+/// agent's commits behind, so the change is not gone until the branch is.
+pub async fn branch_present(project: &Path, name: &str) -> Result<bool, ChangeError> {
+    let reference = format!("refs/heads/{name}");
+    Ok(Git::at(project)
+        .attempt(&["rev-parse", "--verify", "-q", &reference])
+        .await?
+        .is_some())
+}
+
 /// Whether a rebase, merge or cherry-pick was left unfinished in the worktree.
 async fn half_done(worktree: &Git, path: &Path) -> Result<bool, GitError> {
     for mark in UNFINISHED_MARKS {

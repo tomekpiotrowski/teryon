@@ -29,7 +29,7 @@ use crate::changes::create::{create, take_over};
 use crate::changes::finish::{apply, catch_up, discard, draft_description, CaughtUp, FinishError};
 use crate::changes::github::{review_now, send_for_review, tidy_after_acceptance, Tidied};
 use crate::changes::open::{browser, command_line, file_manager, CommandLine};
-use crate::changes::status::{read_state, Look};
+use crate::changes::status::{branch_present, read_state, Look};
 use crate::changes::{copies_in, Change, ChangeState, Finish, FoundCopy, Review, ReviewState};
 use crate::protocol::{Event, Opener};
 use crate::store::{Status, Thread};
@@ -300,8 +300,22 @@ impl Inner {
         finish: Finish,
         note: &str,
     ) -> Result<(), WorkspaceError> {
+        self.forget_change_when(thread_id, finish, note, |_| true)
+    }
+
+    /// Like [`Self::forget_change`], but only when `wanted` holds for the thread, checked under the same lock.
+    fn forget_change_when(
+        &self,
+        thread_id: Uuid,
+        finish: Finish,
+        note: &str,
+        wanted: impl FnOnce(&Thread) -> bool,
+    ) -> Result<(), WorkspaceError> {
         let mut state = self.state();
-        let (store, _) = state.holding(thread_id)?;
+        let (store, thread) = state.holding(thread_id)?;
+        if !wanted(&thread) {
+            return Ok(());
+        }
         let notice = EntryDraft::notice(note);
         let entry = store.append(thread_id, EntryKind::Notice.name(), notice.body)?;
         let thread = store.change(thread_id, |thread| {
@@ -480,6 +494,26 @@ impl Inner {
                 return;
             }
         };
+        if !state.copy_present {
+            let review_open = change
+                .review
+                .as_ref()
+                .is_some_and(|review| review.state != ReviewState::Declined);
+            match branch_present(&directory, &change.name).await {
+                Ok(false) if !review_open => {
+                    self.let_go(thread_id, &change);
+                    return;
+                }
+                Ok(_) => {}
+                Err(problem) => {
+                    warn!(
+                        "could not read whether the branch of {} is there: {problem}",
+                        change.name
+                    );
+                    return;
+                }
+            }
+        }
         let state = keep_known_fit(change.state.as_ref(), state, look);
         if change.state.as_ref() == Some(&state) && change.branch == branch {
             return;
@@ -508,6 +542,32 @@ impl Inner {
                 self.announce(Event::ThreadChanged { thread });
             }
             Err(problem) => error!("could not store where a change stands: {problem}"),
+        }
+    }
+
+    /// Forgets a thread's `change` once nothing of it is left, unless Teryon is finishing it.
+    ///
+    /// Copies get removed for all kinds of reasons, by the person or by the
+    /// agent, and none of them is a problem. Once the branch is gone too and
+    /// no review on GitHub waits for it, there is nothing left to apply, so
+    /// the thread simply no longer has a change. A change being applied or
+    /// discarded loses its copy on purpose, and is forgotten by that.
+    ///
+    /// Checked and forgotten under one lock: two looks at the same thread
+    /// can both find the copy gone, and only the first may forget, and only
+    /// the change it looked at, not one started meanwhile.
+    fn let_go(&self, thread_id: Uuid, change: &Change) {
+        let still = |thread: &Thread| {
+            !self.finishing_threads().contains(&thread_id)
+                && thread
+                    .change
+                    .as_deref()
+                    .is_some_and(|known| known.name == change.name && known.start == change.start)
+        };
+        if let Err(problem) =
+            self.forget_change_when(thread_id, Finish::Removed, "Copy removed.", still)
+        {
+            error!("could not forget a change whose copy is gone: {problem}");
         }
     }
 

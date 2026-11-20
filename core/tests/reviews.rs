@@ -196,6 +196,24 @@ lets_expect! { #tokio_test
         expect(exists(&github.folder.path().join("fix-login.txt"))) to be_true
     }
 
+    // requirement: a change in review is kept when its copy and branch are removed, and tidied away once accepted
+    story an_accepted_change_whose_copy_was_removed {
+        let github = on_github(&fake_gh());
+        let (thread, copy) = github.change("fix-login").await;
+        github.send(&thread, "Fix the login").await.unwrap();
+        git(github.folder.path(), &["worktree", "remove", "--force", &copy.to_string_lossy()]);
+        git(github.folder.path(), &["branch", "-D", "fix-login"]);
+
+        github.review_becomes("OPEN");
+        github.scene.workspace.refresh_change(thread.id).await;
+        expect(github.review(&thread)) to equal(in_review())
+
+        github.accept_on_github("fix-login");
+        github.scene.workspace.refresh_change(thread.id).await;
+        expect(github.scene.thread_now(&thread).finished) to equal(Some(Finish::Accepted))
+        expect(exists(&github.folder.path().join("fix-login.txt"))) to be_true
+    }
+
     // requirement: the project folder is left as it is when the person's own edits are in the way, and the note says so
     story an_accepted_change_leaves_own_edits_alone {
         let github = on_github(&fake_gh());
