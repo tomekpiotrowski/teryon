@@ -1,0 +1,5 @@
+# What makepkg downloads and builds here.
+*.deb
+*.pkg.tar.zst
+/src/
+/pkg/

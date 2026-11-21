@@ -48,5 +48,5 @@
     "start": "ng serve",
     "watch": "ng build --watch --configuration development"
   },
-  "version": "0.0.1"
+  "version": "0.1.0"
 }

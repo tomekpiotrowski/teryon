@@ -1,0 +1,26 @@
+# Teryon's desktop app for Arch and Omarchy, repackaged from the release's .deb.
+#
+# Build and install with `makepkg -si` in this folder. For a new version,
+# change `pkgver`, publish the release, then run `updpkgsums` to fill in the
+# checksum of its .deb. This file is also what goes to the AUR.
+
+pkgname=teryon-bin
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Run coding agents on your projects"
+arch=('x86_64')
+url="https://github.com/tomekpiotrowski/teryon"
+license=('MIT')
+depends=('webkit2gtk-4.1' 'gtk3' 'git')
+provides=('teryon')
+conflicts=('teryon')
+options=('!strip' '!debug')
+source=("${url}/releases/download/v${pkgver}/Teryon_${pkgver}_amd64.deb"
+        "LICENSE-${pkgver}::${url}/raw/v${pkgver}/LICENSE")
+# Filled in by `updpkgsums` once the release is published.
+sha256sums=('SKIP' 'SKIP')
+
+package() {
+  bsdtar -xf data.tar.gz -C "$pkgdir"
+  install -Dm644 "LICENSE-${pkgver}" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

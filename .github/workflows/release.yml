@@ -1,0 +1,71 @@
+# Builds the Linux packages of the desktop app and puts them in a draft release.
+#
+# A release starts by pushing a tag such as `v0.1.0`, whose number has to
+# match the version in `Cargo.toml`. The draft waits for someone to try the
+# packages and publish it; nothing here publishes on its own.
+#
+# The build runs on Ubuntu 22.04 on purpose: the AppImage and the .deb only
+# work on systems whose libraries are at least as new as the ones they were
+# built against, so the oldest supported system gives the widest reach.
+#
+# Started by hand, it builds the packages and keeps them as workflow files
+# without making a release, for trying the build out.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check the tag matches the version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)
+          if [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
+            echo "The tag ${GITHUB_REF_NAME} does not match version ${version} in Cargo.toml."
+            exit 1
+          fi
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: oven-sh/setup-bun@v2
+      - name: Install the libraries Tauri needs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - name: Install the Tauri command
+        run: cargo install tauri-cli --version "^2" --locked
+      - name: Install the app's packages
+        working-directory: app
+        run: bun install --frozen-lockfile
+      - name: Build the packages
+        working-directory: desktop/src-tauri
+        run: cargo tauri build
+      - name: Gather the packages
+        run: |
+          mkdir release
+          cp target/release/bundle/appimage/*.AppImage target/release/bundle/deb/*.deb target/release/bundle/rpm/*.rpm release/
+          cd release && sha256sum * > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: teryon-linux
+          path: release/
+      - name: Create the draft release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" release/* \
+            --draft \
+            --title "Teryon ${GITHUB_REF_NAME#v}" \
+            --notes "The desktop app for Linux: an AppImage that runs anywhere, a .deb for Debian and Ubuntu, and an .rpm for Fedora. For Arch and Omarchy, build desktop/arch/PKGBUILD with makepkg -si."
