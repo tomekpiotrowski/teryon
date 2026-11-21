@@ -4,6 +4,7 @@ import { RouterModule } from '@angular/router';
 import { IonContent } from '@ionic/angular/ion-content';
 import { CommandMenuComponent } from './command-menu.component';
 import { NewProjectComponent } from './new-project.component';
+import { QuestionsComponent } from './questions.component';
 import { FilesComponent } from './files.component';
 import { HistoryComponent } from './history.component';
 import { MarkdownPipe } from './markdown.pipe';
@@ -13,7 +14,7 @@ import { WorkspacePage } from './workspace.page';
 
 /** The signed-in part of Teryon: the workspace screen with its menu, its file browser, its history and the usage. */
 @NgModule({
-  declarations: [WorkspacePage, CommandMenuComponent, NewProjectComponent, FilesComponent, HistoryComponent, RepositoryBarComponent, UsageComponent, MarkdownPipe],
+  declarations: [WorkspacePage, CommandMenuComponent, NewProjectComponent, FilesComponent, HistoryComponent, RepositoryBarComponent, UsageComponent, QuestionsComponent, MarkdownPipe],
   imports: [CommonModule, IonContent, RouterModule.forChild([{ path: '', component: WorkspacePage }])],
 })
 export class WorkspaceModule {}

@@ -8,10 +8,14 @@
 //! so far: the person's and the agent's, leaving out the tools it ran, since
 //! what those did is in the files.
 //!
+//! Questions the agent asked the person are handed over too, written out as
+//! text, so a person who answers after switching agents is understood.
+//!
 //! Only one side of the thread is handed over: the author's lines to a new
 //! author, the reviewer's lines to a new reviewer, so the reviewer keeps
 //! judging the change on its own.
 
+use crate::agents::asking::{Choosing, Question};
 use crate::agents::{EntryKind, Voice};
 use crate::store::Entry;
 
@@ -71,6 +75,9 @@ pub fn handed_over(entries: &[Entry], voice: Voice, message: &str) -> String {
 
 /// A message in the conversation, as a line of the handover. Nothing for the agent's tools and Teryon's remarks.
 fn said(entry: &Entry) -> Option<String> {
+    if entry.kind == EntryKind::Questions.name() {
+        return asked(entry);
+    }
     let speaker = match entry.kind.as_str() {
         kind if kind == EntryKind::UserMessage.name() => "Person",
         kind if kind == EntryKind::AgentMessage.name() => "Agent",
@@ -93,6 +100,46 @@ fn said(entry: &Entry) -> Option<String> {
     ))
 }
 
+/// Questions the agent asked, as a line of the handover: each with its answers, the recommended ones marked.
+///
+/// Nothing when the entry doesn't hold questions in the shape Teryon stores.
+fn asked(entry: &Entry) -> Option<String> {
+    let questions: Vec<Question> = serde_json::from_value(entry.body["questions"].clone()).ok()?;
+    let lines: Vec<String> = questions
+        .iter()
+        .enumerate()
+        .map(|(index, question)| {
+            let answers: Vec<String> = question
+                .answers
+                .iter()
+                .enumerate()
+                .map(|(answer, choice)| {
+                    let recommended = match &question.choosing {
+                        Choosing::One { recommended } => *recommended == answer,
+                        Choosing::Several { recommended } => recommended.contains(&answer),
+                    };
+                    if recommended {
+                        format!("{} (recommended)", choice.label)
+                    } else {
+                        choice.label.clone()
+                    }
+                })
+                .collect();
+            let several = match question.choosing {
+                Choosing::One { .. } => "",
+                Choosing::Several { .. } => ", any of",
+            };
+            format!(
+                "{}. {}{several}: {}",
+                index + 1,
+                question.question,
+                answers.join(" / ")
+            )
+        })
+        .collect();
+    (!lines.is_empty()).then(|| format!("Agent asked the person:\n{}", lines.join("\n")))
+}
+
 #[cfg(test)]
 mod tests {
     use chrono::Utc;
@@ -111,6 +158,16 @@ mod tests {
             body,
             created_at: Utc::now(),
         }
+    }
+
+    fn asked_body() -> Value {
+        json!({
+            "turn": Uuid::nil(),
+            "questions": [
+                { "question": "Where?", "answers": [{ "label": "Here", "description": null }, { "label": "There", "description": null }], "choosing": { "kind": "one", "recommended": 1 } },
+                { "question": "Which", "answers": [{ "label": "A", "description": null }, { "label": "B", "description": null }, { "label": "C", "description": null }], "choosing": { "kind": "several", "recommended": [0, 2] } },
+            ],
+        })
     }
 
     fn conversation() -> Vec<Entry> {
@@ -150,6 +207,14 @@ mod tests {
             when(voice = Voice::Reviewer) as to_a_new_reviewer {
                 to carry_the_reviewers_messages { have(contains("<conversation>\nAgent: One problem.\n</conversation>")) be_true }
                 to leave_out_the_authors { have(contains("Fix the login.")) be_false }
+            }
+            when(entries = vec![entry("questions", asked_body())]) as of_a_thread_with_questions {
+                to carry_them_with_recommendations_marked {
+                    have(contains("<conversation>\nAgent asked the person:\n1. Where?: Here / There (recommended)\n2. Which, any of: A (recommended) / B / C (recommended)\n</conversation>")) be_true
+                }
+            }
+            when(entries = vec![entry("questions", json!({ "questions": "Where?" }))]) as of_a_thread_with_unreadable_questions {
+                to go_as_it_is { equal("Go on.".to_string()) }
             }
             when(entries = Vec::new()) as of_a_thread_with_nothing_said {
                 to go_as_it_is { equal("Go on.".to_string()) }

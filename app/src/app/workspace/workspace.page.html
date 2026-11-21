@@ -117,6 +117,20 @@
                         @case ('notice') { <p class="notice-line">{{ line.text }}</p> }
                         @case ('error') { <p class="error-line" role="alert">{{ line.text }}</p> }
                         @case ('summary') { <p class="summary-line" [attr.title]="line.title ?? null">{{ line.text }}</p> }
+                        @case ('questions') {
+                          @if (line.asked; as asked) {
+                            <div class="asked-block" aria-label="Questions from the agent">
+                              @for (question of asked.questions; track $index; let q = $index) {
+                                <p class="asked-question"><span class="question-number">{{ q + 1 }}.</span> {{ question.question }}</p>
+                                <p class="asked-answers">
+                                  @for (answer of question.answers; track $index; let a = $index) {
+                                    <span [class.recommended]="isRecommended(question, a)">{{ answer.label }}</span>
+                                  }
+                                </p>
+                              }
+                            </div>
+                          }
+                        }
                       }
                     </article>
                   }
@@ -132,6 +146,9 @@
 
               <footer class="thread-composer">
                 <div class="composer-inner">
+                  @if (questions$ | async; as asked) {
+                    <app-questions [asked]="asked" (answered)="answer(view, $event)" (putAway)="putAwayQuestions(asked)"></app-questions>
+                  }
                   @if (changeLine$ | async; as line) {
                     <section class="change-strip" [attr.data-tone]="line.card.tone" aria-label="This thread’s changes">
                       @if (line.card.labelled) { <span class="change-status" role="status">{{ line.card.title }}</span> }

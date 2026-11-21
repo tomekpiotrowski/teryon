@@ -34,11 +34,12 @@
               (pointermove)="mark($index)"
               (click)="choose(row.command)"
             >
-              <span class="menu-dot" [class.live]="row.command.live" aria-hidden="true">{{ row.command.live ? '●' : '·' }}</span>
+              <span class="menu-dot" [class.live]="row.command.live" [class.asking]="row.command.asking" aria-hidden="true">{{ row.command.live ? '●' : row.command.asking ? '?' : '·' }}</span>
               <span class="menu-title">{{ row.command.title }}</span>
               @if (row.command.badge) { <span class="menu-badge">{{ row.command.badge }}</span> }
               @if (row.command.detail) { <span class="menu-detail">{{ row.command.detail }}</span> }
               @if (row.command.live) { <span class="menu-detail">running</span> }
+              @if (row.command.asking) { <span class="menu-detail">waiting for your answers</span> }
               @if (keyHint(row.command); as hint) { <kbd>{{ hint }}</kbd> }
             </button>
           } @empty {

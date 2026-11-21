@@ -82,6 +82,24 @@ name_thread() {
   printf '\n' >> .fake-agent-title
 }
 
+# Asks the person questions through Teryon, as agents are told to. The
+# questions are `.fake-agent-questions` in the project when a test put one
+# there, and two questions otherwise: one taking one answer, one several.
+# What `teryon` printed, on either output, goes to `.fake-agent-asked`.
+ask_questions() {
+  if [ -f "$project/.fake-agent-questions" ]; then
+    teryon thread ask < "$project/.fake-agent-questions" > .fake-agent-asked 2>&1
+  else
+    teryon thread ask > .fake-agent-asked 2>&1 <<'EOF'
+{"questions": [
+  {"question": "Where should answers be kept?", "answers": [{"label": "In the thread", "description": "An ordinary message"}, {"label": "On the record"}]},
+  {"question": "Which screens should show it?", "answers": [{"label": "Thread list"}, {"label": "Window title"}, {"label": "Notification"}], "several": true, "recommended": [0, 2]}
+]}
+EOF
+  fi
+  printf '\n' >> .fake-agent-asked
+}
+
 # Makes a worktree by hand, ignoring the instruction, as an agent might.
 make_worktree() {
   name=$(word_after "make a worktree called" "$*")
@@ -139,6 +157,17 @@ case "$*" in
     ;;
   *"start a change"*)
     start_change "$*"
+    cat "$samples/$agent-first.jsonl"
+    ;;
+  *"ask questions slowly"*)
+    # Asks a moment after starting, so a test can be doing something else when the questions arrive.
+    head -n 1 "$samples/$agent-first.jsonl"
+    sleep 2
+    ask_questions
+    tail -n +2 "$samples/$agent-first.jsonl"
+    ;;
+  *"ask questions"*)
+    ask_questions
     cat "$samples/$agent-first.jsonl"
     ;;
   *"name the thread"*)

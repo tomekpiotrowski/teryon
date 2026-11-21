@@ -1,6 +1,7 @@
 //! The `teryon` program.
 
 use std::env::{current_exe, var};
+use std::io::{stdin, Read};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -11,6 +12,7 @@ use teryon::logging;
 use teryon::service::{Service, ServiceError};
 use teryon::service_file::ServiceFile;
 use teryon::stopping::{stop_service, Stopped};
+use teryon_core::agents::asking::ASKED;
 use teryon_core::paths::Folders;
 use teryon_core::protocol::{Answer, Request};
 use uuid::Uuid;
@@ -55,6 +57,8 @@ enum ThreadCommand {
         /// The title, such as `Fix the login redirect`.
         title: String,
     },
+    /// Ask the person questions, written as JSON on standard input; their answers arrive as their next message.
+    Ask,
 }
 
 #[derive(Subcommand)]
@@ -91,6 +95,9 @@ async fn main() -> ExitCode {
         Some(Command::Thread {
             command: ThreadCommand::Title { title },
         }) => title_thread(folders, title).await,
+        Some(Command::Thread {
+            command: ThreadCommand::Ask,
+        }) => ask_questions(folders).await,
         None => {
             eprintln!(
                 "The terminal app is not there yet. Run `teryon service`, or `teryon --help`."
@@ -184,6 +191,35 @@ async fn title_thread(folders: Folders, title: String) -> ExitCode {
     .await;
     match answer {
         Ok(_) => ExitCode::SUCCESS,
+        Err(problem) => {
+            eprintln!("{problem}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Asks the person the questions on standard input, for the thread whose agent runs this.
+///
+/// The service reads the JSON, so its log has every refusal; this only passes it on.
+async fn ask_questions(folders: Folders) -> ExitCode {
+    let mut asked = String::new();
+    if let Err(problem) = stdin().read_to_string(&mut asked) {
+        eprintln!("Could not read the questions from standard input: {problem}");
+        return ExitCode::FAILURE;
+    }
+    let answer = call_for_thread(folders, "teryon thread ask", |thread_id, turn| {
+        Request::AskQuestions {
+            thread_id,
+            turn,
+            asked,
+        }
+    })
+    .await;
+    match answer {
+        Ok(_) => {
+            println!("{ASKED}");
+            ExitCode::SUCCESS
+        }
         Err(problem) => {
             eprintln!("{problem}");
             ExitCode::FAILURE

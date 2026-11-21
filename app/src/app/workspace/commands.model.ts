@@ -20,6 +20,7 @@ import {
   isBareLetter,
   type KeyPress,
   type ModelLists,
+  needsPerson,
   type NewThreads,
   type Opens,
   type Project,
@@ -56,7 +57,8 @@ export type CommandAction =
   | { readonly kind: 'openReview'; readonly thread: Thread }
   | { readonly kind: 'copyLocation'; readonly path: string }
   | { readonly kind: 'openCopy'; readonly thread: Thread; readonly opener: Opener }
-  | { readonly kind: 'draft'; readonly text: string };
+  | { readonly kind: 'draft'; readonly text: string }
+  | { readonly kind: 'answerQuestions' };
 
 export interface Command {
   readonly id: string;
@@ -70,6 +72,8 @@ export interface Command {
   readonly leader: string | null;
   /** Whether an agent is working in what the command opens. */
   readonly live: boolean;
+  /** Whether the agent of the thread the command opens waits for the person's answers. */
+  readonly asking: boolean;
   /** Where the change of the thread the command opens stands, such as `ready to apply`. Nothing for other commands. */
   readonly badge: string;
   readonly action: CommandAction;
@@ -89,6 +93,8 @@ export interface Situation {
   readonly theme: 'light' | 'dark';
   /** What a thread's copy can be opened in, besides the file manager. */
   readonly opens: Opens;
+  /** Whether the open thread's agent waits for answers and the person put its questions away. */
+  readonly questionsPutAway: boolean;
 }
 
 /** One line of the menu: a command, under a heading when it starts a section. */
@@ -125,11 +131,12 @@ export function commandList(situation: Situation): Command[] {
       command(
         `thread:${candidate.id}`,
         threadLabel(candidate),
-        candidate.unread && candidate.status === 'idle' ? 'attention' : 'thread',
+        needsPerson(candidate) ? 'attention' : 'thread',
         { kind: 'openThread', thread: candidate },
         {
           detail: projectNames.get(candidate.project_id) ?? '',
           live: candidate.status === 'running',
+          asking: candidate.status === 'idle' && candidate.asking === true,
           badge: changeBadge(candidate),
         },
       ),
@@ -145,6 +152,9 @@ export function commandList(situation: Situation): Command[] {
   );
 
   const actions: Command[] = [];
+  if (thread && situation.questionsPutAway) {
+    actions.push(command('action:answerQuestions', 'Answer the agent’s questions', 'action', { kind: 'answerQuestions' }, { detail: threadLabel(thread), key: 'q' }));
+  }
   if (project) {
     actions.push(
       command('action:newThread', 'New thread', 'action', { kind: 'openProject', project }, { detail: project.name, key: 'n' }),
@@ -442,6 +452,7 @@ function command(
     readonly key?: string;
     readonly leader?: string;
     readonly live?: boolean;
+    readonly asking?: boolean;
     readonly badge?: string;
   } = {},
 ): Command {
@@ -454,6 +465,7 @@ function command(
     key: extra.key ?? null,
     leader: extra.leader ?? null,
     live: extra.live ?? false,
+    asking: extra.asking ?? false,
     badge: extra.badge ?? '',
   };
 }

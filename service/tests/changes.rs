@@ -1,4 +1,4 @@
-//! Request specs for what an agent asks of the service about its thread (`teryon worktree create`, `teryon thread title`), opening a copy, and refreshing.
+//! Request specs for what an agent asks of the service about its thread (`teryon worktree create`, `teryon thread title`, `teryon thread ask`), opening a copy, and refreshing.
 //!
 //! The fake agent runs the real `teryon` program cargo built, found the way a
 //! real agent finds it: through the `PATH` the service gives it. The rules
@@ -108,6 +108,11 @@ async fn create_by_hand(variables: &[(&str, String)]) -> (bool, String) {
 /// Runs `teryon thread title` as a person might in a terminal, and gives what it said and whether it succeeded.
 async fn title_by_hand(variables: &[(&str, String)]) -> (bool, String) {
     run_by_hand(&["thread", "title", "By hand"], variables).await
+}
+
+/// Runs `teryon thread ask` as a person might in a terminal, with nothing on standard input.
+async fn ask_by_hand(variables: &[(&str, String)]) -> (bool, String) {
+    run_by_hand(&["thread", "ask"], variables).await
 }
 
 /// Runs `teryon` with only the given variables of Teryon's own, and gives what it said on errors and whether it succeeded.
@@ -222,6 +227,56 @@ lets_expect! { #tokio_test
 
         expect(written_by_agent(&folder, ".fake-agent-title").await) to equal("Give the thread a title of a few words.".to_string())
         expect(after.named) to be_false
+    }
+
+    // requirement: an agent asks the person questions by running `teryon thread ask` with JSON on standard input, and is told to end its turn
+    story an_agent_asks_through_teryon {
+        let scene = scene().await;
+        let folder = repository();
+        let mut client = scene.client().await;
+        let thread = thread_in(&mut client, &folder).await;
+
+        let after = turn(&mut client, thread, "please ask questions").await;
+
+        expect(written_by_agent(&folder, ".fake-agent-asked").await) to equal("Your questions will be shown when your turn ends. End your turn now.".to_string())
+        expect(after.asking) to be_true
+        let entries = match client.call(Request::FollowThread { thread_id: thread }).await.unwrap() {
+            Answer::Entries { entries } => entries,
+            _ => Vec::new(),
+        };
+        let questions = entries.iter().find(|entry| entry.kind == "questions").map(|entry| entry.body["questions"].as_array().map_or(0, Vec::len));
+        expect(questions) to equal(Some(2))
+
+        let answered = turn(&mut client, thread, "Answers to your questions: ...").await;
+        expect(answered.asking) to be_false
+    }
+
+    // requirement: refused questions tell the agent why, with the shape to write them in, and end in failure
+    story an_agent_is_told_why_questions_are_refused {
+        let scene = scene().await;
+        let folder = repository();
+        write(folder.path().join(".fake-agent-questions"), "{\"questions\": []}").unwrap();
+        let mut client = scene.client().await;
+        let thread = thread_in(&mut client, &folder).await;
+
+        let after = turn(&mut client, thread, "please ask questions").await;
+
+        let said = written_by_agent(&folder, ".fake-agent-asked").await;
+        expect(said.starts_with("Ask between one and four questions at once; there are 0.\n\nWrite the questions like this:")) to be_true
+        expect(after.asking) to be_false
+    }
+
+    // requirement: `teryon thread ask` outside an agent's turn is refused
+    story the_ask_command_is_only_for_agents {
+        let scene = scene().await;
+        let folder = repository();
+        let mut client = scene.client().await;
+        let thread = thread_in(&mut client, &folder).await;
+
+        expect(ask_by_hand(&[]).await) to equal((false, "`teryon thread ask` is for agents working in Teryon, which sets TERYON_THREAD and TERYON_TURN for them.".to_string()))
+        let data = scene.data().to_string_lossy().into_owned();
+        let pretending = [("TERYON_THREAD", thread.to_string()), ("TERYON_TURN", Uuid::new_v4().to_string()), ("TERYON_DATA", data)];
+        expect(ask_by_hand(&pretending).await) to equal((false, "`teryon thread ask` is for agents working in Teryon, during their turn.".to_string()))
     }
 
     // requirement: `teryon thread title` outside an agent's turn is refused

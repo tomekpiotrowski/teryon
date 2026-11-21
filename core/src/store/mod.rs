@@ -116,6 +116,13 @@ pub struct Thread {
     pub status: Status,
     /// Whether an agent stopped working here since the person last looked.
     pub unread: bool,
+    /// Whether the thread's agent asked the person questions they haven't answered yet.
+    ///
+    /// Kept on the thread, so the thread list can show who waits for an
+    /// answer without reading every thread's entries. Any message from the
+    /// person clears it: they answered, or chose to say something else.
+    #[serde(default)]
+    pub asking: bool,
     /// The slash commands the agent program last said it takes.
     ///
     /// Empty until the program has run once for this thread.

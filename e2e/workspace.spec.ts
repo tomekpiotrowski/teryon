@@ -4,7 +4,7 @@
 // Each test has a Teryon service of its own, which starts a script that
 // replays recordings in place of the agent programs. Nothing here reaches a model provider.
 
-import { existsSync, mkdirSync, mkdtempSync, realpathSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -618,6 +618,92 @@ test("a thread whose agent stopped while it was out of sight waits to be looked 
   await expect(page.locator(".workspace-bar")).not.toContainText("waiting");
   await page.keyboard.press("Control+k");
   await expect(menu(page).locator(".menu-heading").first()).toHaveText("Threads");
+});
+
+test("an agent's questions are answered with number keys, and the answers go to it as a message", async ({ page }) => {
+  const directory = await addProject(page, "Sample");
+  await page.getByLabel("New thread").fill("please ask questions");
+  await page.getByRole("button", { name: "Run ↵" }).click();
+
+  // The recommendations start chosen.
+  const questions = page.getByRole("group", { name: "The agent’s questions" });
+  await expect(questions).toBeFocused();
+  await expect(questions.getByRole("button", { name: /In the thread/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(questions.getByRole("button", { name: /On the record/ })).toHaveAttribute("aria-pressed", "false");
+  await expect(questions.getByRole("button", { name: /Thread list/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(questions.getByRole("button", { name: /Window title/ })).toHaveAttribute("aria-pressed", "false");
+  await expect(questions.getByRole("button", { name: /Notification/ })).toHaveAttribute("aria-pressed", "true");
+
+  // The thread waits for answers even while it is being looked at.
+  await page.keyboard.press("Control+k");
+  await expect(menu(page).locator(".menu-heading").first()).toHaveText("Waiting for you");
+  await expect(menu(page).getByRole("option").first()).toContainText("waiting for your answers");
+  await page.keyboard.press("Escape");
+
+  // Escape puts the questions away for a message, and Q brings them back.
+  await questions.focus();
+  await page.keyboard.press("Escape");
+  await expect(questions).toHaveCount(0);
+  await expect(page.getByLabel("Reply")).toBeFocused();
+  await page.getByLabel("Reply").press("Escape");
+  await page.keyboard.press("q");
+  await expect(questions).toBeFocused();
+
+  // 2 picks the second answer and moves on; in a question taking several, numbers tick and untick.
+  await page.keyboard.press("2");
+  await page.keyboard.press("1");
+  await page.keyboard.press("2");
+  await page.keyboard.press("Enter");
+
+  await expect(questions).toHaveCount(0);
+  const thread = page.getByLabel("Thread");
+  await expect(thread).toContainText("1. Where should answers be kept? → On the record");
+  await expect(thread).toContainText("2. Which screens should show it? → Window title, Notification");
+  await expect(page.getByLabel("Reply")).toHaveValue("");
+  await expect
+    .poll(() => readFileSync(join(directory, ".fake-agent-invocations"), "utf8"))
+    .toContain("Answers to your questions: 1. Where should answers be kept? → On the record 2. Which screens should show it? → Window title, Notification");
+  await expect(page.locator(".workspace-bar")).not.toContainText("waiting");
+});
+
+test("own words still in their field are sent by the button", async ({ page }) => {
+  const directory = await addProject(page, "Sample");
+  await page.getByLabel("New thread").fill("please ask questions");
+  await page.getByRole("button", { name: "Run ↵" }).click();
+
+  const questions = page.getByRole("group", { name: "The agent’s questions" });
+  await expect(questions).toBeFocused();
+  await page.keyboard.press("3");
+  await page.getByLabel("Your own answer").fill("In a file of its own");
+  await page.getByRole("button", { name: "send answers ↵" }).click();
+
+  await expect(questions).toHaveCount(0);
+  await expect(page.getByLabel("Thread")).toContainText("1. Where should answers be kept? → In a file of its own");
+  await expect
+    .poll(() => readFileSync(join(directory, ".fake-agent-invocations"), "utf8"))
+    .toContain("1. Where should answers be kept? → In a file of its own 2.");
+});
+
+test("questions arriving while the menu is open leave the keyboard with the menu", async ({ page }) => {
+  await addProject(page, "Sample");
+  await page.getByLabel("New thread").fill("please ask questions slowly");
+  await page.getByRole("button", { name: "Run ↵" }).click();
+  await expect(page.getByRole("status")).toHaveText(/Claude is working…/);
+
+  const before = await page.locator("html").getAttribute("data-theme");
+  await page.keyboard.press("Control+k");
+  const search = page.getByLabel("Search the menu");
+  await search.fill("theme");
+  const questions = page.getByRole("group", { name: "The agent’s questions" });
+  await expect(questions).toHaveCount(1, { timeout: 10_000 });
+  await expect(search).toBeFocused();
+
+  // Enter goes to the menu, not to the questions.
+  await page.keyboard.press("Enter");
+  await expect(menu(page)).toHaveCount(0);
+  await expect(page.locator("html")).not.toHaveAttribute("data-theme", before ?? "");
+  await expect(questions).toHaveCount(1);
+  await expect(page.getByLabel("Thread")).not.toContainText("Answers to your questions");
 });
 
 test("the agent's own slash commands are listed and go to the message box", async ({ page }) => {

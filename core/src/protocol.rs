@@ -22,6 +22,7 @@ use sha2::{Digest, Sha256};
 use ts_rs::{Config, TS};
 use uuid::Uuid;
 
+use crate::agents::asking::{Choice, Choosing, Question, Questions};
 use crate::agents::models::ModelLists;
 use crate::agents::Voice;
 use crate::changes::{Change, ChangeState, Finish, Fit, Review, ReviewState};
@@ -121,6 +122,14 @@ pub enum Request {
         thread_id: Uuid,
         turn: Uuid,
         title: String,
+    },
+    /// Asks the person questions: sent by `teryon thread ask`, run by the
+    /// thread's own agent during `turn`. `asked` is the JSON the agent wrote,
+    /// read by the service so every refusal is in its log.
+    AskQuestions {
+        thread_id: Uuid,
+        turn: Uuid,
+        asked: String,
     },
     /// A starting point for the description of a thread's change, for the person to edit.
     DraftDescription {
@@ -405,6 +414,10 @@ pub fn typescript() -> String {
         Opens::decl(&config),
         ModelLists::decl(&config),
         Entry::decl(&config),
+        Questions::decl(&config),
+        Question::decl(&config),
+        Choice::decl(&config),
+        Choosing::decl(&config),
         Listing::decl(&config),
         FileEntry::decl(&config),
         FileChange::decl(&config),

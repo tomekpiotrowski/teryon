@@ -29,6 +29,7 @@ import { type NewProject } from './command-menu.component';
 import type { Opener } from '../service/protocol';
 import { type Command, type CommandGroup, commandList, keyHint, keyOutcome, menuAsked } from './commands.model';
 import { askDraft } from './files.model';
+import { type Asked, isRecommended } from './questions.model';
 import { type Commit, revertDraft } from './history.model';
 import { WorkspaceApi } from './workspace.api';
 import {
@@ -50,7 +51,8 @@ import {
   discardWarning,
   composerAction,
   type EntryLine,
-  entryLine,
+  pendingQuestions,
+  threadLines,
   groupThreads,
   NO_PLACE,
   NOTHING_SELECTED,
@@ -165,6 +167,7 @@ export class WorkspacePage implements OnDestroy {
 
   readonly reviewerOf = reviewerOf;
   readonly reviewerLabel = reviewerLabel;
+  readonly isRecommended = isRecommended;
 
   /**
    * The open project and thread, as soon as they are chosen.
@@ -192,7 +195,7 @@ export class WorkspacePage implements OnDestroy {
           groups,
           project,
           thread,
-          lines: entries.map(entryLine),
+          lines: threadLines(entries),
           running: thread?.status === 'running',
           liveAgents: projectThreads.filter((candidate) => candidate.status === 'running').length,
           projectThreads,
@@ -221,6 +224,21 @@ export class WorkspacePage implements OnDestroy {
     shareReplay({ bufferSize: 1, refCount: true }),
   );
 
+  /** The questions the open thread's agent waits for answers to. Nothing once anything was said after them. */
+  private readonly pending$: Observable<Asked | null> = this.view$.pipe(
+    map((view) => pendingQuestions(view.lines, view.running)),
+    distinctUntilChanged((before, after) => before?.id === after?.id),
+    shareReplay({ bufferSize: 1, refCount: true }),
+  );
+
+  /** The questions the person put away with Escape, to write a message instead. Asking again brings new ones up. */
+  readonly putAway$ = new BehaviorSubject<string | null>(null);
+
+  /** The questions to answer above the message box: the pending ones, unless put away. */
+  readonly questions$: Observable<Asked | null> = combineLatest([this.pending$, this.putAway$]).pipe(
+    map(([pending, putAway]) => (pending && pending.id !== putAway ? pending : null)),
+  );
+
   /** The commands on offer, for the menu to list and the keys to run. */
   readonly commands$: Observable<readonly Command[]> = combineLatest([
     this.view$,
@@ -229,8 +247,11 @@ export class WorkspacePage implements OnDestroy {
     this.store.opens$,
     this.store.models$,
     this.target$,
+    combineLatest([this.pending$, this.putAway$]).pipe(map(([pending, putAway]) => pending !== null && pending.id === putAway)),
   ]).pipe(
-    map(([view, newThreads, theme, opens, models, to]) => commandList({ ...view, newThreads, theme, opens, models, to })),
+    map(([view, newThreads, theme, opens, models, to, questionsPutAway]) =>
+      commandList({ ...view, newThreads, theme, opens, models, to, questionsPutAway }),
+    ),
     shareReplay({ bufferSize: 1, refCount: true }),
   );
 
@@ -455,6 +476,9 @@ export class WorkspacePage implements OnDestroy {
         return this.openCopy(action.thread, action.opener);
       case 'draft':
         return this.draftAndReturn(action.text);
+      case 'answerQuestions':
+        this.screen$.next('thread');
+        return this.putAway$.next(null);
       case 'newProject':
         // The menu asks for the name and the directory itself, then calls `addProject`.
         return;
@@ -569,6 +593,30 @@ export class WorkspacePage implements OnDestroy {
     event.preventDefault();
     if (action === 'leave') return (event.target as HTMLElement).blur();
     this.send(view);
+  }
+
+  /**
+   * Sends the answers to the agent's questions, as a message from the person to the thread's own agent.
+   *
+   * What was typed in the message box stays there.
+   */
+  answer(view: WorkspaceView, text: string): void {
+    const thread = view.thread;
+    if (!thread || view.running || this.sending$.value) return;
+    this.sending$.next(true);
+    this.api.sendMessage(thread.id, text, 'author').subscribe({
+      next: () => this.sending$.next(false),
+      error: (failure: unknown) => {
+        this.sending$.next(false);
+        this.alerts.error(refusalText(failure, 'The answers could not be sent.'));
+      },
+    });
+  }
+
+  /** Puts the agent's questions away and goes to the message box, to write something else. */
+  putAwayQuestions(asked: Asked): void {
+    this.putAway$.next(asked.id);
+    this.focusMessageBox();
   }
 
   /** Sends what was typed: to the open thread, or as the first message of a new one. */

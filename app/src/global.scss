@@ -541,6 +541,7 @@ a:hover {
 }
 
 .menu-dot.live { color: var(--color-accent); }
+.menu-dot.asking { color: var(--color-accent-700); font-weight: 600; }
 
 .menu-title {
   min-width: 0;
@@ -1160,6 +1161,97 @@ a:hover {
 
 .change-strip .change-more { flex: none; min-height: 24px; color: var(--color-neutral-500); }
 .change-strip .change-more:hover { color: var(--color-text); }
+
+/*
+ * Questions from the agent: listed in the thread where they were asked, and answered above the message box.
+ *
+ * The answering block is set in the code font like the rest of what the agent does, so it reads as part of the
+ * conversation rather than a form. The question the keys act on is marked by a bar at its side, the way the menu
+ * marks its row, and a chosen answer takes the accent.
+ */
+.asked-block {
+  border-left: 2px solid var(--color-divider);
+  padding-left: 12px;
+  color: var(--color-neutral-600);
+  font: 400 12.5px/1.75 var(--font-code);
+}
+
+.asked-question { margin: 0; color: var(--color-text); white-space: pre-wrap; overflow-wrap: anywhere; }
+.asked-answers { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0 0 6px 20px; }
+.asked-answers .recommended { color: var(--color-accent-700); }
+.asked-answers .recommended::after { content: ' (recommended)'; color: var(--color-neutral-500); }
+
+.question-number { color: var(--color-neutral-500); }
+
+.questions {
+  display: flex;
+  max-height: 50vh;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  border-top: 1px solid var(--color-divider);
+  padding-top: 12px;
+  font: 400 12.5px/1.6 var(--font-code);
+  outline: none;
+}
+
+.question { border-left: 2px solid transparent; padding-left: 10px; }
+.questions:focus-within .question.current { border-left-color: var(--color-accent); }
+
+.question-text { margin: 0 0 4px; color: var(--color-text); white-space: pre-wrap; overflow-wrap: anywhere; }
+.question-hint { color: var(--color-neutral-500); }
+
+.answers { margin: 0; padding: 0; list-style: none; }
+
+.answer {
+  display: flex;
+  width: 100%;
+  min-height: 24px;
+  align-items: baseline;
+  gap: 8px;
+  padding: 1px 0;
+  color: var(--color-neutral-600);
+  font: inherit;
+  text-align: left;
+}
+
+.answer:hover,
+.answer.chosen { color: var(--color-text); }
+.answer.chosen .answer-mark,
+.answer.chosen .answer-label { color: var(--color-accent-700); }
+
+.answer-mark { width: 3ch; flex: none; text-align: right; }
+.answer kbd { flex: none; }
+.answer-label { flex: none; }
+.answer-recommended { flex: none; color: var(--color-neutral-500); }
+.answer-description { min-width: 0; color: var(--color-neutral-500); overflow-wrap: anywhere; }
+
+.own-field {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  border-bottom: 1px solid var(--color-accent);
+  padding: 0;
+  background: transparent;
+  caret-color: var(--color-accent);
+  color: var(--color-text);
+  font: inherit;
+  outline: none;
+}
+
+.questions-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--color-neutral-500);
+  font-size: 11.5px;
+}
+
+.questions-meta .send-action { flex: none; color: var(--color-neutral-500); font: inherit; }
+.questions-meta .send-action.ready { color: var(--color-accent-700); }
+.questions-meta .send-action.ready:hover { color: var(--color-accent); }
+.questions-meta .send-action:disabled { cursor: default; opacity: 0.45; }
 
 .settings-backdrop {
   position: fixed;

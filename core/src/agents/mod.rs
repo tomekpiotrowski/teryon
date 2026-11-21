@@ -8,6 +8,7 @@
 //! how to read one line of the program's report. Everything else, including
 //! processes and storage, lives in [`runner`].
 
+pub mod asking;
 pub mod claude;
 pub mod codex;
 pub mod grok;
@@ -26,6 +27,9 @@ use serde_json::{json, Value};
 use thiserror::Error;
 use ts_rs::TS;
 
+use uuid::Uuid;
+
+use crate::agents::asking::Questions;
 use crate::agents::claude::ClaudeDriver;
 use crate::agents::codex::CodexDriver;
 use crate::agents::grok::GrokDriver;
@@ -92,6 +96,8 @@ pub enum EntryKind {
     Notice,
     Error,
     TurnSummary,
+    /// Questions the agent asked the person, with the turn they were asked in.
+    Questions,
 }
 
 impl EntryKind {
@@ -103,6 +109,7 @@ impl EntryKind {
             Self::Notice => "notice",
             Self::Error => "error",
             Self::TurnSummary => "turn_summary",
+            Self::Questions => "questions",
         }
     }
 }
@@ -129,6 +136,17 @@ impl EntryDraft {
 
     pub fn error(text: &str) -> Self {
         Self::text(EntryKind::Error, text)
+    }
+
+    /// Questions the agent asked in a turn.
+    ///
+    /// The turn is kept so a second call in the same turn can be told apart
+    /// from a later one: the newer questions of a turn replace the older ones.
+    pub fn questions(turn: Uuid, questions: &Questions) -> Self {
+        Self {
+            kind: EntryKind::Questions,
+            body: json!({ "turn": turn, "questions": questions.questions }),
+        }
     }
 
     /// A tool the agent used, with a short description of what it was used on.

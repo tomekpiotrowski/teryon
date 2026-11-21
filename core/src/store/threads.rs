@@ -293,6 +293,7 @@ mod tests {
             handover: false,
             status: Status::Idle,
             unread: false,
+            asking: false,
             commands: Vec::new(),
             change: None,
             finished: None,

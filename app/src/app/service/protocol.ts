@@ -21,7 +21,7 @@ model: string | null, } | { "type": "change_agent", thread_id: string, to: Voice
 /**
  * Nothing leaves the model to the agent program.
  */
-model: string | null, } | { "type": "stop", thread_id: string, } | { "type": "mark_seen", thread_id: string, } | { "type": "start_change", thread_id: string, turn: string, name: string, from: string | null, } | { "type": "name_thread", thread_id: string, turn: string, title: string, } | { "type": "draft_description", thread_id: string, } | { "type": "apply_change", thread_id: string, description: string, } | { "type": "catch_up", thread_id: string, } | { "type": "discard_change", thread_id: string, } | { "type": "send_for_review", thread_id: string, description: string, } | { "type": "open_review", thread_id: string, } | { "type": "open_copy", thread_id: string, with: Opener, } | { "type": "follow_thread", thread_id: string, } | { "type": "unfollow_thread", thread_id: string, } | { "type": "files", project_id: string, thread_id: string | null, branch: string | null, commit: string | null, } | { "type": "file", project_id: string, thread_id: string | null, branch: string | null, commit: string | null, path: string, } | { "type": "history", project_id: string, branch: string | null, } | { "type": "changes", project_id: string, commit: string, from: string | null, } | { "type": "change", project_id: string, commit: string, from: string | null, path: string, } | { "type": "usage" } | { "type": "shutdown" };
+model: string | null, } | { "type": "stop", thread_id: string, } | { "type": "mark_seen", thread_id: string, } | { "type": "start_change", thread_id: string, turn: string, name: string, from: string | null, } | { "type": "name_thread", thread_id: string, turn: string, title: string, } | { "type": "ask_questions", thread_id: string, turn: string, asked: string, } | { "type": "draft_description", thread_id: string, } | { "type": "apply_change", thread_id: string, description: string, } | { "type": "catch_up", thread_id: string, } | { "type": "discard_change", thread_id: string, } | { "type": "send_for_review", thread_id: string, description: string, } | { "type": "open_review", thread_id: string, } | { "type": "open_copy", thread_id: string, with: Opener, } | { "type": "follow_thread", thread_id: string, } | { "type": "unfollow_thread", thread_id: string, } | { "type": "files", project_id: string, thread_id: string | null, branch: string | null, commit: string | null, } | { "type": "file", project_id: string, thread_id: string | null, branch: string | null, commit: string | null, path: string, } | { "type": "history", project_id: string, branch: string | null, } | { "type": "changes", project_id: string, commit: string, from: string | null, } | { "type": "change", project_id: string, commit: string, from: string | null, path: string, } | { "type": "usage" } | { "type": "shutdown" };
 
 export type ServiceMessage = { "type": "reply", id: number, outcome: Outcome, } | { "type": "event", event: Event, };
 
@@ -105,6 +105,14 @@ handover: boolean, status: Status,
  * Whether an agent stopped working here since the person last looked.
  */
 unread: boolean, 
+/**
+ * Whether the thread's agent asked the person questions they haven't answered yet.
+ *
+ * Kept on the thread, so the thread list can show who waits for an
+ * answer without reading every thread's entries. Any message from the
+ * person clears it: they answered, or chose to say something else.
+ */
+asking: boolean, 
 /**
  * The slash commands the agent program last said it takes.
  *
@@ -243,6 +251,18 @@ export type Entry = { id: string, thread_id: string,
  * Order within the thread, starting at 1.
  */
 position: number, kind: string, body: JsonValue, created_at: string, };
+
+export type Questions = { questions: Array<Question>, };
+
+export type Question = { question: string, answers: Array<Choice>, choosing: Choosing, };
+
+export type Choice = { label: string, 
+/**
+ * A line saying what the answer means. Nothing when the label says enough.
+ */
+description: string | null, };
+
+export type Choosing = { "kind": "one", recommended: number, } | { "kind": "several", recommended: Array<number>, };
 
 export type Listing = { branches: Array<string>, 
 /**

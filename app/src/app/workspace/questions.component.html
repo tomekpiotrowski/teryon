@@ -1,0 +1,66 @@
+<section class="questions" tabindex="0" role="group" aria-label="The agent’s questions" (keydown)="handleKey($event)">
+  @if (state$ | async; as state) {
+    @for (question of state.questions; track $index; let q = $index) {
+      <div class="question" [class.current]="q === state.current" role="group" [attr.aria-label]="'Question ' + (q + 1)">
+        <p class="question-text">
+          <span class="question-number">{{ q + 1 }}.</span>
+          <span>{{ question.question }}</span>
+          @if (question.choosing.kind === 'several') { <span class="question-hint">(choose any)</span> }
+        </p>
+        <ul class="answers">
+          @for (answer of question.answers; track $index; let a = $index) {
+            <li>
+              <button
+                type="button"
+                class="answer"
+                tabindex="-1"
+                [class.chosen]="isChosen(state, q, a)"
+                [attr.aria-pressed]="isChosen(state, q, a)"
+                (click)="pick(q, a)"
+              >
+                <span class="answer-mark" aria-hidden="true">{{ mark(question, isChosen(state, q, a)) }}</span>
+                <kbd>{{ a + 1 }}</kbd>
+                <span class="answer-label">{{ answer.label }}</span>
+                @if (isRecommended(question, a)) { <span class="answer-recommended">recommended</span> }
+                @if (answer.description) { <span class="answer-description">{{ answer.description }}</span> }
+              </button>
+            </li>
+          }
+          <li>
+            @if (state.typing && q === state.current) {
+              <label class="answer own">
+                <span class="answer-mark" aria-hidden="true">{{ mark(question, true) }}</span>
+                <kbd>{{ ownNumber(question) }}</kbd>
+                <input
+                  class="own-field"
+                  type="text"
+                  aria-label="Your own answer"
+                  placeholder="Your own answer, then Enter"
+                  [value]="state.own[q] ?? ''"
+                  (keydown)="handleFieldKey($event)"
+                />
+              </label>
+            } @else {
+              <button
+                type="button"
+                class="answer own"
+                tabindex="-1"
+                [class.chosen]="state.own[q] !== null"
+                [attr.aria-pressed]="state.own[q] !== null"
+                (click)="pickOwn(q)"
+              >
+                <span class="answer-mark" aria-hidden="true">{{ mark(question, state.own[q] !== null) }}</span>
+                <kbd>{{ ownNumber(question) }}</kbd>
+                <span class="answer-label">{{ state.own[q] ?? 'Your own answer…' }}</span>
+              </button>
+            }
+          </li>
+        </ul>
+      </div>
+    }
+    <div class="questions-meta">
+      <span>↑↓ question · number to choose · Enter send · Esc write a message instead</span>
+      <button type="button" class="send-action" [class.ready]="complete(state)" [disabled]="!complete(state)" (click)="send()">send answers ↵</button>
+    </div>
+  }
+</section>

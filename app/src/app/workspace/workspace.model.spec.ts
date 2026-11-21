@@ -55,6 +55,8 @@ import {
   threadLabel,
   waitingText,
   waitingThreads,
+  pendingQuestions,
+  threadLines,
   type EntryKind,
   type Project,
   type Thread,
@@ -186,6 +188,85 @@ describe('reviewersFor', () => {
   it('never offers the author, even when it is recorded as the reviewer', () => {
     const odd = { ...plain, reviewer: { agent: 'claude' as const, reviewing: false, verdict: null } };
     expect(reviewersFor(odd)).toEqual(['codex', 'grok']);
+  });
+});
+
+/** Questions as the service stores them: one taking one answer, one taking several. */
+const QUESTIONS = [
+  { question: 'Where?', answers: [{ label: 'Here', description: null }, { label: 'There', description: 'Far' }], choosing: { kind: 'one', recommended: 1 } },
+  { question: 'Which?', answers: [{ label: 'A', description: null }, { label: 'B', description: null }], choosing: { kind: 'several', recommended: [] } },
+];
+
+/** An entry of questions asked in a turn, with its own identifier. */
+function questions(id: string, turn: string, body: Record<string, unknown> = {}): ThreadEntry {
+  return { ...entry('questions', { turn, questions: QUESTIONS, ...body }), id };
+}
+
+describe('entryLine with questions', () => {
+  it('shows questions with the entry and the turn they came from', () => {
+    expect(entryLine(questions('q1', 'turn-1'))).toEqual({ kind: 'questions', text: '', reviewer: false, asked: { id: 'q1', turn: 'turn-1', questions: QUESTIONS } });
+  });
+
+  it.each([
+    ['no turn', { turn: 7 }],
+    ['no questions', { questions: [] }],
+    ['questions that are not a list', { questions: 'Where?' }],
+    ['a question without text', { questions: [{ ...QUESTIONS[0], question: 3 }] }],
+    ['a question without answers', { questions: [{ ...QUESTIONS[0], answers: [] }] }],
+    ['an answer without a label', { questions: [{ ...QUESTIONS[0], answers: [{ description: 'x' }, { label: 'B' }] }] }],
+    ['an unknown way of choosing', { questions: [{ ...QUESTIONS[0], choosing: { kind: 'many', recommended: 0 } }] }],
+    ['a recommendation past the answers', { questions: [{ ...QUESTIONS[0], choosing: { kind: 'one', recommended: 2 } }] }],
+    ['several recommendations that are not positions', { questions: [{ ...QUESTIONS[1], choosing: { kind: 'several', recommended: ['A'] } }] }],
+    ['no way of choosing', { questions: [{ question: 'Where?', answers: QUESTIONS[0].answers }] }],
+  ])('shows a notice instead of questions with %s', (_, body) => {
+    expect(entryLine(questions('q1', 'turn-1', body))).toEqual({ kind: 'notice', text: 'The agent asked something Teryon couldn’t read.', reviewer: false });
+  });
+});
+
+describe('threadLines', () => {
+  it('keeps every line, in order', () => {
+    const lines = threadLines([entry('user_message', { text: 'Go' }), questions('q1', 'turn-1'), entry('turn_summary', {})]);
+    expect(lines.map((line) => line.kind)).toEqual(['user', 'questions', 'summary']);
+  });
+
+  it('shows only the newer of two calls in the same turn', () => {
+    const lines = threadLines([questions('q1', 'turn-1'), entry('agent_message', { text: 'Rethought' }), questions('q2', 'turn-1')]);
+    expect(lines.map((line) => line.asked?.id ?? line.kind)).toEqual(['agent', 'q2']);
+  });
+
+  it('keeps questions of different turns', () => {
+    const lines = threadLines([questions('q1', 'turn-1'), entry('user_message', { text: 'Answers' }), questions('q2', 'turn-2')]);
+    expect(lines.map((line) => line.asked?.id ?? line.kind)).toEqual(['q1', 'user', 'q2']);
+  });
+});
+
+describe('pendingQuestions', () => {
+  const asked = (id: string, turn: string) => threadLines([questions(id, turn)])[0];
+  const said = threadLines([entry('user_message', { text: 'Answers' })])[0];
+  const wrote = threadLines([entry('agent_message', { text: 'Ok' })])[0];
+  const summary = threadLines([entry('turn_summary', {})])[0];
+
+  it('gives the newest questions when nothing was said after them', () => {
+    expect(pendingQuestions([said, asked('q1', 'turn-1'), wrote, summary], false)?.id).toBe('q1');
+    expect(pendingQuestions([asked('q1', 'turn-1'), said, asked('q2', 'turn-2')], false)?.id).toBe('q2');
+  });
+
+  it('gives nothing once the person said anything after them', () => {
+    expect(pendingQuestions([asked('q1', 'turn-1'), wrote, said], false)).toBeNull();
+  });
+
+  it('gives nothing while an agent works', () => {
+    expect(pendingQuestions([asked('q1', 'turn-1')], true)).toBeNull();
+  });
+
+  it('gives nothing in a thread without questions', () => {
+    expect(pendingQuestions([said, wrote], false)).toBeNull();
+    expect(pendingQuestions([], false)).toBeNull();
+  });
+
+  it('counts a message to the reviewer as said', () => {
+    const toReviewer = threadLines([entry('user_message', { text: 'Why?', reviewer: true })])[0];
+    expect(pendingQuestions([asked('q1', 'turn-1'), toReviewer], false)).toBeNull();
   });
 });
 
@@ -545,6 +626,13 @@ describe('waitingThreads and waitingText', () => {
   it('finds the unread threads of every project, newest first', () => {
     const groups = groupThreads(projects, [one, thread('t0', 'a', '2026-11-07T10:00:00'), three, two]);
     expect(waitingThreads(groups).map((item) => item.id)).toEqual(['t3', 't2', 't1']);
+  });
+
+  it('finds a thread whose agent waits for answers, though it was looked at, until an agent works in it again', () => {
+    const asking: Thread = { ...thread('t5', 'a', '2026-11-08T10:00:00'), title: 'Asking', asking: true };
+    expect(waitingThreads(groupThreads(projects, [one, asking])).map((item) => item.id)).toEqual(['t5', 't1']);
+    expect(waitingThreads(groupThreads(projects, [{ ...asking, status: 'running' }]))).toEqual([]);
+    expect(waitingThreads(groupThreads(projects, [{ ...asking, asking: false }]))).toEqual([]);
   });
 
   it('leaves out a thread an agent is working in again', () => {

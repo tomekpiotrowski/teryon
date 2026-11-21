@@ -48,12 +48,13 @@ function situation(overrides: Changes = {}): Situation {
     to: 'author',
     theme: 'light',
     opens: { editor: false, terminal: false },
+    questionsPutAway: false,
     ...rest,
   };
 }
 
 function entry(title: string, detail = '', overrides: Partial<Command> = {}): Command {
-  return { id: title, title, detail, group: 'action', key: null, leader: null, live: false, badge: '', action: { kind: 'toggleTheme' }, ...overrides };
+  return { id: title, title, detail, group: 'action', key: null, leader: null, live: false, asking: false, badge: '', action: { kind: 'toggleTheme' }, ...overrides };
 }
 
 const first = project('a', 'Payments');
@@ -150,6 +151,26 @@ describe('commandList', () => {
       ['thread:t4', 'thread'],
     ]);
     expect(ids(commands).filter((id) => id.startsWith('thread:'))).toHaveLength(4);
+  });
+
+  it('lists a thread whose agent waits for answers as waiting, marked, even once it was looked at', () => {
+    const asking = groupThreads([first], [{ ...older, asking: true }, untitled]);
+    const commands = commandList(situation({ groups: asking, project: first }));
+    expect(commands[0]).toMatchObject({ id: 'thread:t1', group: 'attention', asking: true });
+    expect(commands[1]).toMatchObject({ id: 'thread:t3', group: 'thread', asking: false });
+  });
+
+  it('does not mark a thread as waiting for answers while an agent works in it', () => {
+    const working = groupThreads([first], [{ ...older, asking: true, status: 'running' }]);
+    expect(commandList(situation({ groups: working, project: first }))[0]).toMatchObject({ id: 'thread:t1', group: 'thread', asking: false, live: true });
+  });
+
+  it('offers to answer the agent’s questions on Q once they were put away, and only then', () => {
+    const answering = (questionsPutAway: boolean, open: Thread | null) =>
+      commandList(situation({ groups, project: first, thread: open, questionsPutAway })).find((candidate) => candidate.id === 'action:answerQuestions');
+    expect(answering(true, older)).toMatchObject({ title: 'Answer the agent’s questions', detail: 'Thread t1', key: 'q', action: { kind: 'answerQuestions' } });
+    expect(answering(false, older)).toBeUndefined();
+    expect(answering(true, null)).toBeUndefined();
   });
 
   it('does not count a thread as waiting while an agent works in it again', () => {

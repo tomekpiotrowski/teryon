@@ -145,6 +145,14 @@ impl Session {
                 .name_thread(thread_id, turn, &title)
                 .map(|()| Answer::Nothing)
                 .map_err(|problem| problem.to_string()),
+            Request::AskQuestions {
+                thread_id,
+                turn,
+                asked,
+            } => workspace
+                .ask_questions(thread_id, turn, &asked)
+                .map(|()| Answer::Nothing)
+                .map_err(|problem| problem.to_string()),
             Request::DraftDescription { thread_id } => workspace
                 .draft_description(thread_id)
                 .await

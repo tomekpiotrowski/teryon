@@ -5,6 +5,9 @@
  * the screen itself cannot be unit tested until Vitest can load Ionic.
  */
 
+import type { Question } from '../service/protocol';
+import type { Asked } from './questions.model';
+
 export type AgentName = 'claude' | 'codex' | 'grok';
 
 /** Every agent, in the order Teryon offers them. */
@@ -31,6 +34,8 @@ export interface Thread {
   readonly status: 'idle' | 'running';
   /** Whether an agent stopped working here since the person last looked. */
   readonly unread: boolean;
+  /** Whether the thread's agent asked questions the person hasn't answered yet. Any message from them clears it. */
+  readonly asking?: boolean;
   /** The names of the slash commands the agent program last said it takes. Empty until it has run here. */
   readonly commands: readonly string[];
   /** The change the thread's agent is working on, in its own copy of the project. Nothing until it starts one. */
@@ -233,7 +238,7 @@ export interface Opens {
 
 export const NO_OPENS: Opens = { editor: false, terminal: false };
 
-export type EntryKind = 'user_message' | 'agent_message' | 'activity' | 'notice' | 'error' | 'turn_summary';
+export type EntryKind = 'user_message' | 'agent_message' | 'activity' | 'notice' | 'error' | 'turn_summary' | 'questions';
 
 export interface ThreadEntry {
   readonly id: string;
@@ -261,7 +266,7 @@ export interface Selection {
 /** One line of a thread, ready to show. */
 export interface EntryLine {
   /** `review` marks where a review starts. */
-  readonly kind: 'user' | 'agent' | 'activity' | 'notice' | 'review' | 'error' | 'summary';
+  readonly kind: 'user' | 'agent' | 'activity' | 'notice' | 'review' | 'error' | 'summary' | 'questions';
   readonly text: string;
   /** Whether the reviewer wrote it, or the person wrote it to the reviewer. */
   readonly reviewer: boolean;
@@ -275,6 +280,8 @@ export interface EntryLine {
   readonly agent?: AgentName;
   /** More about the line, shown when the pointer rests on it: the full name of a summary's model. */
   readonly title?: string;
+  /** The questions on a line of questions the agent asked. */
+  readonly asked?: Asked;
 }
 
 export const NOTHING_SELECTED: Selection = { projectId: null, threadId: null };
@@ -570,11 +577,11 @@ export function runningText(groups: readonly ProjectGroup[]): string {
   return count ? `${count} running` : '';
 }
 
-/** The threads an agent stopped working in since the person last looked, newest first. */
+/** The threads an agent stopped working in since the person last looked, or whose agent waits for answers, newest first. */
 export function waitingThreads(groups: readonly ProjectGroup[]): Thread[] {
   return groups
     .flatMap((group) => group.threads)
-    .filter((thread) => thread.unread && thread.status === 'idle')
+    .filter(needsPerson)
     .sort((a, b) => b.created_at.localeCompare(a.created_at));
 }
 
@@ -600,6 +607,15 @@ export function seenNow(thread: Thread | null, screen: Screen, visible: boolean)
   return thread !== null && thread.unread && thread.status === 'idle' && screen === 'thread' && visible;
 }
 
+/**
+ * Whether a thread waits for the person: its agent stopped since they last looked, or asked questions they haven't answered.
+ *
+ * Questions keep a thread waiting after it was looked at, since only an answer settles them.
+ */
+export function needsPerson(thread: Thread): boolean {
+  return thread.status === 'idle' && (thread.unread || thread.asking === true);
+}
+
 export function threadLabel(thread: Thread): string {
   return thread.title || 'New thread';
 }
@@ -613,6 +629,30 @@ export function agentLabel(agent: AgentName): string {
 /** The agent after this one, going round, for the button that switches the agent of new threads. */
 export function nextAgent(agent: AgentName): AgentName {
   return AGENTS[(AGENTS.indexOf(agent) + 1) % AGENTS.length];
+}
+
+/**
+ * The lines a thread shows, from its stored entries.
+ *
+ * An agent that asks a second time in the same turn has rethought its
+ * questions, so only the newer ones of each turn are shown.
+ */
+export function threadLines(entries: readonly ThreadEntry[]): EntryLine[] {
+  const lines = entries.map(entryLine);
+  return lines.filter((line, index) => !line.asked || !lines.slice(index + 1).some((later) => later.asked?.turn === line.asked?.turn));
+}
+
+/**
+ * The questions waiting for the person's answers: the newest the agent asked, while nothing was said after them.
+ *
+ * Any message from the person after the questions answers them, whether
+ * picked or written. Nothing while an agent works, since nobody can send then.
+ */
+export function pendingQuestions(lines: readonly EntryLine[], running: boolean): Asked | null {
+  if (running) return null;
+  const last = lines.map((line) => line.asked !== undefined).lastIndexOf(true);
+  if (last < 0 || lines.slice(last + 1).some((line) => line.kind === 'user')) return null;
+  return lines[last].asked ?? null;
 }
 
 /** Turns a stored entry into the line the thread shows. */
@@ -646,7 +686,31 @@ function plainLine(entry: ThreadEntry): EntryLine {
       const title = typeof model === 'string' && model ? { title: model } : {};
       return { kind: 'summary', text: summaryText(entry.body), reviewer, ...title };
     }
+    case 'questions': {
+      const asked = askedIn(entry);
+      return asked ? { kind: 'questions', text: '', reviewer, asked } : { kind: 'notice', text: 'The agent asked something Teryon couldn’t read.', reviewer };
+    }
   }
+}
+
+/** The questions an entry holds, or nothing when they aren't in the shape Teryon stores. */
+function askedIn(entry: ThreadEntry): Asked | null {
+  const turn = entry.body['turn'];
+  const questions = entry.body['questions'];
+  if (typeof turn !== 'string' || !Array.isArray(questions) || !questions.length || !questions.every(isQuestion)) return null;
+  return { id: entry.id, turn, questions };
+}
+
+function isQuestion(value: unknown): value is Question {
+  if (typeof value !== 'object' || value === null) return false;
+  const { question, answers, choosing } = value as Record<string, unknown>;
+  if (typeof question !== 'string' || !Array.isArray(answers) || !answers.length) return false;
+  if (!answers.every((answer) => typeof answer === 'object' && answer !== null && typeof (answer as Record<string, unknown>)['label'] === 'string')) return false;
+  if (typeof choosing !== 'object' || choosing === null) return false;
+  const { kind, recommended } = choosing as Record<string, unknown>;
+  const inRange = (position: unknown) => Number.isInteger(position) && (position as number) >= 0 && (position as number) < answers.length;
+  if (kind === 'one') return inRange(recommended);
+  return kind === 'several' && Array.isArray(recommended) && recommended.every(inRange);
 }
 
 /** The last line of a review, which counts its findings for Teryon, not for the person. */

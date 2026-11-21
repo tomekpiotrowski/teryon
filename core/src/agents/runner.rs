@@ -31,6 +31,7 @@ use tokio::time::{interval, sleep_until, timeout, Instant as TokioInstant, Misse
 use tracing::warn;
 use uuid::Uuid;
 
+use crate::agents::asking::with_asking;
 use crate::agents::naming::with_naming;
 use crate::agents::process::{ProcessTree, Signal};
 use crate::agents::{
@@ -248,7 +249,7 @@ async fn run_turn(
     };
     let watch_change = brief.is_some();
     let brief = match voice {
-        Voice::Author => with_naming(thread.named, brief),
+        Voice::Author => with_naming(thread.named, Some(with_asking(brief))),
         Voice::Reviewer => brief,
     };
     let before = match (voice, change) {

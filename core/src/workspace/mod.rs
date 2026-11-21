@@ -33,6 +33,7 @@ use tokio::time::{sleep, Instant};
 use tracing::{error, warn};
 use uuid::Uuid;
 
+use crate::agents::asking::{Questions, SHAPE};
 use crate::agents::handover::handed_over;
 use crate::agents::models::{
     checked_model, list_codex_models, list_grok_models, ModelError, ModelLists,
@@ -503,6 +504,7 @@ impl Workspace {
             handover: false,
             status: Status::Idle,
             unread: false,
+            asking: false,
             commands: Vec::new(),
             change: None,
             finished: None,
@@ -556,6 +558,66 @@ impl Workspace {
         Ok(())
     }
 
+    /// Records questions the thread's agent asks the person, and marks the thread as waiting for answers.
+    ///
+    /// Agents run without a screen, so on their own they guess every unclear
+    /// choice. Asking lets them hand a design choice to the person instead.
+    /// The agent then ends its turn, and the person's next message carries
+    /// the answers.
+    ///
+    /// Only the thread's own agent may ask, during its current turn: a
+    /// reviewer reports to the author, not to the person. The questions are
+    /// read here rather than in `teryon thread ask`, so every refusal is
+    /// logged where someone looking into a quiet agent will find it. Asking
+    /// twice in one turn adds a second entry; the app shows only the newer.
+    pub fn ask_questions(
+        &self,
+        thread_id: Uuid,
+        turn: Uuid,
+        asked: &str,
+    ) -> Result<(), WorkspaceError> {
+        let asking = self.take_questions(thread_id, turn, asked);
+        if let Err(problem) = &asking {
+            warn!(%thread_id, %problem, "refused the questions an agent asked");
+        }
+        let (entry, thread) = asking?;
+        self.inner.announce(Event::EntryAdded { entry });
+        self.inner.announce(Event::ThreadChanged { thread });
+        Ok(())
+    }
+
+    fn take_questions(
+        &self,
+        thread_id: Uuid,
+        turn: Uuid,
+        asked: &str,
+    ) -> Result<(Entry, Thread), WorkspaceError> {
+        let mut state = self.inner.state();
+        let (store, thread) = state.holding(thread_id)?;
+        if self.inner.runner.turn_of(thread_id) != Some(turn) {
+            return Err(WorkspaceError::Invalid(
+                "`teryon thread ask` is for agents working in Teryon, during their turn."
+                    .to_string(),
+            ));
+        }
+        if thread
+            .reviewer
+            .as_ref()
+            .is_some_and(|reviewer| reviewer.reviewing)
+        {
+            return Err(WorkspaceError::Invalid(
+                "`teryon thread ask` is for the thread's own agent; a reviewer reports its findings instead."
+                    .to_string(),
+            ));
+        }
+        let questions = Questions::read(asked)
+            .map_err(|problem| WorkspaceError::Invalid(format!("{problem}\n\n{SHAPE}")))?;
+        let draft = EntryDraft::questions(turn, &questions);
+        let entry = store.append(thread_id, draft.kind.name(), draft.body)?;
+        let thread = store.change(thread_id, |thread| thread.asking = true)?;
+        Ok((entry, thread))
+    }
+
     /// Sends a message to a thread's agent, or to its reviewer, and starts that agent on it.
     ///
     /// Checking that the thread is idle and marking it as running happen
@@ -600,6 +662,7 @@ impl Workspace {
         let entry = store.append(thread_id, draft.kind.name(), draft.body)?;
         let thread = store.change(thread_id, |thread| {
             thread.status = Status::Running;
+            thread.asking = false;
             if thread.title.is_empty() {
                 thread.title = title_from(text);
             }

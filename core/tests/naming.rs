@@ -10,6 +10,7 @@ mod common;
 use lets_expect::lets_expect;
 
 use common::{invocations, noted_turn, project_folder, repository, unknown, Scene};
+use teryon_core::agents::asking::ASKING;
 use teryon_core::agents::naming::NAMING;
 use teryon_core::protocol::Event;
 
@@ -44,7 +45,7 @@ lets_expect! { #tokio_test
         scene.wait_until_idle(&thread).await;
 
         let runs = invocations(&folder);
-        expect(runs[0].contains(&format!("--append-system-prompt {} --system-prompt-snapshot", NAMING.trim_end()))) to be_true
+        expect(runs[0].contains(&format!("--append-system-prompt {NAMING}{} --system-prompt-snapshot", ASKING.replace('\n', " ")))) to be_true
         expect(runs[0].contains("teryon worktree create")) to be_false
     }
 
