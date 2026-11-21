@@ -82,8 +82,8 @@ export interface UsageRow {
  * One block per agent Teryon knows, in the menu's order.
  *
  * Limits are only as fresh as each agent's last turn, so every block says
- * how old its reading is. Grok keeps its limits to its own window, so it
- * says that instead of rows until it reports some.
+ * how old its reading is. A failed reading says so, and what to do about it
+ * when the person can fix it, such as signing in to Grok again.
  */
 export function limitBlocks(limits: readonly Limits[], now: Date): LimitBlock[] {
   return AGENTS.map((agent) => {
@@ -101,12 +101,12 @@ export function limitBlocks(limits: readonly Limits[], now: Date): LimitBlock[] 
 
 function limitNote(agent: AgentName, reading: Limits | null, hasRows: boolean): string | null {
   if (reading?.failed) {
-    return hasRows
+    const failure = hasRows
       ? `Reading ${agentLabel(agent)}’s limits after its last turn failed, so these may be older.`
       : `${agentLabel(agent)}’s limits could not be read.`;
+    return reading.advice ? `${failure} ${reading.advice}` : failure;
   }
   if (hasRows) return null;
-  if (agent === 'grok') return 'Grok shows its limit only in its own window.';
   return 'No limits seen yet. They appear after the agent’s next turn.';
 }
 

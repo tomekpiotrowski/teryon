@@ -12,11 +12,11 @@
 agent="$1"
 shift
 
-# Grok's usage command, which Teryon asks after every Grok turn, answers as
-# the real one does today. It is not a turn, so it is not noted below.
-if [ "$1" = "usage" ]; then
-  echo "Error: \`grok usage\` can't show your plan's usage here yet. Run /usage inside grok instead." >&2
-  exit 1
+# Grok's version, which Teryon asks after every Grok turn to tell Grok's
+# servers. It is not a turn, so it is not noted below.
+if [ "$1" = "--version" ]; then
+  echo "grok 1.0.92 (b06756fd6256) [alpha]"
+  exit 0
 fi
 samples="$(dirname "$0")/agents"
 

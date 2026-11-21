@@ -8,13 +8,14 @@
 //!
 //! Teryon never asks a company's servers on its own. It learns the limits
 //! when an agent runs: Claude Code reports them in every turn, Codex writes
-//! them to its own session file, and Grok keeps them to its own window for
-//! now. Beside the limits, every turn adds a line to a log of tokens read and
+//! them to its own session file, and after a Grok turn Teryon asks Grok's
+//! servers the way Grok's own `/usage` does. Beside the limits, every turn adds a line to a log of tokens read and
 //! written, which the usage screen splits by day, project and model.
 //!
 //! Both live in the data folder: `limits.json` holds the latest reading per
 //! agent, `usage.jsonl` one line per turn.
 
+pub mod grok;
 pub mod limits;
 pub mod log;
 
@@ -25,7 +26,7 @@ use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::{to_string_pretty, Error as JsonError, Value};
+use serde_json::{to_string_pretty, Error as JsonError};
 use thiserror::Error;
 use tracing::warn;
 use ts_rs::TS;
@@ -94,12 +95,11 @@ pub struct Limits {
     /// Whether reading them after the last turn failed, so they may be older than that turn.
     #[serde(default)]
     pub failed: bool,
-    /// The program's own answer, kept whole while Teryon cannot read it yet.
+    /// What a person can do so the limits can be read again, such as "Run grok login in a terminal…".
     ///
-    /// Grok will say its limits outside its window one day, in a form not
-    /// known today. Keeping what it says is what makes reading it possible later.
+    /// Set only beside a failed reading whose cause the person can fix.
     #[serde(default)]
-    pub raw: Option<Value>,
+    pub advice: Option<String>,
 }
 
 /// What reading an agent's limits after a turn gave.
@@ -108,7 +108,9 @@ pub enum Reading {
     /// The program said what they are.
     Fresh(Limits),
     /// They should have been readable and were not. The reason is logged where it happened.
-    Failed,
+    ///
+    /// `advice` says what the person can do about it, when anything.
+    Failed { advice: Option<String> },
     /// The program said nothing about them this time.
     Nothing,
 }
@@ -243,8 +245,9 @@ fn next_limits(
     };
     match reading {
         Reading::Fresh(limits) => Some(mark(limits)),
-        Reading::Failed => Some(Limits {
+        Reading::Failed { advice } => Some(Limits {
             failed: true,
+            advice,
             ..previous
                 .cloned()
                 .unwrap_or_else(|| unknown_limits(agent, now))
@@ -317,7 +320,22 @@ mod tests {
             windows,
             taken_at: at(10),
             failed: false,
-            raw: None,
+            advice: None,
+        }
+    }
+
+    fn failed(advice: Option<&str>) -> Reading {
+        Reading::Failed {
+            advice: advice.map(str::to_string),
+        }
+    }
+
+    /// Claude's limits after a failed reading that advised signing in again.
+    fn advised() -> Limits {
+        Limits {
+            failed: true,
+            advice: Some("Sign in again.".to_string()),
+            ..claude()
         }
     }
 
@@ -370,11 +388,20 @@ mod tests {
             when(reading = Reading::Fresh(limits("claude", vec![]))) as a_fresh_reading to replace_them {
                 equal(Some(limits("claude", vec![])))
             }
-            when(reading = Reading::Failed) as a_failed_reading to keep_them_marked_failed {
+            when(reading = failed(None)) as a_failed_reading to keep_them_marked_failed {
                 equal(Some(Limits { failed: true, ..claude() }))
             }
-            when(reading = Reading::Failed, previous = None) as a_failed_first_reading to give_empty_failed_limits {
-                equal(Some(Limits { agent: "claude".to_string(), plan: None, windows: vec![], taken_at: at(12), failed: true, raw: None }))
+            when(reading = failed(None), previous = None) as a_failed_first_reading to give_empty_failed_limits {
+                equal(Some(Limits { agent: "claude".to_string(), plan: None, windows: vec![], taken_at: at(12), failed: true, advice: None }))
+            }
+            when(reading = failed(Some("Sign in again."))) as a_failed_reading_with_advice to keep_them_with_the_advice {
+                equal(Some(Limits { failed: true, advice: Some("Sign in again.".to_string()), ..claude() }))
+            }
+            when(reading = failed(None), previous = Some(advised())) as a_failed_reading_after_advice to drop_the_old_advice {
+                equal(Some(Limits { failed: true, ..claude() }))
+            }
+            when(reading = Reading::Fresh(limits("claude", vec![])), previous = Some(advised())) as a_fresh_reading_after_advice to drop_the_advice {
+                equal(Some(limits("claude", vec![])))
             }
             when(reading = Reading::Nothing) as no_reading to change_nothing { equal(None) }
             when(reading = Reading::Nothing, previous = None, hit_limit = true) as a_hit_limit_without_anything_known to change_nothing { equal(None) }

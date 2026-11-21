@@ -42,7 +42,8 @@ use crate::changes::status::Look;
 use crate::files::git::{first_line, Git};
 use crate::settings::AgentSettings;
 use crate::store::Thread;
-use crate::usage::limits::{codex_home_here, codex_reading, grok_reading};
+use crate::usage::grok::{grok_home_here, grok_reading};
+use crate::usage::limits::{codex_home_here, codex_reading};
 use crate::usage::{says_limit_hit, Limits, Reading};
 
 /// How often a running turn has its thread's change looked at.
@@ -151,11 +152,24 @@ impl Runner {
 
         let runner = self.clone();
         tokio::spawn(async move {
-            run_turn(journal.as_ref(), &settings, request, turn, stopped).await;
+            let late = run_turn(journal.as_ref(), &settings, request, turn, stopped).await;
             // Forget the run before the thread accepts messages again, so a
             // new run for the same thread is never forgotten in its place.
             runner.running().remove(&thread_id);
             journal.note(thread_id, ThreadChange::Finished);
+            if let Some(late) = late {
+                let reading = late.reading.await;
+                journal.usage(
+                    thread_id,
+                    TurnUsage {
+                        agent: late.agent,
+                        tokens: None,
+                        reading,
+                        hit_limit: false,
+                        model: None,
+                    },
+                );
+            }
         });
     }
 
@@ -188,14 +202,25 @@ impl Runner {
     }
 }
 
+/// An agent's limits, read once its thread has finished.
+///
+/// Grok's are asked of its servers, and a slow server must not keep a
+/// finished thread busy, nor a stopped one from stopping.
+struct LateReading {
+    agent: Agent,
+    reading: Pin<Box<dyn Future<Output = Reading> + Send>>,
+}
+
 /// Runs the program for one message and records everything it reports.
+///
+/// Returns the reading of the agent's limits that is left for after the thread has finished, if any.
 async fn run_turn(
     journal: &dyn Journal,
     settings: &AgentSettings,
     request: TurnRequest,
     turn: Uuid,
     stopped: Receiver<Option<Stop>>,
-) {
+) -> Option<LateReading> {
     let TurnRequest {
         thread,
         voice,
@@ -211,7 +236,8 @@ async fn run_turn(
             thread.id,
             EntryDraft::error("This thread names an agent Teryon does not know.").by(voice),
         );
-        return review_cut(journal, &thread, voice);
+        review_cut(journal, &thread, voice);
+        return None;
     };
 
     let mut driver = driver_for(speaker.agent, settings);
@@ -247,7 +273,8 @@ async fn run_turn(
                 thread.id,
                 EntryDraft::error(&text).by(voice).naming(speaker.agent),
             );
-            return review_cut(journal, &thread, voice);
+            review_cut(journal, &thread, voice);
+            return None;
         }
     };
 
@@ -299,6 +326,7 @@ async fn run_turn(
         }
         None => {}
     }
+    let mut late = None;
     let reading = match (speaker.agent, outcome.limits.clone()) {
         (Agent::Claude, Some(limits)) => Reading::Fresh(limits),
         (Agent::Claude, None) => Reading::Nothing,
@@ -311,7 +339,19 @@ async fn run_turn(
             .await
             .unwrap_or(Reading::Nothing)
         }
-        (Agent::Grok, _) => grok_reading(&settings.grok.program, &directory, Utc::now()).await,
+        // Teryon is about to end, and nobody would see the reading.
+        (Agent::Grok, _) if outcome.stop == Some(Stop::Shutdown) => Reading::Nothing,
+        (Agent::Grok, _) => {
+            let program = settings.grok.program.clone();
+            let home = grok_home_here(settings.grok.home.as_deref());
+            late = Some(LateReading {
+                agent: Agent::Grok,
+                reading: Box::pin(async move {
+                    grok_reading(&program, home.as_deref(), Utc::now()).await
+                }),
+            });
+            Reading::Nothing
+        }
     };
     journal.usage(
         thread.id,
@@ -338,6 +378,7 @@ async fn run_turn(
         };
         journal.note(thread.id, change);
     }
+    late
 }
 
 /// Records that a reviewer's turn ended before the reviewer could finish, here because it never started.

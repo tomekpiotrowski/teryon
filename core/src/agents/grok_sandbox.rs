@@ -18,7 +18,6 @@
 //! that starts a conversation names its profile, and a profile is never
 //! removed, as an older conversation may still be resumed under it.
 
-use std::env::var_os;
 use std::fs::{create_dir_all, read_to_string, rename, write};
 use std::io::{Error as IoError, ErrorKind};
 use std::path::{Path, PathBuf};
@@ -32,6 +31,7 @@ use toml_edit::{value, Array, DocumentMut, Item, Table, TomlError};
 use tracing::warn;
 
 use crate::settings::GrokSettings;
+use crate::usage::grok::grok_home_here;
 
 /// The profile an author falls back to when its own cannot be written.
 const FALLBACK_PROFILE: &str = "workspace";
@@ -81,11 +81,7 @@ impl GrokSandbox {
     /// Reads the settings, finding Grok's folder the way Grok does when they name none.
     pub fn new(settings: &GrokSettings) -> Self {
         let home_folder = BaseDirs::new().map(|dirs| dirs.home_dir().to_path_buf());
-        let home = settings
-            .home
-            .clone()
-            .or_else(|| var_os("GROK_HOME").map(PathBuf::from))
-            .or_else(|| home_folder.as_ref().map(|home| home.join(".grok")));
+        let home = grok_home_here(settings.home.as_deref());
         Self {
             home,
             writable: settings

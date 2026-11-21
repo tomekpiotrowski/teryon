@@ -33,7 +33,7 @@ function window(overrides: Partial<Window> = {}): Window {
 }
 
 function limits(agent: string, overrides: Partial<Limits> = {}): Limits {
-  return { agent, plan: null, windows: [window()], taken_at: later(-12 * MINUTE), failed: false, raw: null, ...overrides };
+  return { agent, plan: null, windows: [window()], taken_at: later(-12 * MINUTE), failed: false, advice: null, ...overrides };
 }
 
 function line(overrides: Partial<UsageLine> = {}): UsageLine {
@@ -77,9 +77,8 @@ describe('limitBlocks', () => {
     expect(block.note).toBe('No limits seen yet. They appear after the agent’s next turn.');
   });
 
-  it('says Grok keeps its limit to its own window, with or without a reading', () => {
-    expect(limitBlocks([], NOW)[2].note).toBe('Grok shows its limit only in its own window.');
-    expect(limitBlocks([limits('grok', { windows: [], raw: { used: 3 } })], NOW)[2].note).toBe('Grok shows its limit only in its own window.');
+  it('says Grok’s limits appear after its next turn, like any agent’s', () => {
+    expect(limitBlocks([], NOW)[2].note).toBe('No limits seen yet. They appear after the agent’s next turn.');
   });
 
   it('shows Grok’s windows once it reports some', () => {
@@ -90,6 +89,20 @@ describe('limitBlocks', () => {
     const block = limitBlocks([limits('codex', { windows: [], failed: true })], NOW)[1];
     expect(block.note).toBe('Codex’s limits could not be read.');
     expect(block.asOf).toBe('');
+  });
+
+  it('says what to do when a failed reading has advice', () => {
+    const advice = 'Run grok login in a terminal so Teryon can read Grok’s limits.';
+    expect(limitBlocks([limits('grok', { windows: [], failed: true, advice })], NOW)[2].note).toBe(
+      `Grok’s limits could not be read. ${advice}`,
+    );
+    expect(limitBlocks([limits('grok', { failed: true, advice })], NOW)[2].note).toBe(
+      `Reading Grok’s limits after its last turn failed, so these may be older. ${advice}`,
+    );
+  });
+
+  it('gives no advice with a reading that did not fail', () => {
+    expect(limitBlocks([limits('grok', { advice: 'Stale advice.' })], NOW)[2].note).toBeNull();
   });
 
   it('keeps the old windows of a failed reading and says they may be older', () => {

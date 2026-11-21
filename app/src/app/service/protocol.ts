@@ -408,12 +408,11 @@ taken_at: string,
  */
 failed: boolean, 
 /**
- * The program's own answer, kept whole while Teryon cannot read it yet.
+ * What a person can do so the limits can be read again, such as "Run grok login in a terminal…".
  *
- * Grok will say its limits outside its window one day, in a form not
- * known today. Keeping what it says is what makes reading it possible later.
+ * Set only beside a failed reading whose cause the person can fix.
  */
-raw: JsonValue | null, };
+advice: string | null, };
 
 export type Window = { 
 /**

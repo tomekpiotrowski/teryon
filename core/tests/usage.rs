@@ -8,9 +8,11 @@ mod common;
 
 use std::fs::{create_dir_all, write};
 use std::path::Path;
+use std::time::Duration;
 
 use lets_expect::lets_expect;
 use tempfile::{tempdir, TempDir};
+use tokio::time::sleep;
 
 use common::{fake_agents, project_folder, setup, Scene, CODEX_CONVERSATION};
 
@@ -46,6 +48,21 @@ fn codex_home_with_session() -> TempDir {
 
 fn report(scene: &Scene) -> UsageReport {
     scene.workspace.usage().expect("the usage")
+}
+
+/// Waits for an agent's limits, which Grok's arrive with after its thread has finished.
+async fn limits_of(scene: &Scene, agent: &str) -> Limits {
+    for _ in 0..200 {
+        if let Some(limits) = report(scene)
+            .limits
+            .into_iter()
+            .find(|limits| limits.agent == agent)
+        {
+            return limits;
+        }
+        sleep(Duration::from_millis(50)).await;
+    }
+    panic!("{agent}'s limits did not arrive in time");
 }
 
 /// The agents with limits, in order.
@@ -146,7 +163,7 @@ lets_expect! { #tokio_test
         expect(report.limits[0].windows.len()) to equal(0)
     }
 
-    // requirement: Grok's turns are logged, but Grok has no limits Teryon can read
+    // requirement: Grok's turns are logged; without Grok's sign-in its limits cannot be read, and the screen says to sign in
     story usage_after_a_grok_turn {
         let scene = Scene::new();
         let folder = project_folder();
@@ -156,8 +173,11 @@ lets_expect! { #tokio_test
         scene.wait_until_idle(&thread).await;
 
         let report = report(&scene);
+        let limits = limits_of(&scene, "grok").await;
         expect(lines(&report)) to equal(vec![line("grok", 18779, 31)])
-        expect(report.limits.len()) to equal(0)
+        expect(limits.failed) to be_true
+        expect(limits.windows.len()) to equal(0)
+        expect(limits.advice.as_deref()) to equal(Some("Run grok login in a terminal so Teryon can read Grok's limits."))
     }
 
     // requirement: a turn that never reported its end is not logged

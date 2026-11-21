@@ -6,30 +6,21 @@
 //!   file, `<codex home>/sessions/YYYY/MM/DD/rollout-<time>-<conversation>.jsonl`,
 //!   on its `token_count` lines. That file is Codex's internal format, not a
 //!   promise, so reading it fails softly.
-//! - Grok shows its limits only inside its own window today. Its `grok usage
-//!   --json` says so; Teryon asks it after every Grok turn anyway, so that it
-//!   starts working on its own once Grok allows it.
+//! - Grok shows its limits only inside its own window, so Teryon asks
+//!   Grok's servers instead, see [`crate::usage::grok`].
 
 use std::env::var_os;
 use std::ffi::OsString;
 use std::fs::{read_dir, read_to_string};
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
-use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use directories::BaseDirs;
-use serde_json::{from_slice, from_str, Value};
-use tokio::process::Command;
-use tokio::time::timeout;
+use serde_json::{from_str, Value};
 use tracing::warn;
 
-use crate::agents::runner::program_path;
 use crate::agents::Agent;
 use crate::usage::{Limits, Reading, Window};
-
-/// How long `grok usage --json` may take before it is given up on.
-const GROK_PATIENCE: Duration = Duration::from_secs(10);
 
 /// What a person calls a window, from its name or its length.
 ///
@@ -70,7 +61,7 @@ fn claude_minutes(name: &str) -> Option<u32> {
 }
 
 /// Puts windows shortest first, those of unknown length last, each kind by name.
-fn sorted(mut windows: Vec<Window>) -> Vec<Window> {
+pub(crate) fn sorted(mut windows: Vec<Window>) -> Vec<Window> {
     windows.sort_by(|one, other| {
         (one.minutes.is_none(), one.minutes, &one.name).cmp(&(
             other.minutes.is_none(),
@@ -141,7 +132,7 @@ pub fn claude_limits(report: &Value, now: DateTime<Utc>) -> Option<Limits> {
         windows: sorted(windows),
         taken_at: now,
         failed: false,
-        raw: None,
+        advice: None,
     })
 }
 
@@ -251,7 +242,7 @@ pub fn codex_limits(text: &str, now: DateTime<Utc>) -> Option<Limits> {
                 .and_then(|time| DateTime::parse_from_rfc3339(time).ok())
                 .map_or(now, |time| time.with_timezone(&Utc)),
             failed: false,
-            raw: None,
+            advice: None,
         })
     })
 }
@@ -284,14 +275,14 @@ pub fn codex_reading(
     };
     let Some(home) = home else {
         warn!("could not read Codex's limits: no home folder to find its sessions in");
-        return Reading::Failed;
+        return Reading::Failed { advice: None };
     };
     let Some(file) = codex_session_file(&home.join("sessions"), conversation) else {
         warn!(
             "could not read Codex's limits: no session file for {conversation} in {}",
             home.join("sessions").display()
         );
-        return Reading::Failed;
+        return Reading::Failed { advice: None };
     };
     match read_to_string(&file) {
         Ok(text) => codex_limits(&text, now).map_or(Reading::Nothing, Reading::Fresh),
@@ -300,43 +291,9 @@ pub fn codex_reading(
                 "could not read Codex's limits from {}: {problem}",
                 file.display()
             );
-            Reading::Failed
+            Reading::Failed { advice: None }
         }
     }
-}
-
-/// What `grok usage --json` says, run in `folder`.
-///
-/// Today it always refuses outside Grok's window, so a refusal is not logged.
-/// Anything it answers as JSON is kept whole, see [`Limits::raw`].
-pub async fn grok_reading(program: &str, folder: &Path, now: DateTime<Utc>) -> Reading {
-    let mut command = Command::new(program_path(program));
-    command
-        .args(["usage", "--json"])
-        .current_dir(folder)
-        .stdin(Stdio::null())
-        .kill_on_drop(true);
-    let output = match timeout(GROK_PATIENCE, command.output()).await {
-        Ok(Ok(output)) => output,
-        Ok(Err(_)) | Err(_) => return Reading::Nothing,
-    };
-    if !output.status.success() {
-        return Reading::Nothing;
-    }
-    grok_limits(&output.stdout, now).map_or(Reading::Nothing, Reading::Fresh)
-}
-
-/// Grok's answer, kept whole. Nothing unless it is a JSON object.
-fn grok_limits(output: &[u8], now: DateTime<Utc>) -> Option<Limits> {
-    let answer: Value = from_slice(output).ok()?;
-    answer.is_object().then(|| Limits {
-        agent: Agent::Grok.name().to_string(),
-        plan: None,
-        windows: Vec::new(),
-        taken_at: now,
-        failed: false,
-        raw: Some(answer),
-    })
 }
 
 /// Marks the shortest window as reached, unless one already is.
@@ -357,7 +314,7 @@ pub(crate) fn unknown_limits(agent: Agent, now: DateTime<Utc>) -> Limits {
         windows: Vec::new(),
         taken_at: now,
         failed: false,
-        raw: None,
+        advice: None,
     }
 }
 
@@ -365,7 +322,7 @@ pub(crate) fn unknown_limits(agent: Agent, now: DateTime<Utc>) -> Limits {
 mod tests {
     use std::fs::{create_dir_all, write};
 
-    use chrono::TimeZone;
+    use chrono::{TimeDelta, TimeZone};
     use lets_expect::lets_expect;
     use serde_json::json;
     use tempfile::{tempdir, TempDir};
@@ -453,9 +410,10 @@ mod tests {
         codex_reading(home.then_some(folder.path()), conversation, now())
     }
 
-    /// The kept answer of Grok's, when it is kept.
-    fn kept(output: &[u8]) -> Option<Value> {
-        grok_limits(output, now()).and_then(|limits| limits.raw)
+    fn failed(advice: Option<&str>) -> Reading {
+        Reading::Failed {
+            advice: advice.map(str::to_string),
+        }
     }
 
     /// What a reading says besides the shares used.
@@ -627,15 +585,8 @@ mod tests {
 
             when(conversation = Some(CONVERSATION)) as with_its_file to be_fresh { equal(Reading::Fresh(codex_limits(SESSION, now()).unwrap())) }
             when(conversation = None) as before_codex_named_the_conversation to be_nothing { equal(Reading::Nothing) }
-            when(conversation = Some("another")) as without_its_file to fail { equal(Reading::Failed) }
-            when(home = false) as without_a_home_folder to fail { equal(Reading::Failed) }
-        }
-
-        // requirement: whatever grok usage --json answers as a JSON object is kept whole
-        expect(kept(output.as_bytes())) as groks_answer {
-            when(output = "{\"used\": 3}") as a_json_object to be_kept { equal(Some(json!({ "used": 3 }))) }
-            when(output = "[1]") as a_json_list to be_left { equal(None) }
-            when(output = "Error: can't show") as text to be_left { equal(None) }
+            when(conversation = Some("another")) as without_its_file to fail { equal(failed(None)) }
+            when(home = false) as without_a_home_folder to fail { equal(failed(None)) }
         }
     }
 }
