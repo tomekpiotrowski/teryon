@@ -352,9 +352,13 @@ export class WorkspacePage implements OnDestroy {
    * letter runs the command bound to it, as the hints on screen say, or
    * waits for a second one when it leads a family, such as `w` for the
    * thread's change. While the menu is open the letters are left alone.
+   * With the menu closed, Escape returns from any other screen to the thread,
+   * including when a filter has focus. Escape is left to confirmations,
+   * text composition, and any control that has already handled the key.
    */
   @HostListener('document:keydown', ['$event'])
   handleShortcut(event: KeyboardEvent): void {
+    if (event.key === 'Escape' && (event.defaultPrevented || event.isComposing || document.querySelector('ion-alert'))) return;
     const target = event.target instanceof HTMLElement ? event.target : null;
     const press = {
       key: event.key,
@@ -370,6 +374,11 @@ export class WorkspacePage implements OnDestroy {
       if (!closing) return;
       event.preventDefault();
       return this.closeMenu();
+    }
+    if (event.key === 'Escape' && this.screen$.value !== 'thread') {
+      event.preventDefault();
+      this.leader$.next(null);
+      return this.screen$.next('thread');
     }
     if (menuAsked(press, this.draft$.value)) {
       event.preventDefault();

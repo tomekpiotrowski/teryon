@@ -5,7 +5,7 @@ import { ErnoAlertsService } from 'erno-angular';
 import { BehaviorSubject, EMPTY, type Observable, of, Subject } from 'rxjs';
 
 import { WorkspaceApi } from './workspace.api';
-import type { Change, Opens, Project, Thread, ThreadEntry } from './workspace.model';
+import { NO_MODELS, type Change, type Opens, type Project, type Screen, type Thread, type ThreadEntry } from './workspace.model';
 import { WorkspaceModule } from './workspace.module';
 import { WorkspacePage } from './workspace.page';
 import { WorkspaceStore } from './workspace.store';
@@ -15,6 +15,7 @@ class StoreDouble {
   readonly projects$ = new BehaviorSubject<readonly Project[]>([]);
   readonly threads$ = new BehaviorSubject<readonly Thread[]>([]);
   readonly opens$ = new BehaviorSubject<Opens>({ editor: false, terminal: false });
+  readonly models$ = of(NO_MODELS);
   readonly connection$ = EMPTY;
   private readonly conversations = new Map<string, Subject<ThreadEntry[]>>();
 
@@ -83,6 +84,90 @@ describe('WorkspacePage', () => {
   });
 
   afterEach(() => page.ngOnDestroy());
+
+  describe('Escape', () => {
+    const screens: readonly Screen[] = ['files', 'history', 'usage'];
+
+    describe.each(screens)('from %s', (screen) => {
+      beforeEach(() => page.screen$.next(screen));
+
+      it.each(['div', 'input', 'textarea', 'select', 'button'])('returns to the thread with a %s focused', (tag) => {
+        const target = document.createElement(tag);
+        const event = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true });
+        target.addEventListener('keydown', (event) => page.handleShortcut(event as KeyboardEvent));
+
+        target.dispatchEvent(event);
+
+        expect(page.screen$.value).toBe('thread');
+        expect(event.defaultPrevented).toBe(true);
+      });
+
+      it('closes the menu first, then returns to the thread on the next Escape', () => {
+        page.openMenu();
+        page.handleShortcut(new KeyboardEvent('keydown', { key: 'Escape' }));
+
+        expect(page.menuOpen$.value).toBe(false);
+        expect(page.screen$.value).toBe(screen);
+
+        page.handleShortcut(new KeyboardEvent('keydown', { key: 'Escape' }));
+        expect(page.screen$.value).toBe('thread');
+      });
+
+      it('clears an unfinished shortcut and keeps the draft and repository location', () => {
+        page.leader$.next('w');
+        page.draft$.next('Keep this reply');
+        const place = { projectId: 'p', threadId: null, branch: 'main', commit: 'abc' };
+        page.place$.next(place);
+
+        page.handleShortcut(new KeyboardEvent('keydown', { key: 'Escape' }));
+
+        expect(page.screen$.value).toBe('thread');
+        expect(page.leader$.value).toBeNull();
+        expect(page.draft$.value).toBe('Keep this reply');
+        expect(page.place$.value).toEqual(place);
+      });
+
+      it.each(['handled', 'composing'])('leaves a %s Escape alone', (kind) => {
+        const event = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true, isComposing: kind === 'composing' });
+        if (kind === 'handled') event.preventDefault();
+
+        page.handleShortcut(event);
+
+        expect(page.screen$.value).toBe(screen);
+      });
+
+      it.each(['document', 'alert'])('leaves Escape from the %s to an open confirmation', (origin) => {
+        const alert = document.createElement('ion-alert');
+        document.body.append(alert);
+        try {
+          const target = origin === 'alert' ? alert : document;
+          const event = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true });
+          target.dispatchEvent(event);
+          page.handleShortcut(event);
+
+          expect(page.screen$.value).toBe(screen);
+          expect(event.defaultPrevented).toBe(false);
+        } finally {
+          alert.remove();
+        }
+
+        page.handleShortcut(new KeyboardEvent('keydown', { key: 'Escape' }));
+        expect(page.screen$.value).toBe('thread');
+      });
+
+      it('does not return for an unrelated key', () => {
+        page.handleShortcut(new KeyboardEvent('keydown', { key: 'F8' }));
+        expect(page.screen$.value).toBe(screen);
+      });
+    });
+
+    it('leaves Escape alone when already on the thread', () => {
+      const event = new KeyboardEvent('keydown', { key: 'Escape', cancelable: true });
+      page.handleShortcut(event);
+      expect(page.screen$.value).toBe('thread');
+      expect(event.defaultPrevented).toBe(false);
+    });
+  });
 
   describe('showCode', () => {
     const first = changed('t1', 'fix-login', 'fix-login');

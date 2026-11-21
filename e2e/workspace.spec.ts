@@ -19,6 +19,45 @@ function changeLine(page: Page) {
   return page.getByRole("region", { name: "This thread’s changes" });
 }
 
+test("Escape returns from code, history and usage to the same thread and draft", async ({ page }) => {
+  await addProject(page, "Sample", (folder) => {
+    git(folder, "init", "-q", "-b", "main");
+    put(folder, "README.md", "# Sample\n");
+    commit(folder);
+  });
+  await page.getByLabel("New thread").fill("start a change fix-login");
+  await page.getByRole("button", { name: "Run ↵" }).click();
+  await expect(page.getByLabel("Thread").getByText("ready", { exact: true })).toBeVisible();
+  await expect(changeLine(page)).toContainText("1 file changed");
+  await page.getByLabel("Reply").fill("Keep this reply");
+
+  for (const [key, selector] of [["c", "app-files"], ["h", "app-history"], ["u", "app-usage"]]) {
+    await page.getByLabel("Reply").press("Escape");
+    await page.keyboard.press(key);
+    await expect(page.locator(selector)).toBeVisible();
+
+    await page.keyboard.press("Control+k");
+    await expect(menu(page)).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(menu(page)).toHaveCount(0);
+    await expect(page.locator(selector)).toBeVisible();
+
+    for (const command of ["Discard changes", "Remove project"]) {
+      await choose(page, command);
+      await expect(page.locator("ion-alert")).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(page.locator("ion-alert")).toHaveCount(0);
+      await expect(page.locator(selector)).toBeVisible();
+    }
+
+    if (key === "h") await page.locator("#history-filter").fill("Sample");
+    await page.keyboard.press("Escape");
+    await expect(page.locator(selector)).toHaveCount(0);
+    await expect(page.getByLabel("Thread").getByText("start a change fix-login", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Reply")).toHaveValue("Keep this reply");
+  }
+});
+
 test("an agent works in a project and the thread fills in live", async ({ page }) => {
   await addProject(page, "Sample");
 
@@ -79,6 +118,7 @@ test("an agent's change shows where it stands, and its copy can be found", async
   await page.keyboard.press("Escape");
 
   // C shows the code of the thread's copy, where the agent's file is, and C again goes back.
+  await expect(page.getByLabel("Reply")).toBeFocused();
   await page.getByLabel("Reply").press("Escape");
   await page.keyboard.press("c");
   await expect(page.getByLabel("Repository files").getByRole("button", { name: "fix-login.txt" })).toBeVisible();
