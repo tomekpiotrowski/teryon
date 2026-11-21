@@ -280,6 +280,21 @@ test("a thread runs on the model chosen for it, and each turn says which model r
   await expect(page.locator(".thread-meta")).toContainText("Claude · Opus");
 });
 
+test("a thread moves to another agent, which carries on in it", async ({ page }) => {
+  await addProject(page, "Sample");
+  await page.getByLabel("New thread").fill("hello");
+  await page.getByRole("button", { name: "Run ↵" }).click();
+  await expect(page.getByText(/^Done in \d+s · Fable 5\.2/)).toBeVisible();
+
+  await choose(page, "Use Codex · default in this thread");
+  await expect(page.getByText("Codex takes over from Claude.")).toBeVisible();
+  await expect(page.locator(".thread-meta")).toContainText("Codex · default");
+
+  await page.getByLabel("Reply").fill("go on");
+  await page.getByLabel("Reply").press("Enter");
+  await expect(page.getByText("printf 'hi' > note.txt")).toBeVisible();
+});
+
 test("a thread can be started with Grok", async ({ page }) => {
   await addProject(page, "Sample");
 

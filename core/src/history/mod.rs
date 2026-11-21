@@ -60,6 +60,11 @@ pub struct Commit {
     pub on_base: bool,
     /// The thread whose agent was working when the commit was made, see `turns`.
     pub thread: Option<Uuid>,
+    /// The agent that was working then, see `turns`. Nothing for a commit made by hand.
+    ///
+    /// Not the thread's agent now: a thread can move to another agent, and
+    /// earlier commits stay the earlier agent's.
+    pub agent: Option<String>,
     /// The files the commit changed, each from the top of the repository.
     pub files: Vec<String>,
 }

@@ -246,7 +246,7 @@ lets_expect! { #tokio_test
         let (thread, _) = project.changed("claude").await;
         project.review(&thread).await.unwrap();
 
-        project.scene.workspace.change_model(thread.id, Voice::Reviewer, Some("grok-4.5")).unwrap();
+        project.scene.workspace.change_agent(thread.id, Voice::Reviewer, "grok", Some("grok-4.5")).unwrap();
         project.scene.ask_reviewer(&thread, "is the second one real?").unwrap();
         project.scene.wait_until_idle(&thread).await;
 
@@ -254,6 +254,46 @@ lets_expect! { #tokio_test
         expect(now.reviewer.and_then(|reviewer| reviewer.model)) to equal(Some("grok-4.5".to_string()))
         expect(now.model) to equal(None)
         expect(project.invocations().last().cloned().unwrap_or_default().contains("-m grok-4.5")) to be_true
+    }
+
+    // requirement: the reviewer can move to another agent, which starts its own conversation, told what the reviewer said
+    story the_reviewer_moves_to_another_agent {
+        let project = project();
+        let (thread, _) = project.changed("claude").await;
+        project.review(&thread).await.unwrap();
+
+        let changed = project.scene.workspace.change_agent(thread.id, Voice::Reviewer, "codex", None).unwrap();
+        let reviewer = changed.reviewer.clone().expect("a reviewer");
+        expect(reviewer.agent.clone()) to equal("codex".to_string())
+        expect(reviewer.conversation.clone()) to equal(None)
+        expect(reviewer.verdict.is_some()) to be_true
+        let notice = project.scene.entries(&thread).last().cloned().unwrap();
+        expect(notice.body["text"].as_str().map(str::to_string)) to equal(Some("Codex takes over from Grok.".to_string()))
+        expect(notice.body["agent"].as_str().map(str::to_string)) to equal(Some("codex".to_string()))
+
+        project.scene.ask_reviewer(&thread, "is the second one real?").unwrap();
+        project.scene.wait_until_idle(&thread).await;
+        let started = project.invocations().last().cloned().unwrap_or_default();
+        expect(started.starts_with("exec --json")) to be_true
+        expect(started.contains("You are taking over this thread")) to be_true
+        expect(started.contains("has no test")) to be_true
+        expect(started.contains("remember the turn and wait")) to be_false
+        expect(project.scene.thread_now(&thread).reviewer.map(|reviewer| reviewer.handover)) to equal(Some(false))
+    }
+
+    // requirement: the author and the reviewer stay different agents when either moves
+    story the_author_and_reviewer_stay_apart {
+        let project = project();
+        let (thread, _) = project.changed("claude").await;
+        project.review(&thread).await.unwrap();
+
+        let author = project.scene.workspace.change_agent(thread.id, Voice::Author, "grok", None).map_err(|problem| problem.to_string());
+        expect(author.err()) to equal(Some("Grok reviews this thread, so it cannot also write it. Choose another reviewer first.".to_string()))
+        let reviewer = project.scene.workspace.change_agent(thread.id, Voice::Reviewer, "claude", None).map_err(|problem| problem.to_string());
+        expect(reviewer.err()) to equal(Some("Claude wrote this change, so another agent has to review it.".to_string()))
+        let now = project.scene.thread_now(&thread);
+        expect(now.agent.clone()) to equal("claude".to_string())
+        expect(now.reviewer.map(|reviewer| reviewer.agent)) to equal(Some("grok".to_string()))
     }
 
     // requirement: the person can ask the reviewer something, which leaves the review's count alone

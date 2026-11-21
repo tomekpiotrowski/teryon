@@ -418,8 +418,8 @@ export class WorkspacePage implements OnDestroy {
         return void this.confirmRemoveProject(action.project);
       case 'useChoice':
         return this.newThreads$.next(choosing(this.newThreads$.value, action.choice));
-      case 'useModelInThread':
-        return this.changeModel(action.thread, action.to, action.model);
+      case 'useChoiceInThread':
+        return this.changeAgent(action.thread, action.to, action.choice);
       case 'toggleTheme':
         return this.theme.toggle();
       case 'stopAgent':
@@ -529,10 +529,10 @@ export class WorkspacePage implements OnDestroy {
     });
   }
 
-  /** Switches the model of a thread's agent, or of its reviewer, from the next message on. */
-  changeModel(thread: Thread, to: Voice, model: string | null): void {
-    this.api.changeModel(thread.id, to, model).subscribe({
-      error: (failure: unknown) => this.alerts.error(refusalText(failure, 'The model could not be changed.')),
+  /** Switches a thread's agent, or its reviewer, to another agent or model, from the next message on. */
+  changeAgent(thread: Thread, to: Voice, choice: Choice): void {
+    this.api.changeAgent(thread.id, to, choice).subscribe({
+      error: (failure: unknown) => this.alerts.error(refusalText(failure, 'The agent could not be changed.')),
     });
   }
 

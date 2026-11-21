@@ -91,11 +91,12 @@ pub enum Request {
         #[serde(default)]
         model: Option<String>,
     },
-    /// Switches the model of the thread's agent, or of its reviewer, from the next message on.
-    ChangeModel {
+    /// Switches the thread's agent, or its reviewer, to another agent or model, from the next message on.
+    ChangeAgent {
         thread_id: Uuid,
         #[serde(default)]
         to: Voice,
+        agent: String,
         /// Nothing leaves the model to the agent program.
         model: Option<String>,
     },

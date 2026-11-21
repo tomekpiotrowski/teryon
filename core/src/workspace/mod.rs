@@ -32,6 +32,7 @@ use tokio::time::{sleep, Instant};
 use tracing::{error, warn};
 use uuid::Uuid;
 
+use crate::agents::handover::handed_over;
 use crate::agents::models::{checked_model, list_grok_models, ModelError, ModelLists};
 use crate::agents::runner::{Journal, Pending, Runner, ThreadChange, TurnRequest, TurnUsage};
 use crate::agents::{Agent, EntryDraft, EntryKind, Voice};
@@ -477,6 +478,7 @@ impl Workspace {
             agent: agent.name().to_string(),
             model,
             conversation: None,
+            handover: false,
             status: Status::Idle,
             unread: false,
             commands: Vec::new(),
@@ -560,7 +562,12 @@ impl Workspace {
                 "Nobody reviews this thread yet. Ask for a review first.".to_string(),
             ));
         }
+        let message = handover_message(store, &thread, to, text)?;
         let mut draft = EntryDraft::user_message(text).by(to);
+        if to == Voice::Author {
+            // Which agent a message went to tells the history whose work followed, see `history::turns`.
+            draft.body["agent"] = thread.agent.clone().into();
+        }
         if let Some(reviewer) = thread
             .reviewer
             .as_ref()
@@ -591,7 +598,7 @@ impl Workspace {
         self.inner.announce(Event::EntryAdded {
             entry: entry.clone(),
         });
-        self.start_turn(thread, to, directory, text);
+        self.start_turn(thread, to, directory, &message);
         Ok(entry)
     }
 
@@ -647,6 +654,11 @@ impl Workspace {
                 .as_ref()
                 .and_then(|reviewer| reviewer.verdict)
                 .is_some_and(|verdict| verdict.answered && !verdict.cut);
+        let message = if again { REVIEW_AGAIN } else { REVIEW_FIRST };
+        let message = match same_reviewer {
+            true => handover_message(store, &thread, Voice::Reviewer, message)?,
+            false => message.to_string(),
+        };
         let notice = EntryDraft::notice(&format!("{} reviews the change.", agent.label()))
             .by(Voice::Reviewer)
             .naming(agent);
@@ -660,6 +672,7 @@ impl Workspace {
                     agent: agent.name().to_string(),
                     model: None,
                     conversation: None,
+                    handover: false,
                     reviewing: false,
                     verdict: None,
                 });
@@ -676,8 +689,7 @@ impl Workspace {
         self.inner.announce(Event::EntryAdded {
             entry: entry.clone(),
         });
-        let message = if again { REVIEW_AGAIN } else { REVIEW_FIRST };
-        self.start_turn(thread, Voice::Reviewer, directory, message);
+        self.start_turn(thread, Voice::Reviewer, directory, &message);
         Ok(entry)
     }
 
@@ -720,44 +732,121 @@ impl Workspace {
         Ok(())
     }
 
-    /// Notes that the person has looked at a thread.
+    /// Switches a thread's agent, or its reviewer, to another agent or model, from the next message on.
     ///
-    /// A thread that is not marked is left alone, so that looking at it again
-    /// does not send a change to every client.
-    /// Switches the model of a thread's agent, or of its reviewer, from the next message on.
+    /// When an agent cannot go on, for example because its subscription ran
+    /// out, the person hands the thread to another one instead of starting
+    /// over. A conversation cannot move to another program, so a new agent
+    /// starts its own, and its first message carries what was said so far,
+    /// see `crate::agents::handover`. Its slash commands are learned anew.
     ///
-    /// Allowed while an agent is working: the turn under way keeps the model
-    /// it started with. The agent stays the same, since a conversation cannot
-    /// move to another program.
-    pub fn change_model(
+    /// A new model for the same agent is allowed while it works: the turn
+    /// under way keeps the model it started with. A new agent has to wait for
+    /// the turn to end, since the turn reports the conversation it belongs
+    /// to. The author and the reviewer stay different agents, so a second
+    /// model reads the work.
+    pub fn change_agent(
         &self,
         thread_id: Uuid,
         to: Voice,
+        agent: &str,
         model: Option<&str>,
     ) -> Result<Thread, WorkspaceError> {
+        let agent = Agent::parse(agent)
+            .ok_or_else(|| WorkspaceError::Invalid("Choose Claude, Codex or Grok.".to_string()))?;
         let model = checked_model(model)?;
         let mut state = self.inner.state();
         let (store, thread) = state.holding(thread_id)?;
-        if to == Voice::Reviewer && thread.reviewer.is_none() {
+        let (current, other) = match to {
+            Voice::Author => (
+                Some(thread.agent.as_str()),
+                thread
+                    .reviewer
+                    .as_ref()
+                    .map(|reviewer| reviewer.agent.as_str()),
+            ),
+            Voice::Reviewer => (
+                thread
+                    .reviewer
+                    .as_ref()
+                    .map(|reviewer| reviewer.agent.as_str()),
+                Some(thread.agent.as_str()),
+            ),
+        };
+        let Some(current) = current.and_then(Agent::parse) else {
             return Err(WorkspaceError::Invalid(
                 "Nobody reviews this thread yet. Ask for a review first.".to_string(),
             ));
+        };
+        let switching = current != agent;
+        if switching {
+            self.inner.check_free(&thread)?;
+            if other == Some(agent.name()) {
+                let text = match to {
+                    Voice::Author => format!(
+                        "{} reviews this thread, so it cannot also write it. Choose another reviewer first.",
+                        agent.label()
+                    ),
+                    Voice::Reviewer => format!(
+                        "{} wrote this change, so another agent has to review it.",
+                        agent.label()
+                    ),
+                };
+                return Err(WorkspaceError::Invalid(text));
+            }
         }
+        let notice = switching.then(|| {
+            EntryDraft::notice(&format!(
+                "{} takes over from {}.",
+                agent.label(),
+                current.label()
+            ))
+            .by(to)
+            .naming(agent)
+        });
+        let entry = notice
+            .map(|notice| {
+                let mut body = notice.body;
+                // Written while nobody works, so it ends no turn, see `history::turns`.
+                body["takes_over"] = true.into();
+                store.append(thread_id, notice.kind.name(), body)
+            })
+            .transpose()?;
         let thread = store.change(thread_id, |thread| match to {
-            Voice::Author => thread.model = model,
+            Voice::Author => {
+                thread.model = model;
+                if switching {
+                    thread.agent = agent.name().to_string();
+                    thread.conversation = None;
+                    thread.handover = true;
+                    thread.commands = Vec::new();
+                }
+            }
             Voice::Reviewer => {
                 if let Some(reviewer) = &mut thread.reviewer {
                     reviewer.model = model;
+                    if switching {
+                        reviewer.agent = agent.name().to_string();
+                        reviewer.conversation = None;
+                        reviewer.handover = true;
+                    }
                 }
             }
         })?;
         drop(state);
+        if let Some(entry) = entry {
+            self.inner.announce(Event::EntryAdded { entry });
+        }
         self.inner.announce(Event::ThreadChanged {
             thread: thread.clone(),
         });
         Ok(thread)
     }
 
+    /// Notes that the person has looked at a thread.
+    ///
+    /// A thread that is not marked is left alone, so that looking at it again
+    /// does not send a change to every client.
     pub fn mark_seen(&self, thread_id: Uuid) -> Result<(), WorkspaceError> {
         let mut state = self.inner.state();
         let (store, thread) = state.holding(thread_id)?;
@@ -838,7 +927,9 @@ impl Workspace {
         let mut history = repository.history(branch).await?;
         let turns = self.turns(project_id)?;
         for commit in &mut history.commits {
-            commit.thread = working_at(&turns, commit.time);
+            let turn = working_at(&turns, commit.time);
+            commit.thread = turn.map(|turn| turn.thread_id);
+            commit.agent = turn.map(|turn| turn.agent.clone());
         }
         Ok(history)
     }
@@ -898,6 +989,7 @@ impl Workspace {
             let entries = store.entries(thread.id)?;
             turns.extend(turns_in(
                 thread.id,
+                &thread.agent,
                 thread.status == Status::Running,
                 &entries,
             ));
@@ -937,10 +1029,12 @@ impl Journal for WorkspaceJournal {
                     .change(thread_id, |thread| match change {
                         ThreadChange::Conversation(Voice::Author, named) => {
                             thread.conversation = Some(named);
+                            thread.handover = false;
                         }
                         ThreadChange::Conversation(Voice::Reviewer, named) => {
                             if let Some(reviewer) = &mut thread.reviewer {
                                 reviewer.conversation = Some(named);
+                                reviewer.handover = false;
                             }
                         }
                         ThreadChange::Commands(commands) => thread.commands = commands,
@@ -1062,6 +1156,26 @@ fn release_interrupted(store: &mut ThreadStore) {
 }
 
 /// The start of a message's first line, short enough for a list.
+/// The message for a thread's agent or reviewer: with the thread so far when it has just taken over from another agent.
+fn handover_message(
+    store: &ThreadStore,
+    thread: &Thread,
+    voice: Voice,
+    message: &str,
+) -> Result<String, WorkspaceError> {
+    let handover = match voice {
+        Voice::Author => thread.handover,
+        Voice::Reviewer => thread
+            .reviewer
+            .as_ref()
+            .is_some_and(|reviewer| reviewer.handover),
+    };
+    if !handover {
+        return Ok(message.to_string());
+    }
+    Ok(handed_over(&store.entries(thread.id)?, voice, message))
+}
+
 fn title_from(text: &str) -> String {
     shortened(text.lines().next().unwrap_or_default().trim())
 }

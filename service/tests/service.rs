@@ -295,10 +295,10 @@ lets_expect! { #tokio_test
         let thread = match started { Answer::Thread { thread } => thread, _ => panic!("a thread") };
         expect(thread.model.clone()) to equal(Some("sonnet".to_string()))
 
-        let changed = client.call(Request::ChangeModel { thread_id: thread.id, to: Voice::Author, model: Some("opus".to_string()) }).await.unwrap();
+        let changed = client.call(Request::ChangeAgent { thread_id: thread.id, to: Voice::Author, agent: "claude".to_string(), model: Some("opus".to_string()) }).await.unwrap();
         let model = match changed { Answer::Thread { thread } => thread.model, _ => None };
         expect(model) to equal(Some("opus".to_string()))
-        let refused = client.call(Request::ChangeModel { thread_id: thread.id, to: Voice::Reviewer, model: None }).await;
+        let refused = client.call(Request::ChangeAgent { thread_id: thread.id, to: Voice::Reviewer, agent: "codex".to_string(), model: None }).await;
         expect(refused.is_err()) to be_true
     }
 

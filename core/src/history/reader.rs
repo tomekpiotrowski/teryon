@@ -76,6 +76,7 @@ impl Repository {
                 email: logged.email,
                 time: logged.time,
                 thread: None,
+                agent: None,
                 files: logged.files,
             })
             .collect();

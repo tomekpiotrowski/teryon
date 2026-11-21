@@ -17,7 +17,7 @@ agent: string,
 /**
  * Nothing leaves the model to the agent program.
  */
-model: string | null, } | { "type": "change_model", thread_id: string, to: Voice, 
+model: string | null, } | { "type": "change_agent", thread_id: string, to: Voice, agent: string, 
 /**
  * Nothing leaves the model to the agent program.
  */
@@ -92,7 +92,15 @@ model: string | null,
  * Nothing until the program has started it: the program makes the
  * identifier up and reports it, and the next message continues it.
  */
-conversation: string | null, status: Status, 
+conversation: string | null, 
+/**
+ * Whether the agent took the thread over from another agent and has not yet been told what was said.
+ *
+ * Its next message carries the thread so far, see
+ * `crate::agents::handover`. Cleared once its program names the new
+ * conversation, which then holds it.
+ */
+handover: boolean, status: Status, 
 /**
  * Whether an agent stopped working here since the person last looked.
  */
@@ -193,6 +201,10 @@ model: string | null,
  * The identifier the agent program gave the reviewer's conversation. Nothing until it has started it.
  */
 conversation: string | null, 
+/**
+ * Whether the reviewer took over from another reviewer and has not yet been told what was said.
+ */
+handover: boolean, 
 /**
  * Whether the turn running in the thread is the reviewer's.
  */
@@ -332,6 +344,13 @@ on_base: boolean,
  * The thread whose agent was working when the commit was made, see `turns`.
  */
 thread: string | null, 
+/**
+ * The agent that was working then, see `turns`. Nothing for a commit made by hand.
+ *
+ * Not the thread's agent now: a thread can move to another agent, and
+ * earlier commits stay the earlier agent's.
+ */
+agent: string | null, 
 /**
  * The files the commit changed, each from the top of the repository.
  */

@@ -16,7 +16,6 @@ import {
   changeBadge,
   type Choice,
   choiceLabel,
-  choicesOf,
   chosen,
   isBareLetter,
   type KeyPress,
@@ -44,7 +43,7 @@ export type CommandAction =
   | { readonly kind: 'newProject' }
   | { readonly kind: 'removeProject'; readonly project: Project }
   | { readonly kind: 'useChoice'; readonly choice: Choice }
-  | { readonly kind: 'useModelInThread'; readonly thread: Thread; readonly to: Voice; readonly model: string | null }
+  | { readonly kind: 'useChoiceInThread'; readonly thread: Thread; readonly to: Voice; readonly choice: Choice }
   | { readonly kind: 'toggleTheme' }
   | { readonly kind: 'stopAgent'; readonly thread: Thread }
   | { readonly kind: 'applyChange'; readonly thread: Thread }
@@ -157,7 +156,7 @@ export function commandList(situation: Situation): Command[] {
   if (thread?.status === 'running') {
     actions.push(command('action:stopAgent', 'Stop the agent', 'action', { kind: 'stopAgent', thread }, { detail: threadLabel(thread) }));
   }
-  actions.push(...threadModelCommands(situation));
+  actions.push(...threadChoiceCommands(situation));
   const current = chosen(situation.newThreads);
   actions.push(
     ...allChoices(situation.models)
@@ -183,25 +182,34 @@ function choiceId(choice: Choice): string {
 }
 
 /**
- * Switching the model of the open thread's agent, from the next message on.
+ * Switching the open thread's agent, or its reviewer, to another agent or model, from the next message on.
  *
- * Only the thread's own agent's models are offered, since a conversation
- * cannot move to another program. When the message box writes to the
- * reviewer, the reviewer's model is the one switched.
+ * When an agent cannot go on, for example because its subscription ran
+ * out, the person hands the thread to another instead of starting over.
+ * The new agent starts a conversation of its own and is told what was said.
+ * When the message box writes to the reviewer, the reviewer is switched.
+ *
+ * Another agent is only offered while nobody is working, since the service
+ * refuses it then; another model of the same agent is offered always. The
+ * agent on the other side of the thread is never offered, so the author and
+ * the reviewer stay different agents.
  */
-function threadModelCommands(situation: Situation): Command[] {
+function threadChoiceCommands(situation: Situation): Command[] {
   const thread = situation.thread;
   const to = thread?.reviewer ? situation.to : 'author';
   const current = thread ? threadChoice(thread, to) : null;
   if (!thread || !current) return [];
-  return choicesOf(current.agent, situation.models)
-    .filter((choice) => choice.model !== current.model)
+  const other = threadChoice(thread, to === 'author' ? 'reviewer' : 'author')?.agent;
+  const idle = thread.status !== 'running';
+  return allChoices(situation.models)
+    .filter((choice) => !sameChoice(choice, current) && choice.agent !== other)
+    .filter((choice) => idle || choice.agent === current.agent)
     .map((choice) =>
       command(
         `action:useInThread:${choiceId(choice)}`,
         `Use ${choiceLabel(choice)} in this thread${to === 'reviewer' ? ' to review' : ''}`,
         'action',
-        { kind: 'useModelInThread', thread, to, model: choice.model },
+        { kind: 'useChoiceInThread', thread, to, choice },
         { detail: threadLabel(thread) },
       ),
     );

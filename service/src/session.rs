@@ -106,12 +106,13 @@ impl Session {
                 .review_change(thread_id, &agent, model.as_deref())
                 .map(|entry| Answer::Entry { entry })
                 .map_err(|problem| problem.to_string()),
-            Request::ChangeModel {
+            Request::ChangeAgent {
                 thread_id,
                 to,
+                agent,
                 model,
             } => workspace
-                .change_model(thread_id, to, model.as_deref())
+                .change_agent(thread_id, to, &agent, model.as_deref())
                 .map(|thread| Answer::Thread {
                     thread: Box::new(thread),
                 })

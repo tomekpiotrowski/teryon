@@ -106,6 +106,13 @@ pub struct Thread {
     /// identifier up and reports it, and the next message continues it.
     #[serde(default)]
     pub conversation: Option<String>,
+    /// Whether the agent took the thread over from another agent and has not yet been told what was said.
+    ///
+    /// Its next message carries the thread so far, see
+    /// `crate::agents::handover`. Cleared once its program names the new
+    /// conversation, which then holds it.
+    #[serde(default)]
+    pub handover: bool,
     pub status: Status,
     /// Whether an agent stopped working here since the person last looked.
     pub unread: bool,
@@ -144,6 +151,9 @@ pub struct Reviewer {
     /// The identifier the agent program gave the reviewer's conversation. Nothing until it has started it.
     #[serde(default)]
     pub conversation: Option<String>,
+    /// Whether the reviewer took over from another reviewer and has not yet been told what was said.
+    #[serde(default)]
+    pub handover: bool,
     /// Whether the turn running in the thread is the reviewer's.
     pub reviewing: bool,
     /// What the last review found. Nothing until one has ended.

@@ -316,29 +316,56 @@ describe('commandList', () => {
       });
 
       function inThread(changes: Changes): Command[] {
-        return commandList(situation({ models, project: first, ...changes })).filter((candidate) => candidate.action.kind === 'useModelInThread');
+        return commandList(situation({ models, project: first, ...changes })).filter((candidate) => candidate.action.kind === 'useChoiceInThread');
       }
 
-      it('offers the thread\'s own agent on its other models', () => {
+      it('offers every agent on every model, except the one the thread runs on', () => {
         expect(inThread({ thread: onOpus }).map((candidate) => [candidate.title, candidate.detail])).toEqual([
           ['Use Claude · default in this thread', 'Thread t7'],
           ['Use Claude · Sonnet in this thread', 'Thread t7'],
+          ['Use Codex · default in this thread', 'Thread t7'],
+          ['Use Grok · default in this thread', 'Thread t7'],
+          ['Use Grok · Grok 4.6 in this thread', 'Thread t7'],
         ]);
-        expect(inThread({ thread: onOpus })[1].action).toEqual({ kind: 'useModelInThread', thread: onOpus, to: 'author', model: 'sonnet' });
+        expect(inThread({ thread: onOpus })[2].action).toEqual({
+          kind: 'useChoiceInThread',
+          thread: onOpus,
+          to: 'author',
+          choice: { agent: 'codex', model: null },
+        });
       });
 
-      it('offers nothing without a thread, or when its agent has no other model', () => {
+      it('offers nothing without a thread', () => {
         expect(inThread({})).toEqual([]);
-        expect(inThread({ thread: thread('t9', 'a', '2026-11-01T10:00:00', { agent: 'codex' }) })).toEqual([]);
       });
 
-      it('switches the reviewer\'s model while the message box writes to the reviewer', () => {
+      it('offers only other models of the same agent while an agent works', () => {
+        const running = { ...onOpus, status: 'running' as const };
+        expect(inThread({ thread: running }).map((candidate) => candidate.title)).toEqual([
+          'Use Claude · default in this thread',
+          'Use Claude · Sonnet in this thread',
+        ]);
+        expect(inThread({ thread: { ...running, agent: 'codex', model: null } })).toEqual([]);
+      });
+
+      it('leaves out the reviewer\'s agent for the author', () => {
+        expect(inThread({ thread: reviewed }).map((candidate) => candidate.title)).toEqual([
+          'Use Claude · Opus in this thread',
+          'Use Claude · Sonnet in this thread',
+          'Use Codex · default in this thread',
+        ]);
+      });
+
+      it('switches the reviewer while the message box writes to the reviewer, leaving out the author\'s agent', () => {
         const offeredHere = inThread({ thread: reviewed, to: 'reviewer' });
-        expect(offeredHere.map((candidate) => candidate.title)).toEqual(['Use Grok · Grok 4.6 in this thread to review']);
-        expect(offeredHere[0].action).toEqual({ kind: 'useModelInThread', thread: reviewed, to: 'reviewer', model: 'grok-4.6' });
+        expect(offeredHere.map((candidate) => candidate.title)).toEqual([
+          'Use Codex · default in this thread to review',
+          'Use Grok · Grok 4.6 in this thread to review',
+        ]);
+        expect(offeredHere[0].action).toEqual({ kind: 'useChoiceInThread', thread: reviewed, to: 'reviewer', choice: { agent: 'codex', model: null } });
       });
 
-      it('switches the author\'s model while the thread has no reviewer, whoever the message box last wrote to', () => {
+      it('switches the author while the thread has no reviewer, whoever the message box last wrote to', () => {
         expect(inThread({ thread: onOpus, to: 'reviewer' }).map((candidate) => candidate.title)[0]).toBe('Use Claude · default in this thread');
       });
     });
@@ -621,6 +648,8 @@ describe('the commands for a thread\'s change', () => {
       'action:files',
       'action:history',
       'action:usage',
+      'action:useInThread:codex:default',
+      'action:useInThread:grok:default',
       'action:use:codex:default',
       'action:use:grok:default',
       'action:newProject',

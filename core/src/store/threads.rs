@@ -290,6 +290,7 @@ mod tests {
             agent: "claude".to_string(),
             model: None,
             conversation: None,
+            handover: false,
             status: Status::Idle,
             unread: false,
             commands: Vec::new(),

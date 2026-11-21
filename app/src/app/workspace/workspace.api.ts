@@ -57,9 +57,9 @@ export class WorkspaceApi {
     );
   }
 
-  /** Switches the model of a thread's agent, or of its reviewer, from the next message on. */
-  changeModel(threadId: string, to: Voice, model: string | null): Observable<Thread> {
-    return this.ask({ type: 'change_model', thread_id: threadId, to, model }, (answer) =>
+  /** Switches a thread's agent, or its reviewer, to another agent or model, from the next message on. */
+  changeAgent(threadId: string, to: Voice, choice: Choice): Observable<Thread> {
+    return this.ask({ type: 'change_agent', thread_id: threadId, to, agent: choice.agent, model: choice.model }, (answer) =>
       answer.type === 'thread' ? (answer.thread as Thread) : undefined,
     );
   }

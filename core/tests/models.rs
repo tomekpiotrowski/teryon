@@ -116,13 +116,13 @@ lets_expect! { #tokio_test
         scene.say(&thread, "hello").unwrap();
         scene.wait_until_idle(&thread).await;
 
-        let changed = scene.workspace.change_model(thread.id, Voice::Author, Some("opus")).unwrap();
+        let changed = scene.workspace.change_agent(thread.id, Voice::Author, "claude", Some("opus")).unwrap();
         expect(changed.model.clone()) to equal(Some("opus".to_string()))
         expect(scene.thread_now(&thread).model) to equal(Some("opus".to_string()))
         scene.say(&thread, "again").unwrap();
         scene.wait_until_idle(&thread).await;
 
-        scene.workspace.change_model(thread.id, Voice::Author, None).unwrap();
+        scene.workspace.change_agent(thread.id, Voice::Author, "claude", None).unwrap();
         scene.say(&thread, "and again").unwrap();
         scene.wait_until_idle(&thread).await;
 
@@ -148,7 +148,7 @@ lets_expect! { #tokio_test
             sleep(Duration::from_millis(25)).await;
         }
 
-        let changed = scene.workspace.change_model(thread.id, Voice::Author, Some("opus"));
+        let changed = scene.workspace.change_agent(thread.id, Voice::Author, "claude", Some("opus"));
         expect(changed.is_ok()) to be_true
         expect(scene.thread_now(&thread).status) to equal(Status::Running)
         scene.workspace.stop(thread.id).unwrap();
@@ -164,11 +164,11 @@ lets_expect! { #tokio_test
         let project = scene.project(&folder);
         let thread = scene.thread(&project, "claude");
 
-        let reviewer = scene.workspace.change_model(thread.id, Voice::Reviewer, Some("opus")).map_err(|problem| problem.to_string());
+        let reviewer = scene.workspace.change_agent(thread.id, Voice::Reviewer, "codex", Some("opus")).map_err(|problem| problem.to_string());
         expect(reviewer.err()) to equal(Some("Nobody reviews this thread yet. Ask for a review first.".to_string()))
-        let elsewhere = scene.workspace.change_model(unknown(), Voice::Author, Some("opus")).map_err(|problem| problem.to_string());
+        let elsewhere = scene.workspace.change_agent(unknown(), Voice::Author, "claude", Some("opus")).map_err(|problem| problem.to_string());
         expect(elsewhere.err()) to equal(Some("There is no such thread.".to_string()))
-        let malformed = scene.workspace.change_model(thread.id, Voice::Author, Some("-x")).map_err(|problem| problem.to_string());
+        let malformed = scene.workspace.change_agent(thread.id, Voice::Author, "claude", Some("-x")).map_err(|problem| problem.to_string());
         expect(malformed.is_err()) to be_true
         expect(scene.thread_now(&thread).model) to equal(None)
     }

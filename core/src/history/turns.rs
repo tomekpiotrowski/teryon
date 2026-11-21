@@ -15,15 +15,15 @@
 
 use uuid::Uuid;
 
+use crate::agents::EntryKind;
 use crate::store::Entry;
 
-/// The kind of entry that starts a turn: a message from the person.
-const TURN_START: &str = "user_message";
-
 /// One stretch of an agent working in a thread.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Turn {
     pub thread_id: Uuid,
+    /// The agent that worked, as it was then: a thread can move to another agent, or be reviewed by one.
+    pub agent: String,
     /// In seconds since 1970, like the time of a commit.
     pub started: i64,
     /// Nothing while the agent is still working.
@@ -32,19 +32,29 @@ pub struct Turn {
 
 /// The turns of one thread, from its conversation in order.
 ///
-/// A turn runs from a message from the person to the last entry before the
-/// next one. Entries before the first message belong to no turn. The last
-/// turn has no end while the thread's agent is still working.
-pub fn turns_in(thread_id: Uuid, running: bool, entries: &[Entry]) -> Vec<Turn> {
+/// A turn starts with a message from the person, or with a review asked
+/// for, and runs to the last entry before the next start. Entries before
+/// the first start belong to no turn, and so does a note that another agent
+/// takes over: it is written while nobody works, and counting it would
+/// stretch the turn before it over whatever a person did in between. The
+/// last turn has no end while the thread is running.
+///
+/// A turn's agent is the one its first entry names. Messages stored before
+/// they named one were all sent to `agent`, the thread's agent, since a
+/// thread could not change agents then.
+pub fn turns_in(thread_id: Uuid, agent: &str, running: bool, entries: &[Entry]) -> Vec<Turn> {
     let mut turns: Vec<Turn> = Vec::new();
     for entry in entries {
         let time = entry.created_at.timestamp();
-        if entry.kind == TURN_START {
+        if starts_turn(entry) {
             turns.push(Turn {
                 thread_id,
+                agent: entry.body["agent"].as_str().unwrap_or(agent).to_string(),
                 started: time,
                 ended: Some(time),
             });
+        } else if entry.body["takes_over"] == true {
+            continue;
         } else if let Some(turn) = turns.last_mut() {
             turn.ended = Some(time);
         }
@@ -57,21 +67,27 @@ pub fn turns_in(thread_id: Uuid, running: bool, entries: &[Entry]) -> Vec<Turn> 
     turns
 }
 
-/// The thread whose agent was working at a moment, or nothing when none was.
+/// Whether an entry starts an agent working: a message from the person, or a review asked for.
+fn starts_turn(entry: &Entry) -> bool {
+    entry.kind == EntryKind::UserMessage.name() || entry.body["starts_review"] == true
+}
+
+/// The turn under way at a moment, or nothing when no agent was working.
 ///
 /// With several agents working at once, the one that started last is named:
 /// its work is the freshest, and a commit usually closes a piece of work.
-pub fn working_at(turns: &[Turn], time: i64) -> Option<Uuid> {
+pub fn working_at(turns: &[Turn], time: i64) -> Option<&Turn> {
     turns
         .iter()
         .filter(|turn| turn.started <= time && turn.ended.is_none_or(|ended| time <= ended))
         .max_by_key(|turn| turn.started)
-        .map(|turn| turn.thread_id)
 }
 
 #[cfg(test)]
 mod tests {
+    use chrono::DateTime;
     use lets_expect::lets_expect;
+    use serde_json::{json, Value};
 
     use super::*;
 
@@ -79,27 +95,46 @@ mod tests {
         Uuid::from_u128(number)
     }
 
+    /// The thread of the turn under way at `time`.
+    fn thread_at(turns: &[Turn], time: i64) -> Option<Uuid> {
+        working_at(turns, time).map(|turn| turn.thread_id)
+    }
+
+    /// A turn of thread `number` by Claude.
     fn turn(number: u128, started: i64, ended: Option<i64>) -> Turn {
         Turn {
             thread_id: thread(number),
+            agent: "claude".to_string(),
             started,
             ended,
         }
     }
 
+    /// A turn of thread 1 by `agent`.
+    fn by(agent: &str, started: i64, ended: Option<i64>) -> Turn {
+        Turn {
+            agent: agent.to_string(),
+            ..turn(1, started, ended)
+        }
+    }
+
     fn entry(kind: &str, time: i64) -> Entry {
+        with(kind, time, Value::Null)
+    }
+
+    fn with(kind: &str, time: i64, body: Value) -> Entry {
         Entry {
             id: Uuid::new_v4(),
             thread_id: thread(1),
             position: 0,
             kind: kind.to_string(),
-            body: serde_json::Value::Null,
-            created_at: chrono::DateTime::from_timestamp(time, 0).unwrap(),
+            body,
+            created_at: DateTime::from_timestamp(time, 0).unwrap(),
         }
     }
 
     lets_expect! {
-        expect(turns_in(thread(1), running, &entries)) {
+        expect(turns_in(thread(1), "claude", running, &entries)) {
             let running = false;
 
             when(entries = Vec::new()) as an_empty_conversation to have_no_turns { equal(Vec::new()) }
@@ -117,9 +152,39 @@ mod tests {
                     to leave_only_the_last_open { equal(vec![turn(1, 10, Some(20)), turn(1, 50, None)]) }
                 }
             }
+            // requirement: a commit a person makes after a turn is not the agent's because another agent took over later
+            when(entries = vec![
+                entry("user_message", 10),
+                entry("turn_summary", 20),
+                with("notice", 50, json!({ "text": "Codex takes over from Claude.", "takes_over": true, "agent": "codex" })),
+            ]) as a_takeover_after_a_turn {
+                to leave_the_turn_where_it_ended { equal(vec![turn(1, 10, Some(20))]) }
+            }
+            // requirement: each turn names the agent that worked then, so earlier work stays the earlier agent's
+            when(entries = vec![
+                with("user_message", 10, json!({ "agent": "claude" })),
+                entry("turn_summary", 20),
+                with("notice", 30, json!({ "takes_over": true, "agent": "codex" })),
+                with("user_message", 40, json!({ "agent": "codex" })),
+                entry("turn_summary", 50),
+            ]) as a_thread_that_moved_to_another_agent {
+                to name_each_turns_agent { equal(vec![by("claude", 10, Some(20)), by("codex", 40, Some(50))]) }
+            }
+            when(entries = vec![entry("user_message", 10), entry("turn_summary", 20)]) as messages_stored_before_naming_an_agent {
+                to belong_to_the_threads_agent { equal(vec![turn(1, 10, Some(20))]) }
+            }
+            // requirement: a review asked for starts a turn of the reviewer, rather than stretching the author's
+            when(entries = vec![
+                entry("user_message", 10),
+                entry("turn_summary", 20),
+                with("notice", 50, json!({ "starts_review": true, "reviewer": true, "agent": "grok" })),
+                with("agent_message", 60, json!({ "reviewer": true, "agent": "grok" })),
+            ]) as a_review_after_a_turn {
+                to make_a_turn_of_the_reviewer { equal(vec![turn(1, 10, Some(20)), by("grok", 50, Some(60))]) }
+            }
         }
 
-        expect(working_at(&turns, time)) {
+        expect(thread_at(&turns, time)) {
             let turns = vec![turn(1, 100, Some(200)), turn(2, 300, Some(400))];
 
             when(time = 150) as a_moment_inside_a_turn to name_its_thread { equal(Some(thread(1))) }

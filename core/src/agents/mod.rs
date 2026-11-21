@@ -12,6 +12,7 @@ pub mod claude;
 pub mod codex;
 pub mod grok;
 pub mod grok_sandbox;
+pub mod handover;
 pub mod models;
 pub mod naming;
 pub mod process;

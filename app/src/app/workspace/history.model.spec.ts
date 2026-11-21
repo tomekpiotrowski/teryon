@@ -38,6 +38,7 @@ function commit(hash: string, overrides: Partial<Commit> = {}): Commit {
     time: 0,
     on_base: false,
     thread: null,
+    agent: null,
     files: [],
     ...overrides,
   };
@@ -131,6 +132,13 @@ describe('whoMade', () => {
 
   it('still counts a commit as an agent’s when its thread is not known here', () => {
     expect(whoMade(commit('a', { thread: 'gone' }), [thread('t1')], null)).toEqual({ kind: 'agent', name: 'Agent', thread: null });
+    expect(whoMade(commit('a', { thread: 'gone', agent: 'codex' }), [thread('t1')], null).name).toBe('Codex');
+  });
+
+  it('names the agent that was working then, not the agent the thread has moved to since', () => {
+    const moved = thread('t1', 'Fix it', 'codex');
+    expect(whoMade(commit('a', { thread: 't1', agent: 'claude' }), [moved], null)).toEqual({ kind: 'agent', name: 'Claude', thread: moved });
+    expect(whoMade(commit('b', { thread: 't1', agent: 'codex' }), [moved], null).name).toBe('Codex');
   });
 
   it('counts a commit as an agent’s even under the address of whoever is signed in', () => {

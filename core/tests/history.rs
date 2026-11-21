@@ -8,12 +8,15 @@
 mod common;
 
 use std::path::Path;
+use std::time::Duration;
 
 use lets_expect::lets_expect;
 use tempfile::TempDir;
+use tokio::time::sleep;
 use uuid::Uuid;
 
 use common::{git, git_at, project_folder, put, unknown, Scene};
+use teryon_core::agents::Voice;
 use teryon_core::files::diff::LineChange;
 use teryon_core::files::{Content, FileChange, FileView};
 use teryon_core::history::{Changes, Commit, History};
@@ -172,6 +175,11 @@ fn commit_named<'a>(history: &'a History, subject: &str) -> &'a Commit {
 /// The thread named by one commit listed, found by the first line of its message.
 fn thread_of(history: &History, subject: &str) -> Option<Uuid> {
     commit_named(history, subject).thread
+}
+
+/// The agent named by one commit listed, found by the first line of its message.
+fn agent_of(history: &History, subject: &str) -> Option<String> {
+    commit_named(history, subject).agent.clone()
 }
 
 /// The files a commit changed: `M src/app.txt +1 -1`, without counts for a file that is not text.
@@ -439,6 +447,39 @@ lets_expect! { #tokio_test
         scene.wait_until_idle(&thread).await;
         expect(thread_of(&running, "Long after")) to equal(Some(thread.id))
         expect(thread_of(&running, "Long before")) to equal(None)
+    }
+
+    // requirement: a commit made after a thread moved to another agent is that agent's, and earlier ones stay the earlier agent's
+    // requirement: a commit a person makes between a turn and a takeover stays the person's
+    //
+    // Commits are dated by the second, so the steps are a second apart to
+    // keep the turns and the takeover from sharing one.
+    story a_thread_that_moved_to_another_agent_keeps_who_made_what {
+        let scene = Scene::new();
+        let (folder, _) = repository();
+        let project = scene.project(&folder);
+        let thread = scene.thread(&project, "claude");
+        scene.say(&thread, "hello").unwrap();
+        scene.wait_until_idle(&thread).await;
+        let claude_started = scene.entries(&thread)[0].created_at.timestamp();
+        sleep(Duration::from_millis(1100)).await;
+        scene.workspace.change_agent(thread.id, Voice::Author, "codex", None).unwrap();
+        let took_over = scene.entries(&thread).last().expect("the takeover").created_at.timestamp();
+        sleep(Duration::from_millis(1100)).await;
+        scene.say(&thread, "go on").unwrap();
+        scene.wait_until_idle(&thread).await;
+        let codex_started = scene.entries(&thread).iter().rev().find(|entry| entry.kind == "user_message").expect("a message").created_at.timestamp();
+
+        record_at(folder.path(), claude_started, "By Claude");
+        record_at(folder.path(), took_over, "By hand, before the takeover");
+        record_at(folder.path(), codex_started, "By Codex");
+
+        let listing = history(&scene, project.id, None).await.unwrap();
+        expect(agent_of(&listing, "By Claude")) to equal(Some("claude".to_string()))
+        expect(thread_of(&listing, "By hand, before the takeover")) to equal(None)
+        expect(agent_of(&listing, "By hand, before the takeover")) to equal(None)
+        expect(agent_of(&listing, "By Codex")) to equal(Some("codex".to_string()))
+        expect(thread_of(&listing, "By Codex")) to equal(Some(thread.id))
     }
 
     // requirement: a branch that does not exist is refused

@@ -7,7 +7,7 @@
  */
 
 import type { FileChange, FileLine } from './files.model';
-import { agentLabel, isBareLetter, type KeyPress, type Thread, threadLabel } from './workspace.model';
+import { type AgentName, agentLabel, isBareLetter, type KeyPress, type Thread, threadLabel } from './workspace.model';
 
 /** One commit of a branch, as the server lists it. */
 export interface Commit {
@@ -26,6 +26,13 @@ export interface Commit {
   readonly on_base: boolean;
   /** The thread whose agent was working when the commit was made. Nothing for a commit made by hand. */
   readonly thread: string | null;
+  /**
+   * The agent that was working then. Nothing for a commit made by hand.
+   *
+   * Not the thread's agent now: a thread can move to another agent, and
+   * earlier commits stay the earlier agent's.
+   */
+  readonly agent: AgentName | null;
   /** The files the commit changed, each from the top of the repository. */
   readonly files: readonly string[];
 }
@@ -145,14 +152,16 @@ export function shortHash(hash: string): string {
 /**
  * Who made a commit.
  *
- * A commit the server tied to a thread is that thread's agent's. Any other
+ * A commit the server tied to a thread is the agent's that was working in
+ * it then, or the thread's agent when the server did not say. Any other
  * is a person's: `you` when it is recorded under the address of whoever is
  * signed in, and the recorded name otherwise.
  */
 export function whoMade(commit: Commit, threads: readonly Thread[], ownEmail: string | null): Who {
   if (commit.thread !== null) {
     const thread = threads.find((candidate) => candidate.id === commit.thread) ?? null;
-    return { kind: 'agent', name: thread ? agentLabel(thread.agent) : 'Agent', thread };
+    const agent = commit.agent ?? thread?.agent;
+    return { kind: 'agent', name: agent ? agentLabel(agent) : 'Agent', thread };
   }
   const address = commit.email.trim().toLowerCase();
   const own = address !== '' && address === (ownEmail ?? '').trim().toLowerCase();
