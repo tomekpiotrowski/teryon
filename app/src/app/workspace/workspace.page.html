@@ -3,6 +3,16 @@
     @let screen = screen$ | async;
     @if (screen === 'usage') {
       <app-usage (closed)="screen$.next('thread')" (menuOpened)="openMenu()"></app-usage>
+    } @else if (screen === 'plan') {
+      <app-plan [thread]="view.thread" (menuOpened)="openMenu()"></app-plan>
+    } @else if (screen === 'board') {
+      <app-board
+        [project]="view.project"
+        [everyProject]="(boardEvery$ | async) ?? false"
+        [openThreadId]="view.thread?.id ?? null"
+        (opened)="openFromBoard($event)"
+        (menuOpened)="openMenu()"
+      ></app-board>
     } @else if (view.project && screen === 'files') {
       <app-files
         [project]="view.project"
@@ -75,8 +85,8 @@
                     (keydown)="handleComposerKeydown($event, view)"
                   ></textarea>
                   <div class="composer-meta">
-                    @if (choice$ | async; as choice) {
-                      <button type="button" aria-label="Change agent" (click)="switchAgent()">{{ choiceLabel(choice) }}</button>
+                    @if (newThreadLabel$ | async; as label) {
+                      <button type="button" aria-label="Change agent" (click)="switchAgent()">{{ label }}</button>
                     }
                     <span class="spacer"></span>
                     <button type="button" class="code-link" aria-keyshortcuts="/" (click)="openMenu()">menu <kbd>/</kbd></button>
@@ -114,6 +124,10 @@
                           <div class="activity-block"><div><span>◆</span><span>{{ line.text }}</span></div></div>
                         }
                         @case ('notice') { <p class="notice-line">{{ line.text }}</p> }
+                        @case ('stage') { <p class="notice-line stage-line">◇ {{ line.text }}</p> }
+                        @case ('plan') {
+                          <p class="notice-line">◇ <button type="button" class="code-link plan-line" aria-keyshortcuts="p" (click)="showPlan()">{{ line.text }}</button></p>
+                        }
                         @case ('error') { <p class="error-line" role="alert">{{ line.text }}</p> }
                         @case ('summary') { <p class="summary-line" [attr.title]="line.title ?? null">{{ line.text }}</p> }
                         @case ('questions') {
@@ -181,6 +195,7 @@
                       } @else {
                         <span class="thread-choice">{{ choiceLabel({ agent: view.thread.agent, model: view.thread.model ?? null }) }}</span>
                       }
+                      <button type="button" class="code-link thread-stage" aria-keyshortcuts="b" title="Where this thread’s work stands" (click)="showBoard()">{{ view.stage }} <kbd>B</kbd></button>
                       <button type="button" class="code-link" aria-keyshortcuts="/" (click)="openMenu()">menu <kbd>/</kbd></button>
                       <button type="button" class="code-link" aria-keyshortcuts="h" (click)="screen$.next('history')">history <kbd>H</kbd></button>
                       <button type="button" class="code-link" aria-keyshortcuts="c" (click)="showCode()">code <kbd>C</kbd></button>

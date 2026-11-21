@@ -5,7 +5,7 @@ import { ErnoAlertsService } from 'erno-angular';
 import { BehaviorSubject, EMPTY, type Observable, of, Subject } from 'rxjs';
 
 import { WorkspaceApi } from './workspace.api';
-import { NO_MODELS, type Change, type Opens, type Project, type Screen, type Thread, type ThreadEntry } from './workspace.model';
+import { NO_MODELS, NO_WORKFLOWS, type Change, type Opens, type Project, type Screen, type Thread, type ThreadEntry } from './workspace.model';
 import { WorkspaceModule } from './workspace.module';
 import { WorkspacePage } from './workspace.page';
 import { WorkspaceStore } from './workspace.store';
@@ -16,6 +16,7 @@ class StoreDouble {
   readonly threads$ = new BehaviorSubject<readonly Thread[]>([]);
   readonly opens$ = new BehaviorSubject<Opens>({ editor: false, terminal: false });
   readonly models$ = of(NO_MODELS);
+  readonly workflows$ = of(NO_WORKFLOWS);
   readonly connection$ = EMPTY;
   private readonly conversations = new Map<string, Subject<ThreadEntry[]>>();
 

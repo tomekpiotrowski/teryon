@@ -5,7 +5,9 @@
  * the screen itself cannot be unit tested until Vitest can load Ionic.
  */
 
-import type { Question } from '../service/protocol';
+import type { PlanInfo, Question, Stage, Workflow, Workflows } from '../service/protocol';
+
+export type { PlanInfo, Stage, Workflow, Workflows };
 import type { Asked } from './questions.model';
 
 export type AgentName = 'claude' | 'codex' | 'grok';
@@ -44,7 +46,59 @@ export interface Thread {
   readonly finished: Finish | null;
   /** The second agent, reviewing the change. Nothing until a review is asked for. */
   readonly reviewer: Reviewer | null;
+  /** The workflow the thread follows, by name. Empty means the default. */
+  readonly workflow?: string;
+  /** Where the thread's work stands. Missing on threads from before stages, which count as talking. */
+  readonly stage?: Stage;
+  /** When the thread moved to its stage. Missing on threads from before Teryon recorded it. */
+  readonly stage_since?: string | null;
+  /** What Teryon last saw of the thread's plan. Nothing until its agent writes one. */
+  readonly plan?: PlanInfo | null;
+  /** How many agents Teryon started by itself since the person last wrote. */
+  readonly rounds?: number;
+  /** Whether the person stopped the thread, so Teryon starts nothing by itself until they write again. */
+  readonly held?: boolean;
   readonly created_at: string;
+}
+
+/** The stages, in the order work goes through them. */
+export const STAGES: readonly Stage[] = ['talking', 'planning', 'implementing', 'review', 'ready', 'done'];
+
+/** What each stage is called, until the service says otherwise. */
+const USUAL_STAGE_LABELS: Readonly<Record<Stage, string>> = {
+  talking: 'Talking',
+  planning: 'Planning',
+  implementing: 'Implementing',
+  review: 'In review',
+  ready: 'Ready to apply',
+  done: 'Done',
+};
+
+/** The workflows before the service has said which there are. */
+export const NO_WORKFLOWS: Workflows = {
+  default: 'default',
+  workflows: [{ name: 'default', description: '', stages: [...STAGES] }],
+  labels: STAGES.map((stage) => ({ stage, label: USUAL_STAGE_LABELS[stage], chooses: null })),
+};
+
+/** What a person reads for a stage, as `config.toml` may have relabelled it. */
+export function stageLabel(workflows: Workflows, stage: Stage): string {
+  return workflows.labels.find((label) => label.stage === stage)?.label ?? USUAL_STAGE_LABELS[stage];
+}
+
+/** The stage a thread is in, counting threads from before stages as talking. */
+export function stageOf(thread: Thread): Stage {
+  return thread.stage ?? 'talking';
+}
+
+/** A thread's workflow; one no longer set up, or none, means the default. */
+export function workflowOf(workflows: Workflows, thread: Thread): Workflow {
+  return workflows.workflows.find((workflow) => workflow.name === thread.workflow) ?? defaultWorkflow(workflows);
+}
+
+/** The workflow new threads start on. */
+export function defaultWorkflow(workflows: Workflows): Workflow {
+  return workflows.workflows.find((workflow) => workflow.name === workflows.default) ?? workflows.workflows[0] ?? NO_WORKFLOWS.workflows[0];
 }
 
 /** Which of a thread's two agents something belongs to: the one making the change, or the one reviewing it. */
@@ -119,9 +173,38 @@ export const NO_MODELS: ModelLists = { claude: [], codex: [], grok: [] };
 export interface NewThreads {
   readonly agent: AgentName;
   readonly models: Readonly<Record<AgentName, string | null>>;
+  /**
+   * Whether the person picked the agent.
+   *
+   * Until they do, the service lets the workflow's first stage choose, as
+   * `config.toml` says, and Claude on its default model when it says nothing.
+   */
+  readonly picked: boolean;
 }
 
-export const FIRST_NEW_THREADS: NewThreads = { agent: 'claude', models: { claude: null, codex: null, grok: null } };
+export const FIRST_NEW_THREADS: NewThreads = { agent: 'claude', models: { claude: null, codex: null, grok: null }, picked: false };
+
+/** The agent and model to start a new thread with, or nothing to let the first stage choose. */
+export function startingChoice(newThreads: NewThreads): Choice | null {
+  return newThreads.picked ? chosen(newThreads) : null;
+}
+
+/**
+ * What the new-thread button says: the first stage's choice until the person picks, such as "Talking: Prefer Claude · strong".
+ *
+ * Without settings for the first stage, Claude's default, which is what the service starts.
+ */
+export function newThreadLabel(newThreads: NewThreads, workflows: Workflows): string {
+  const first = defaultWorkflow(workflows).stages[0] ?? 'talking';
+  const chooses = workflows.labels.find((label) => label.stage === first)?.chooses;
+  return !newThreads.picked && chooses ? `${stageLabel(workflows, first)}: ${chooses}` : choiceLabel(chosen(newThreads));
+}
+
+/** Whether the workflow's first stage chooses the agent of new threads. */
+export function firstStageChooses(workflows: Workflows): boolean {
+  const first = defaultWorkflow(workflows).stages[0] ?? 'talking';
+  return Boolean(workflows.labels.find((label) => label.stage === first)?.chooses);
+}
 
 /** The agent and model a new thread starts with. */
 export function chosen(newThreads: NewThreads): Choice {
@@ -130,12 +213,20 @@ export function chosen(newThreads: NewThreads): Choice {
 
 /** New threads after picking a choice: its agent, with its model remembered for that agent. */
 export function choosing(newThreads: NewThreads, choice: Choice): NewThreads {
-  return { agent: choice.agent, models: { ...newThreads.models, [choice.agent]: choice.model } };
+  return { agent: choice.agent, models: { ...newThreads.models, [choice.agent]: choice.model }, picked: true };
 }
 
-/** New threads on the next agent, going round, with the model remembered for it. For the button beside the message box. */
-export function switchingAgent(newThreads: NewThreads): NewThreads {
-  return { ...newThreads, agent: nextAgent(newThreads.agent) };
+/**
+ * New threads on the next agent, going round, with the model remembered for it. For the button beside the message box.
+ *
+ * When the first stage chooses, the round starts and ends with letting it:
+ * the stage's choice, then Claude, Codex, Grok, and the stage's choice again.
+ */
+export function switchingAgent(newThreads: NewThreads, byStage = false): NewThreads {
+  if (!newThreads.picked && byStage) return { ...newThreads, agent: AGENTS[0], picked: true };
+  const next = nextAgent(newThreads.agent);
+  if (byStage && next === AGENTS[0]) return { ...newThreads, agent: next, picked: false };
+  return { ...newThreads, agent: next, picked: true };
 }
 
 /** Every choice an agent offers: its default first, then its models. */
@@ -238,7 +329,7 @@ export interface Opens {
 
 export const NO_OPENS: Opens = { editor: false, terminal: false };
 
-export type EntryKind = 'user_message' | 'agent_message' | 'activity' | 'notice' | 'error' | 'turn_summary' | 'questions';
+export type EntryKind = 'user_message' | 'agent_message' | 'activity' | 'notice' | 'error' | 'turn_summary' | 'questions' | 'stage' | 'plan';
 
 export interface ThreadEntry {
   readonly id: string;
@@ -265,8 +356,8 @@ export interface Selection {
 
 /** One line of a thread, ready to show. */
 export interface EntryLine {
-  /** `review` marks where a review starts. */
-  readonly kind: 'user' | 'agent' | 'activity' | 'notice' | 'review' | 'error' | 'summary' | 'questions';
+  /** `review` marks where a review starts; `stage` where the thread moved to another stage; `plan` where its plan was written or changed. */
+  readonly kind: 'user' | 'agent' | 'activity' | 'notice' | 'review' | 'error' | 'summary' | 'questions' | 'stage' | 'plan';
   readonly text: string;
   /** Whether the reviewer wrote it, or the person wrote it to the reviewer. */
   readonly reviewer: boolean;
@@ -287,7 +378,7 @@ export interface EntryLine {
 export const NOTHING_SELECTED: Selection = { projectId: null, threadId: null };
 
 /** What fills the screen: a project's threads, its files or its history. */
-export type Screen = 'thread' | 'files' | 'history' | 'usage';
+export type Screen = 'thread' | 'files' | 'history' | 'usage' | 'board' | 'plan';
 
 /** A pressed key, as far as the shortcuts care. */
 export interface KeyPress {
@@ -686,6 +777,10 @@ function plainLine(entry: ThreadEntry): EntryLine {
       const title = typeof model === 'string' && model ? { title: model } : {};
       return { kind: 'summary', text: summaryText(entry.body), reviewer, ...title };
     }
+    case 'stage':
+      return { kind: 'stage', text, reviewer };
+    case 'plan':
+      return { kind: 'plan', text, reviewer };
     case 'questions': {
       const asked = askedIn(entry);
       return asked ? { kind: 'questions', text: '', reviewer, asked } : { kind: 'notice', text: 'The agent asked something Teryon couldn’t read.', reviewer };

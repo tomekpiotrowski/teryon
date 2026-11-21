@@ -33,6 +33,8 @@ use crate::changes::status::{branch_present, read_state, Look};
 use crate::changes::{copies_in, Change, ChangeState, Finish, FoundCopy, Review, ReviewState};
 use crate::protocol::{Event, Opener};
 use crate::store::{Status, Thread};
+use crate::workflow::Happening;
+use crate::workspace::stages::Mover;
 use crate::workspace::{Inner, Workspace, WorkspaceError};
 
 /// How long Discard waits for a stopped agent to end.
@@ -158,6 +160,7 @@ impl Workspace {
 
     /// Reads again where a thread's change stands, closely, and how its review is going. For when a person opens the thread.
     pub async fn refresh_change(&self, thread_id: Uuid) {
+        self.inner.look_at_plan(thread_id);
         self.inner.look_at(thread_id, Look::Thorough).await;
         self.inner.follow_review(thread_id).await;
     }
@@ -324,9 +327,22 @@ impl Inner {
             // The reviewer goes with the change: it only ever works inside the change's copy.
             thread.reviewer = None;
         })?;
+        let why = match finish {
+            Finish::Applied => "applied to the project",
+            Finish::Accepted => "accepted on GitHub",
+            Finish::Discarded => "discarded",
+            Finish::Removed => "its copy was removed",
+        };
+        let moved = self.happen(
+            store,
+            &thread,
+            Happening::ChangeFinished,
+            Mover::Teryon(why.to_string()),
+        )?;
         drop(state);
         self.announce(Event::EntryAdded { entry });
         self.announce(Event::ThreadChanged { thread });
+        self.announce_moved(moved);
         Ok(())
     }
 
@@ -431,8 +447,15 @@ impl Inner {
             // A new change gets a reviewer of its own: the last one's findings and conversation were about other work.
             thread.reviewer = None;
         })?;
+        let moved = self.happen(
+            store,
+            &thread,
+            Happening::ChangeStarted,
+            Mover::Teryon("a change started".to_string()),
+        )?;
         drop(state);
         self.announce(Event::ThreadChanged { thread });
+        self.announce_moved(moved);
         Ok(())
     }
 

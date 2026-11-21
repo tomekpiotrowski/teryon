@@ -70,6 +70,11 @@ import {
   screenAfter,
   type Selection,
   seenNow,
+  startingChoice,
+  newThreadLabel,
+  firstStageChooses,
+  stageLabel,
+  stageOf,
   type Thread,
   threadLabel,
   type Voice,
@@ -81,6 +86,9 @@ import {
 import { WorkspaceStore } from './workspace.store';
 
 /** Everything the template needs about the workspace at one moment. */
+/** The keys the board answers itself. */
+const BOARD_KEYS = ['h', 'j', 'k', 'l', 'a', 'Enter'];
+
 interface WorkspaceView {
   readonly groups: readonly ProjectGroup[];
   readonly project: Project | null;
@@ -95,6 +103,8 @@ interface WorkspaceView {
   readonly place: Place;
   /** Where the open thread's change stands. Nothing when the thread never changed anything. */
   readonly change: ChangeCard | null;
+  /** The open thread's stage, as a person reads it, such as `Implementing`. Empty without a thread. */
+  readonly stage: string;
 }
 
 /** A button on the change line: a command with its keys. */
@@ -151,6 +161,10 @@ export class WorkspacePage implements OnDestroy {
   readonly newThreads$ = new BehaviorSubject<NewThreads>(FIRST_NEW_THREADS);
   /** The agent and model a new thread would start with, for the button beside the message box. */
   readonly choice$: Observable<Choice> = this.newThreads$.pipe(map(chosen));
+  /** What the button beside the message box says about new threads: the first stage's choice until the person picks. */
+  readonly newThreadLabel$: Observable<string> = combineLatest([this.newThreads$, this.store.workflows$]).pipe(
+    map(([newThreads, workflows]) => newThreadLabel(newThreads, workflows)),
+  );
   readonly menuOpen$ = new BehaviorSubject(false);
   /** The one section the menu was opened on, such as the thread's changes. Nothing for the whole menu. */
   readonly menuSection$ = new BehaviorSubject<CommandGroup | null>(null);
@@ -160,6 +174,8 @@ export class WorkspacePage implements OnDestroy {
   readonly sending$ = new BehaviorSubject(false);
   /** Whether the selected project's threads, files or history fill the screen. */
   readonly screen$ = new BehaviorSubject<Screen>('thread');
+  /** Whether the board shows every project's threads rather than the open project's. */
+  readonly boardEvery$ = new BehaviorSubject(false);
   /** The branch or commit the files and the history were last asked to show. */
   readonly place$ = new BehaviorSubject<Place>(NO_PLACE);
   /** A leader key pressed, waiting for the key that picks a command of its family. */
@@ -186,8 +202,8 @@ export class WorkspacePage implements OnDestroy {
     shareReplay({ bufferSize: 1, refCount: true }),
   );
 
-  readonly view$: Observable<WorkspaceView> = combineLatest([this.selected$, this.place$]).pipe(
-    switchMap(([{ groups, project, thread }, place]) => {
+  readonly view$: Observable<WorkspaceView> = combineLatest([this.selected$, this.place$, this.store.workflows$]).pipe(
+    switchMap(([{ groups, project, thread }, place, workflows]) => {
       const projectThreads = groups.find((group) => group.project.id === project?.id)?.threads ?? [];
       const entries$ = thread ? this.store.entries$(thread.id) : of([]);
       return entries$.pipe(
@@ -201,6 +217,7 @@ export class WorkspacePage implements OnDestroy {
           projectThreads,
           place: project ? placeIn(place, project.id) : NO_PLACE,
           change: thread ? changeCard(thread, project) : null,
+          stage: thread ? stageLabel(workflows, stageOf(thread)) : '',
         })),
       );
     }),
@@ -247,10 +264,11 @@ export class WorkspacePage implements OnDestroy {
     this.store.opens$,
     this.store.models$,
     this.target$,
+    this.store.workflows$,
     combineLatest([this.pending$, this.putAway$]).pipe(map(([pending, putAway]) => pending !== null && pending.id === putAway)),
   ]).pipe(
-    map(([view, newThreads, theme, opens, models, to, questionsPutAway]) =>
-      commandList({ ...view, newThreads, theme, opens, models, to, questionsPutAway }),
+    map(([view, newThreads, theme, opens, models, to, workflows, questionsPutAway]) =>
+      commandList({ ...view, newThreads, theme, opens, models, to, workflows, questionsPutAway }),
     ),
     shareReplay({ bufferSize: 1, refCount: true }),
   );
@@ -401,6 +419,8 @@ export class WorkspacePage implements OnDestroy {
       this.leader$.next(null);
       return this.screen$.next('thread');
     }
+    // The board moves between cards with these, see `BoardComponent`; `h` would otherwise open the history.
+    if (this.screen$.value === 'board' && BOARD_KEYS.includes(event.key)) return;
     if (menuAsked(press, this.draft$.value)) {
       event.preventDefault();
       return this.openMenu(true);
@@ -442,6 +462,10 @@ export class WorkspacePage implements OnDestroy {
       case 'openProject':
         this.selectProject(action.project);
         return this.screen$.next('thread');
+      case 'showBoard':
+        return this.showBoard(action.everyProject);
+      case 'chooseWorkflow':
+        return this.chooseWorkflow(action.thread, action.workflow);
       case 'showScreen':
         return action.screen === 'files' ? this.showCode() : this.screen$.next(screenAfter(this.screen$.value, action.screen));
       case 'removeProject':
@@ -563,6 +587,30 @@ export class WorkspacePage implements OnDestroy {
   }
 
   /** Switches a thread's agent, or its reviewer, to another agent or model, from the next message on. */
+  /** Opens the open thread's plan. */
+  showPlan(): void {
+    this.screen$.next('plan');
+  }
+
+  /** Opens the board of the open project, or of every project; asked again, goes back to the thread. */
+  showBoard(everyProject = false): void {
+    this.boardEvery$.next(everyProject);
+    this.screen$.next(screenAfter(this.screen$.value, 'board'));
+  }
+
+  /** Puts a thread on another workflow, from the menu. */
+  chooseWorkflow(thread: Thread, workflow: string): void {
+    this.api.chooseWorkflow(thread.id, workflow).subscribe({
+      error: (failure: unknown) => this.alerts.error(refusalText(failure, 'The workflow could not be changed.')),
+    });
+  }
+
+  /** A thread opened from the board: it fills the screen in place of the board. */
+  openFromBoard(thread: Thread): void {
+    this.openThread(thread);
+    this.screen$.next('thread');
+  }
+
   changeAgent(thread: Thread, to: Voice, choice: Choice): void {
     this.api.changeAgent(thread.id, to, choice).subscribe({
       error: (failure: unknown) => this.alerts.error(refusalText(failure, 'The agent could not be changed.')),
@@ -579,7 +627,9 @@ export class WorkspacePage implements OnDestroy {
 
   /** Moves new threads on to the next agent, on the model last chosen for it, for the button beside the message box. */
   switchAgent(): void {
-    this.newThreads$.next(switchingAgent(this.newThreads$.value));
+    this.store.workflows$.pipe(take(1)).subscribe((workflows) =>
+      this.newThreads$.next(switchingAgent(this.newThreads$.value, firstStageChooses(workflows))),
+    );
   }
 
   updateDraft(event: Event): void {
@@ -626,7 +676,7 @@ export class WorkspacePage implements OnDestroy {
 
     const thread$ = view.thread
       ? of(view.thread)
-      : this.api.createThread(view.project.id, chosen(this.newThreads$.value)).pipe(
+      : this.api.createThread(view.project.id, startingChoice(this.newThreads$.value)).pipe(
           tap((thread) => this.selection$.next({ projectId: thread.project_id, threadId: thread.id })),
         );
 

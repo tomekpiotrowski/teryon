@@ -111,6 +111,8 @@ pub enum ThreadChange {
     Reviewed(Option<u32>),
     /// The reviewer's turn ended before it finished: stopped, failed, or cut short by the program.
     ReviewCut,
+    /// The agent's program said a usage limit ended the turn, so another provider may carry on.
+    RanOut(Agent),
     /// The program has ended, however it ended. The thread takes messages again
     /// and needs the person's attention.
     Finished,
@@ -125,6 +127,8 @@ pub struct TurnRequest {
     pub message: String,
     /// Environment variables for the program, on top of Teryon's own.
     pub environment: Vec<(String, OsString)>,
+    /// What the agent is told about the thread's stage and plan, see [`crate::agents::staging`].
+    pub staging: Option<String>,
 }
 
 /// An agent program that is running.
@@ -228,6 +232,7 @@ async fn run_turn(
         directory,
         message,
         mut environment,
+        staging,
     } = request;
     environment.push(("TERYON_THREAD".to_string(), thread.id.to_string().into()));
     environment.push(("TERYON_TURN".to_string(), turn.to_string().into()));
@@ -249,8 +254,8 @@ async fn run_turn(
     };
     let watch_change = brief.is_some();
     let brief = match voice {
-        Voice::Author => with_naming(thread.named, Some(with_asking(brief))),
-        Voice::Reviewer => brief,
+        Voice::Author => with_naming(thread.named, Some(with_asking(joined(brief, staging)))),
+        Voice::Reviewer => joined(brief, staging),
     };
     let before = match (voice, change) {
         (Voice::Reviewer, Some(change)) => fingerprint(change).await,
@@ -370,6 +375,9 @@ async fn run_turn(
         },
     );
 
+    if outcome.hit_limit {
+        journal.note(thread.id, ThreadChange::RanOut(speaker.agent));
+    }
     if voice == Voice::Reviewer {
         let finished = outcome.stop.is_none() && outcome.summarised && !outcome.early;
         let change = if finished {
@@ -380,6 +388,14 @@ async fn run_turn(
         journal.note(thread.id, change);
     }
     late
+}
+
+/// Two parts of a brief, one after the other, either of which may be missing.
+fn joined(first: Option<String>, second: Option<String>) -> Option<String> {
+    match (first, second) {
+        (Some(first), Some(second)) => Some(format!("{first}\n\n{second}")),
+        (first, second) => first.or(second),
+    }
 }
 
 /// Records that a reviewer's turn ended before the reviewer could finish, here because it never started.

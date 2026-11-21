@@ -59,6 +59,16 @@ enum ThreadCommand {
     },
     /// Ask the person questions, written as JSON on standard input; their answers arrive as their next message.
     Ask,
+    /// Say the thread's work has moved to another stage; the next stage's agent may take over once your turn ends.
+    Stage {
+        /// One of `talking`, `planning`, `implementing`, `review`, `ready`.
+        stage: String,
+    },
+    /// Put the thread on another workflow, at its start, before any change.
+    Workflow {
+        /// The workflow's name, such as `small`.
+        name: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -98,6 +108,30 @@ async fn main() -> ExitCode {
         Some(Command::Thread {
             command: ThreadCommand::Ask,
         }) => ask_questions(folders).await,
+        Some(Command::Thread {
+            command: ThreadCommand::Stage { stage },
+        }) => {
+            simple_call(folders, "teryon thread stage", |thread_id, turn| {
+                Request::ReportStage {
+                    thread_id,
+                    turn,
+                    stage,
+                }
+            })
+            .await
+        }
+        Some(Command::Thread {
+            command: ThreadCommand::Workflow { name },
+        }) => {
+            simple_call(folders, "teryon thread workflow", |thread_id, turn| {
+                Request::ChooseWorkflow {
+                    thread_id,
+                    turn: Some(turn),
+                    workflow: name,
+                }
+            })
+            .await
+        }
         None => {
             eprintln!(
                 "The terminal app is not there yet. Run `teryon service`, or `teryon --help`."
@@ -181,14 +215,23 @@ async fn create_worktree(folders: Folders, name: String, from: Option<String>) -
 
 /// Gives the thread whose agent runs this a title.
 async fn title_thread(folders: Folders, title: String) -> ExitCode {
-    let answer = call_for_thread(folders, "teryon thread title", |thread_id, turn| {
+    simple_call(folders, "teryon thread title", |thread_id, turn| {
         Request::NameThread {
             thread_id,
             turn,
             title,
         }
     })
-    .await;
+    .await
+}
+
+/// Sends a request about the thread whose agent runs this, printing nothing unless it was refused.
+async fn simple_call(
+    folders: Folders,
+    command: &str,
+    request: impl FnOnce(Uuid, Uuid) -> Request,
+) -> ExitCode {
+    let answer = call_for_thread(folders, command, request).await;
     match answer {
         Ok(_) => ExitCode::SUCCESS,
         Err(problem) => {

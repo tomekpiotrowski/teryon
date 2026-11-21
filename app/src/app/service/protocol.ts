@@ -5,7 +5,11 @@ export type JsonValue = number | string | boolean | null | JsonValue[] | { [key:
 
 export type ClientMessage = { "type": "hello", token: string, } | { "type": "call", id: number, request: Request, };
 
-export type Request = { "type": "add_project", name: string, directory: string, } | { "type": "directories", path: string, } | { "type": "remove_project", project_id: string, } | { "type": "start_thread", project_id: string, agent: string, 
+export type Request = { "type": "add_project", name: string, directory: string, } | { "type": "directories", path: string, } | { "type": "remove_project", project_id: string, } | { "type": "start_thread", project_id: string, 
+/**
+ * Nothing lets the workflow's first stage choose, see `crate::workflow::picking`.
+ */
+agent: string | null, 
 /**
  * Nothing leaves the model to the agent program.
  */
@@ -21,19 +25,23 @@ model: string | null, } | { "type": "change_agent", thread_id: string, to: Voice
 /**
  * Nothing leaves the model to the agent program.
  */
-model: string | null, } | { "type": "stop", thread_id: string, } | { "type": "mark_seen", thread_id: string, } | { "type": "start_change", thread_id: string, turn: string, name: string, from: string | null, } | { "type": "name_thread", thread_id: string, turn: string, title: string, } | { "type": "ask_questions", thread_id: string, turn: string, asked: string, } | { "type": "draft_description", thread_id: string, } | { "type": "apply_change", thread_id: string, description: string, } | { "type": "catch_up", thread_id: string, } | { "type": "discard_change", thread_id: string, } | { "type": "send_for_review", thread_id: string, description: string, } | { "type": "open_review", thread_id: string, } | { "type": "open_copy", thread_id: string, with: Opener, } | { "type": "follow_thread", thread_id: string, } | { "type": "unfollow_thread", thread_id: string, } | { "type": "files", project_id: string, thread_id: string | null, branch: string | null, commit: string | null, } | { "type": "file", project_id: string, thread_id: string | null, branch: string | null, commit: string | null, path: string, } | { "type": "history", project_id: string, branch: string | null, } | { "type": "changes", project_id: string, commit: string, from: string | null, } | { "type": "change", project_id: string, commit: string, from: string | null, path: string, } | { "type": "usage" } | { "type": "shutdown" };
+model: string | null, } | { "type": "stop", thread_id: string, } | { "type": "mark_seen", thread_id: string, } | { "type": "start_change", thread_id: string, turn: string, name: string, from: string | null, } | { "type": "name_thread", thread_id: string, turn: string, title: string, } | { "type": "report_stage", thread_id: string, turn: string, stage: string, } | { "type": "choose_workflow", thread_id: string, turn: string | null, workflow: string, } | { "type": "ask_questions", thread_id: string, turn: string, asked: string, } | { "type": "draft_description", thread_id: string, } | { "type": "apply_change", thread_id: string, description: string, } | { "type": "catch_up", thread_id: string, } | { "type": "discard_change", thread_id: string, } | { "type": "send_for_review", thread_id: string, description: string, } | { "type": "open_review", thread_id: string, } | { "type": "open_copy", thread_id: string, with: Opener, } | { "type": "follow_thread", thread_id: string, } | { "type": "unfollow_thread", thread_id: string, } | { "type": "files", project_id: string, thread_id: string | null, branch: string | null, commit: string | null, } | { "type": "file", project_id: string, thread_id: string | null, branch: string | null, commit: string | null, path: string, } | { "type": "history", project_id: string, branch: string | null, } | { "type": "changes", project_id: string, commit: string, from: string | null, } | { "type": "change", project_id: string, commit: string, from: string | null, path: string, } | { "type": "usage" } | { "type": "plan", thread_id: string, } | { "type": "shutdown" };
 
 export type ServiceMessage = { "type": "reply", id: number, outcome: Outcome, } | { "type": "event", event: Event, };
 
 export type Outcome = { "type": "done", answer: Answer, } | { "type": "failed", message: string, };
 
-export type Answer = { "type": "nothing" } | { "type": "project", project: ProjectView, } | { "type": "directories", listing: DirectoryListing, } | { "type": "thread", thread: Thread, } | { "type": "entry", entry: Entry, } | { "type": "entries", entries: Array<Entry>, } | { "type": "listing", listing: Listing, } | { "type": "file", file: FileView, } | { "type": "history", history: History, } | { "type": "changes", changes: Changes, } | { "type": "path", path: string, } | { "type": "draft", text: string, } | { "type": "caught_up", overlaps: boolean, } | { "type": "usage", report: UsageReport, };
+export type Answer = { "type": "nothing" } | { "type": "project", project: ProjectView, } | { "type": "directories", listing: DirectoryListing, } | { "type": "thread", thread: Thread, } | { "type": "entry", entry: Entry, } | { "type": "entries", entries: Array<Entry>, } | { "type": "listing", listing: Listing, } | { "type": "file", file: FileView, } | { "type": "history", history: History, } | { "type": "changes", changes: Changes, } | { "type": "path", path: string, } | { "type": "draft", text: string, } | { "type": "caught_up", overlaps: boolean, } | { "type": "usage", report: UsageReport, } | { "type": "plan", text: string, };
 
 export type Event = { "type": "snapshot", projects: Array<ProjectView>, threads: Array<Thread>, opens: Opens, 
 /**
  * The models each agent offers besides its default.
  */
-models: ModelLists, } | { "type": "models_changed", models: ModelLists, } | { "type": "project_added", project: ProjectView, } | { "type": "project_removed", project_id: string, } | { "type": "thread_changed", thread: Thread, } | { "type": "entry_added", entry: Entry, } | { "type": "limits_changed", limits: Limits, } | { "type": "usage_recorded", line: UsageLine, };
+models: ModelLists, 
+/**
+ * The workflows threads can follow, and what each stage is called.
+ */
+workflows: Workflows, } | { "type": "models_changed", models: ModelLists, } | { "type": "project_added", project: ProjectView, } | { "type": "project_removed", project_id: string, } | { "type": "thread_changed", thread: Thread, } | { "type": "entry_added", entry: Entry, } | { "type": "limits_changed", limits: Limits, } | { "type": "usage_recorded", line: UsageLine, };
 
 export type ProjectView = { id: string, name: string, directory: string, created_at: string, state: ProjectState, 
 /**
@@ -135,9 +143,84 @@ finished: Finish | null,
 /**
  * The second agent, reviewing the change. Nothing until a review is asked for.
  */
-reviewer: Reviewer | null, created_at: string, };
+reviewer: Reviewer | null, 
+/**
+ * The workflow the thread follows, by name. Empty, or one no longer set up, means the default.
+ */
+workflow: string, 
+/**
+ * Where the thread's work stands, see [`crate::workflow`].
+ */
+stage: Stage, 
+/**
+ * When the thread moved to its stage, so the board shows the most recent work first.
+ *
+ * Nothing on threads stored before Teryon recorded it; their creation counts instead.
+ */
+stage_since: string | null, 
+/**
+ * How many agents Teryon started by itself since the person last wrote.
+ *
+ * Shown on the board, and capped by `automatic_rounds`, so an author and
+ * a reviewer who never agree stop before they use up a subscription.
+ */
+rounds: number, 
+/**
+ * Whether the person stopped the thread, so Teryon starts nothing by itself until they write again.
+ */
+held: boolean, 
+/**
+ * What Teryon last saw of the thread's plan, see [`crate::plans`]. Nothing until one is written.
+ */
+plan: PlanInfo | null, 
+/**
+ * The provider picked for each stage, so the thread goes back to the same one, see [`crate::workflow::picking`].
+ */
+picks: { [key in Stage]?: string }, created_at: string, };
+
+export type PlanInfo = { 
+/**
+ * The plan's first heading, or "Plan" without one.
+ */
+title: string, 
+/**
+ * Tells a changed file from the same one; not meant for the person.
+ */
+fingerprint: string, 
+/**
+ * Whether the file is larger than Teryon shows.
+ */
+too_large: boolean, };
 
 export type Status = "idle" | "running";
+
+export type Stage = "talking" | "planning" | "implementing" | "review" | "ready" | "done";
+
+export type Workflows = { default: string, 
+/**
+ * By name.
+ */
+workflows: Array<Workflow>, 
+/**
+ * One per stage, in the fixed order.
+ */
+labels: Array<StageLabel>, };
+
+export type Workflow = { name: string, 
+/**
+ * One line telling the agent what the workflow suits, so it can choose.
+ */
+description: string, 
+/**
+ * In the fixed order, always ending with Ready and Done.
+ */
+stages: Array<Stage>, };
+
+export type StageLabel = { stage: Stage, label: string, 
+/**
+ * Who works in the stage, such as "Prefer Claude · strong". Nothing when the stage keeps the thread's agent.
+ */
+chooses: string | null, };
 
 export type Change = { 
 /**

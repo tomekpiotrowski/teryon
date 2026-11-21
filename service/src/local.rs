@@ -176,7 +176,9 @@ const UNKNOWN_REQUEST: &str =
     "Teryon does not know this request. It may be older than this window: restart Teryon.";
 
 fn event(event: Event) -> ServiceMessage {
-    ServiceMessage::Event { event }
+    ServiceMessage::Event {
+        event: Box::new(event),
+    }
 }
 
 async fn send(socket: &mut WebSocket, message: &ServiceMessage) -> Result<(), ()> {

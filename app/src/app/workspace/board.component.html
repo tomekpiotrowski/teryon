@@ -1,0 +1,41 @@
+@if (view$ | async; as view) {
+  <div class="files board">
+    <header class="files-bar">
+      <button class="menu-button" type="button" aria-label="Open menu" aria-keyshortcuts="/ Control+K" (click)="menuOpened.emit()">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"></path></svg>
+      </button>
+      <span class="files-mark">TERYON</span>
+      <span class="files-muted files-project">board · {{ view.scope }}</span>
+    </header>
+
+    <main class="board-body" aria-label="Threads by stage">
+      @for (column of view.columns; track column.stage; let c = $index) {
+        <section class="board-column" [attr.aria-label]="column.label">
+          <h2 class="files-key board-heading">{{ column.label }} <span class="files-muted">{{ column.cards.length + column.hidden }}</span></h2>
+          @for (card of column.cards; track card.thread.id; let r = $index) {
+            <button type="button" class="board-card" [class.at]="isAt(view, c, r)" [attr.aria-current]="isAt(view, c, r) ? 'true' : null" (click)="open(card.thread)">
+              <span class="board-title">{{ card.title }}</span>
+              @if (card.project) { <span class="board-line files-muted">{{ card.project }}</span> }
+              <span class="board-line">
+                {{ card.choice }}
+                @if (card.live) { <span class="board-live" role="status" aria-label="working">●</span> }
+                @if (card.asking) { <span class="board-asking" role="status">? waiting for your answers</span> }
+              </span>
+              @if (card.planned) { <span class="board-line files-muted">plan</span> }
+              @if (card.change) { <span class="board-line files-muted">{{ card.change }}</span> }
+              @if (card.findings) { <span class="board-line board-findings">{{ card.findings }}</span> }
+              @if (card.rounds) { <span class="board-line files-muted">{{ card.rounds }}</span> }
+            </button>
+          }
+          @if (column.hidden) { <p class="board-line files-muted">and {{ column.hidden }} older</p> }
+        </section>
+      }
+    </main>
+
+    <footer class="board-hints files-muted">
+      <kbd>H</kbd> <kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd> move · <kbd>↵</kbd> open
+      @if (view.scope !== 'every project' || view.everyProject) { · <kbd>A</kbd> {{ view.everyProject ? 'this project' : 'every project' }} }
+      · <kbd>Esc</kbd> back
+    </footer>
+  </div>
+}

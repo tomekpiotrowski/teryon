@@ -1,6 +1,6 @@
 import type { Event } from './protocol';
 import { applyEvent, NO_LISTS, withEntries, type WorkspaceLists } from './workspace-events';
-import type { Project, Thread, ThreadEntry } from '../workspace/workspace.model';
+import { NO_WORKFLOWS, type Project, type Thread, type ThreadEntry, type Workflows } from '../workspace/workspace.model';
 
 function project(id: string): Project {
   return { id, name: id, directory: `/work/${id}`, created_at: '2026-11-18T10:00:00Z', state: 'ready' };
@@ -31,7 +31,10 @@ const lists: WorkspaceLists = {
   threads: [thread('t1', 'a'), thread('t2', 'b')],
   opens: { editor: false, terminal: false },
   models: { claude: ['opus'], codex: [], grok: [] },
+  workflows: NO_WORKFLOWS,
 };
+
+const SMALL_ONLY: Workflows = { ...NO_WORKFLOWS, default: 'small', workflows: [{ name: 'small', description: '', stages: ['talking', 'ready', 'done'] }] };
 
 function apply(event: unknown): WorkspaceLists {
   return applyEvent(lists, event as Event);
@@ -40,8 +43,8 @@ function apply(event: unknown): WorkspaceLists {
 describe('applyEvent', () => {
   it('replaces everything with a snapshot, including what copies can be opened in', () => {
     const models = { claude: ['sonnet'], codex: ['gpt-6-astra'], grok: [] };
-    const fresh = apply({ type: 'snapshot', projects: [project('c')], threads: [], opens: { editor: true, terminal: false }, models });
-    expect(fresh).toEqual({ projects: [project('c')], threads: [], opens: { editor: true, terminal: false }, models });
+    const fresh = apply({ type: 'snapshot', projects: [project('c')], threads: [], opens: { editor: true, terminal: false }, models, workflows: SMALL_ONLY });
+    expect(fresh).toEqual({ projects: [project('c')], threads: [], opens: { editor: true, terminal: false }, models, workflows: SMALL_ONLY });
   });
 
   it('replaces only the models when they change, as when Grok has listed its own', () => {
@@ -80,7 +83,7 @@ describe('applyEvent', () => {
   });
 
   it('starts from nothing', () => {
-    expect(NO_LISTS).toEqual({ projects: [], threads: [], opens: { editor: false, terminal: false }, models: { claude: [], codex: [], grok: [] } });
+    expect(NO_LISTS).toEqual({ projects: [], threads: [], opens: { editor: false, terminal: false }, models: { claude: [], codex: [], grok: [] }, workflows: NO_WORKFLOWS });
   });
 });
 

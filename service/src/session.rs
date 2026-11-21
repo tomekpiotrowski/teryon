@@ -85,7 +85,7 @@ impl Session {
                 model,
                 title,
             } => workspace
-                .start_thread(project_id, &agent, model.as_deref(), &title)
+                .start_thread(project_id, agent.as_deref(), model.as_deref(), &title)
                 .map(|thread| Answer::Thread {
                     thread: Box::new(thread),
                 })
@@ -144,6 +144,24 @@ impl Session {
             } => workspace
                 .name_thread(thread_id, turn, &title)
                 .map(|()| Answer::Nothing)
+                .map_err(|problem| problem.to_string()),
+            Request::ReportStage {
+                thread_id,
+                turn,
+                stage,
+            } => workspace
+                .report_stage(thread_id, turn, &stage)
+                .map(|()| Answer::Nothing)
+                .map_err(|problem| problem.to_string()),
+            Request::ChooseWorkflow {
+                thread_id,
+                turn,
+                workflow,
+            } => workspace
+                .choose_workflow(thread_id, turn, &workflow)
+                .map(|thread| Answer::Thread {
+                    thread: Box::new(thread),
+                })
                 .map_err(|problem| problem.to_string()),
             Request::AskQuestions {
                 thread_id,
@@ -246,6 +264,10 @@ impl Session {
                 .history(project_id, branch.as_deref())
                 .await
                 .map(|history| Answer::History { history })
+                .map_err(|problem| problem.to_string()),
+            Request::Plan { thread_id } => workspace
+                .plan(thread_id)
+                .map(|text| Answer::Plan { text })
                 .map_err(|problem| problem.to_string()),
             Request::Usage => workspace
                 .usage()

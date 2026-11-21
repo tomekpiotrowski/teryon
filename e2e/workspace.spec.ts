@@ -223,6 +223,8 @@ test("an agent's change is discarded once the person confirms", async ({ page })
   await expect(page.locator("ion-alert")).toContainText("All changes in this thread will be lost: 1 changed file. This cannot be undone.");
   await page.locator("ion-alert").getByRole("button", { name: "Cancel" }).click();
   await expect(changeLine(page).getByRole("button", { name: "Apply to the project" })).toBeVisible();
+  // The cancelled confirmation fades out; asking again before it has gone would show two.
+  await expect(page.locator("ion-alert")).toHaveCount(0);
 
   await choose(page, "Discard changes");
   await page.locator("ion-alert").getByRole("button", { name: "Discard" }).click();

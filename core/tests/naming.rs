@@ -45,7 +45,8 @@ lets_expect! { #tokio_test
         scene.wait_until_idle(&thread).await;
 
         let runs = invocations(&folder);
-        expect(runs[0].contains(&format!("--append-system-prompt {NAMING}{} --system-prompt-snapshot", ASKING.replace('\n', " ")))) to be_true
+        expect(runs[0].contains(&format!("--append-system-prompt {NAMING}This thread follows the `default` workflow"))) to be_true
+        expect(runs[0].contains(&format!("{} --system-prompt-snapshot", ASKING.replace('\n', " ")))) to be_true
         expect(runs[0].contains("teryon worktree create")) to be_false
     }
 
@@ -72,7 +73,7 @@ lets_expect! { #tokio_test
         let scene = Scene::new();
         let folder = project_folder();
         let project = scene.project(&folder);
-        let thread = scene.workspace.start_thread(project.id, "claude", None, "Named").unwrap();
+        let thread = scene.workspace.start_thread(project.id, Some("claude"), None, "Named").unwrap();
         expect(thread.named) to be_true
 
         scene.say(&thread, "hello").unwrap();

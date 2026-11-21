@@ -18,6 +18,8 @@ import {
   type KeyPress,
   type NewThreads,
   NO_MODELS,
+  NO_WORKFLOWS,
+  type Workflows,
   type Project,
   type Thread,
 } from './workspace.model';
@@ -49,6 +51,7 @@ function situation(overrides: Changes = {}): Situation {
     theme: 'light',
     opens: { editor: false, terminal: false },
     questionsPutAway: false,
+    workflows: NO_WORKFLOWS,
     ...rest,
   };
 }
@@ -97,6 +100,7 @@ function ids(commands: readonly Command[]): string[] {
 describe('commandList', () => {
   it('offers only what needs no project when there is none', () => {
     expect(ids(commandList(situation()))).toEqual([
+      'action:board',
       'action:usage',
       'action:use:codex:default',
       'action:use:grok:default',
@@ -115,6 +119,8 @@ describe('commandList', () => {
       'action:newThread',
       'action:files',
       'action:history',
+      'action:board',
+      'action:boardEvery',
       'action:usage',
       'action:use:codex:default',
       'action:use:grok:default',
@@ -286,7 +292,7 @@ describe('commandList', () => {
     const models = { claude: ['opus', 'sonnet'], codex: [], grok: ['grok-4.6'] };
 
     it('offers every agent on every model, its default first, except the current choice', () => {
-      const newThreads = { agent: 'claude' as const, models: { claude: 'opus', codex: null, grok: null } };
+      const newThreads = { agent: 'claude' as const, models: { claude: 'opus', codex: null, grok: null }, picked: true };
       expect(choiceTitles(situation({ models, newThreads }))).toEqual([
         'Use Claude · default for new threads',
         'Use Claude · Sonnet for new threads',
@@ -302,7 +308,7 @@ describe('commandList', () => {
     });
 
     it('asks reviewers on the model remembered for them', () => {
-      const newThreads = { agent: 'claude' as const, models: { claude: null, codex: 'gpt-6-astra', grok: 'grok-4.6' } };
+      const newThreads = { agent: 'claude' as const, models: { claude: null, codex: 'gpt-6-astra', grok: 'grok-4.6' }, picked: true };
       const inProject = { models, newThreads, project: first, thread: changedThread, groups: groupThreads([first], [changedThread]) };
       expect(changeTitles(situation(inProject))).toEqual(['Ask Codex · GPT 6 astra to review', 'Ask Grok · Grok 4.6 to review']);
       const ask = commandList(situation(inProject)).find((candidate) => candidate.id === 'change:askReview');
@@ -310,7 +316,7 @@ describe('commandList', () => {
     });
 
     it('asks the thread\'s reviewer again on its own model, whatever is remembered for new threads', () => {
-      const newThreads: NewThreads = { agent: 'claude', models: { claude: null, codex: 'gpt-6-astra', grok: 'grok-4.6' } };
+      const newThreads: NewThreads = { agent: 'claude', models: { claude: null, codex: 'gpt-6-astra', grok: 'grok-4.6' }, picked: true };
       const reviewedOn = (model: string | null): Thread => ({
         ...changedThread,
         reviewer: { agent: 'grok', model, reviewing: false, verdict: { findings: 2, answered: true, cut: false } },
@@ -397,6 +403,54 @@ describe('commandList', () => {
     ['dark', 'Light theme'],
   ] as const)('in the %s theme offers the other one', (theme, title) => {
     expect(commandList(situation({ theme })).find((candidate) => candidate.id === 'action:toggleTheme')?.title).toBe(title);
+  });
+});
+
+describe('the board and workflow commands', () => {
+  const two: Workflows = {
+    ...NO_WORKFLOWS,
+    workflows: [...NO_WORKFLOWS.workflows, { name: 'small', description: '', stages: ['talking', 'implementing', 'ready', 'done'] }],
+  };
+  const ids = (commands: readonly Command[]) => commands.map((command) => command.id);
+
+  it('offers the board of every project, on B, when no project is open', () => {
+    const board = commandList(situation()).find((command) => command.id === 'action:board');
+    expect([board?.key, board?.detail, board?.action]).toEqual(['b', 'every project', { kind: 'showBoard', everyProject: true }]);
+    expect(ids(commandList(situation()))).not.toContain('action:boardEvery');
+  });
+
+  it('offers the open project’s board on B, and the board of every project besides', () => {
+    const commands = commandList(situation({ project: first }));
+    expect(commands.find((command) => command.id === 'action:board')?.action).toEqual({ kind: 'showBoard', everyProject: false });
+    expect(commands.find((command) => command.id === 'action:boardEvery')?.action).toEqual({ kind: 'showBoard', everyProject: true });
+  });
+
+  it('offers every other workflow for the open thread', () => {
+    const open = thread('t', first.id, '2026-11-20T10:00:00', { workflow: 'default' });
+    const commands = commandList(situation({ project: first, thread: open, workflows: two }));
+    expect(commands.filter((command) => command.id.startsWith('action:workflow:')).map((command) => [command.title, command.action])).toEqual([
+      ['Use the small workflow', { kind: 'chooseWorkflow', thread: open, workflow: 'small' }],
+    ]);
+  });
+
+  it('counts a thread without a workflow as on the default one', () => {
+    const open = thread('t', first.id, '2026-11-20T10:00:00');
+    expect(ids(commandList(situation({ project: first, thread: open, workflows: two })))).toEqual(expect.arrayContaining(['action:workflow:small']));
+    expect(ids(commandList(situation({ project: first, thread: open, workflows: two })))).not.toContain('action:workflow:default');
+  });
+
+  it('offers the plan on P only while the open thread has one', () => {
+    const plain = thread('t', first.id, '2026-11-20T10:00:00');
+    const planned = { ...plain, plan: { title: 'Login fix', fingerprint: 'abc', too_large: false } };
+    expect(ids(commandList(situation({ project: first, thread: plain })))).not.toContain('action:plan');
+    const plan = commandList(situation({ project: first, thread: planned })).find((command) => command.id === 'action:plan');
+    expect([plan?.key, plan?.detail, plan?.action]).toEqual(['p', 'Login fix', { kind: 'showScreen', screen: 'plan' }]);
+  });
+
+  it('offers no workflow commands without a thread, or with one workflow', () => {
+    expect(ids(commandList(situation({ project: first, workflows: two }))).some((id) => id.startsWith('action:workflow:'))).toBe(false);
+    const open = thread('t', first.id, '2026-11-20T10:00:00');
+    expect(ids(commandList(situation({ project: first, thread: open }))).some((id) => id.startsWith('action:workflow:'))).toBe(false);
   });
 });
 
@@ -668,6 +722,8 @@ describe('the commands for a thread\'s change', () => {
       'action:newThread',
       'action:files',
       'action:history',
+      'action:board',
+      'action:boardEvery',
       'action:usage',
       'action:useInThread:codex:default',
       'action:useInThread:grok:default',

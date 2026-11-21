@@ -99,8 +99,11 @@ impl Project {
 
     fn last_note(&self, thread: &Thread) -> String {
         let entries = self.scene.entries(thread);
+        // The last notice: a line saying the thread moved to Done follows it.
         entries
-            .last()
+            .iter()
+            .rev()
+            .find(|entry| entry.kind == "notice")
             .map(|entry| entry.body["text"].as_str().unwrap_or_default().to_string())
             .unwrap_or_default()
     }

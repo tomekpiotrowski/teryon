@@ -32,9 +32,9 @@ export class WorkspaceApi {
     return this.ask({ type: 'remove_project', project_id: projectId }, () => undefined as void);
   }
 
-  /** Starts a thread on an agent and model. */
-  createThread(projectId: string, choice: Choice): Observable<Thread> {
-    return this.ask({ type: 'start_thread', project_id: projectId, agent: choice.agent, model: choice.model, title: '' }, (answer) =>
+  /** Starts a thread on an agent and model, or, without a choice, on what the workflow's first stage chooses. */
+  createThread(projectId: string, choice: Choice | null): Observable<Thread> {
+    return this.ask({ type: 'start_thread', project_id: projectId, agent: choice?.agent ?? null, model: choice?.model ?? null, title: '' }, (answer) =>
       answer.type === 'thread' ? (answer.thread as Thread) : undefined,
     );
   }
@@ -54,6 +54,13 @@ export class WorkspaceApi {
   reviewChange(threadId: string, choice: Choice): Observable<ThreadEntry> {
     return this.ask({ type: 'review_change', thread_id: threadId, agent: choice.agent, model: choice.model }, (answer) =>
       answer.type === 'entry' ? (answer.entry as ThreadEntry) : undefined,
+    );
+  }
+
+  /** Puts a thread on another workflow. A stage the new workflow skips moves on to the next one it has. */
+  chooseWorkflow(threadId: string, workflow: string): Observable<Thread> {
+    return this.ask({ type: 'choose_workflow', thread_id: threadId, turn: null, workflow }, (answer) =>
+      answer.type === 'thread' ? (answer.thread as Thread) : undefined,
     );
   }
 
@@ -148,6 +155,11 @@ export class WorkspaceApi {
   }
 
   /** Every agent's latest limits and the turns of the last 14 days. */
+  /** A thread's plan, as markdown. */
+  plan(threadId: string): Observable<string> {
+    return this.ask({ type: 'plan', thread_id: threadId }, (answer) => (answer.type === 'plan' ? answer.text : undefined));
+  }
+
   usage(): Observable<UsageReport> {
     return this.ask({ type: 'usage' }, (answer) => (answer.type === 'usage' ? answer.report : undefined));
   }

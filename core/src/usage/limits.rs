@@ -322,7 +322,7 @@ pub(crate) fn unknown_limits(agent: Agent, now: DateTime<Utc>) -> Limits {
 mod tests {
     use std::fs::{create_dir_all, write};
 
-    use chrono::{TimeDelta, TimeZone};
+    use chrono::TimeZone;
     use lets_expect::lets_expect;
     use serde_json::json;
     use tempfile::{tempdir, TempDir};

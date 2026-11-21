@@ -9,6 +9,7 @@ mod common;
 
 use std::fs::{canonicalize, read_to_string, write};
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
 use std::time::Duration;
 
 use lets_expect::lets_expect;
@@ -50,7 +51,7 @@ async fn another_thread(client: &mut Client, project: Uuid) -> Uuid {
         client
             .call(Request::StartThread {
                 project_id: project,
-                agent: "claude".to_string(),
+                agent: Some("claude".to_string()),
                 model: None,
                 title: String::new(),
             })
@@ -118,8 +119,10 @@ async fn ask_by_hand(variables: &[(&str, String)]) -> (bool, String) {
 /// Runs `teryon` with only the given variables of Teryon's own, and gives what it said on errors and whether it succeeded.
 async fn run_by_hand(arguments: &[&str], variables: &[(&str, String)]) -> (bool, String) {
     let mut command = Command::new(program());
+    // Nothing on standard input, as from a terminal where nobody types: `teryon thread ask` reads it to the end.
     command
         .args(arguments)
+        .stdin(Stdio::null())
         .env_remove("TERYON_THREAD")
         .env_remove("TERYON_TURN")
         .env_remove("TERYON_DATA");

@@ -16,11 +16,13 @@
 //! outside the lock. Changes have a file of their own, see [`changes`].
 
 mod changes;
+mod stages;
 
 use std::collections::{HashMap, HashSet};
 use std::env::{join_paths, split_paths, var_os};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
@@ -39,6 +41,7 @@ use crate::agents::models::{
     checked_model, list_codex_models, list_grok_models, ModelError, ModelLists,
 };
 use crate::agents::runner::{Journal, Pending, Runner, ThreadChange, TurnRequest, TurnUsage};
+use crate::agents::staging::{planning, reviewing_plan, staging};
 use crate::agents::{Agent, EntryDraft, EntryKind, Voice};
 use crate::changes::finish::FinishError;
 use crate::changes::github::on_github;
@@ -50,13 +53,18 @@ use crate::files::repository::{Place, Repository};
 use crate::files::{FileView, FilesError, Listing};
 use crate::history::turns::{turns_in, working_at, Turn};
 use crate::history::{Changes, History};
+use crate::plans::plan_path;
 use crate::protocol::{Event, Opens, ProjectState, ProjectView};
-use crate::settings::{AgentSettings, GitHubSettings, OpenSettings};
+use crate::settings::{
+    AgentSettings, GitHubSettings, OpenSettings, StageSettings, WorkflowSettings,
+};
 use crate::store::projects::ProjectList;
 use crate::store::threads::ThreadStore;
 use crate::store::{Entry, Project, Reviewer, Status, StoreError, Thread, Verdict};
 use crate::usage::{UsageBook, UsageError, UsageLine, UsageReport};
+use crate::workflow::{moved as stage_after, Happening, Stage, Workflows};
 use crate::workspace::changes::Noticed;
+use crate::workspace::stages::{Mover, Starter, TurnStart};
 
 /// The longest title a list shows whole.
 const LONGEST_TITLE: usize = 60;
@@ -104,6 +112,10 @@ pub struct Setup {
     /// What agents need to call `teryon` themselves. Nothing where there is
     /// no such program, as in the core library's own tests.
     pub tools: Option<AgentTools>,
+    pub workflow: WorkflowSettings,
+    /// Who works in each stage, see [`crate::workflow::picking`].
+    pub stages: StageSettings,
+    pub workflows: Workflows,
 }
 
 /// The `teryon` program an agent calls, and the data folder it finds the service through.
@@ -251,6 +263,10 @@ struct Inner {
     models: Mutex<ModelLists>,
     /// The agents' limits and the log of turns, in the data folder.
     usage: Mutex<UsageBook>,
+    /// How each running turn started, to decide when it ends whether another agent takes over.
+    turns: Mutex<HashMap<Uuid, TurnStart>>,
+    /// Whether Teryon is shutting down, so no agent starts by itself any more.
+    stopping: AtomicBool,
 }
 
 impl Inner {
@@ -275,6 +291,10 @@ impl Inner {
 
     fn usage(&self) -> MutexGuard<'_, UsageBook> {
         self.usage.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn turns(&self) -> MutexGuard<'_, HashMap<Uuid, TurnStart>> {
+        self.turns.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     fn announce(&self, event: Event) {
@@ -343,6 +363,8 @@ impl Workspace {
                 finishing_threads: Mutex::new(HashSet::new()),
                 project_locks: Mutex::new(HashMap::new()),
                 usage: Mutex::new(UsageBook::open(data_folder)),
+                turns: Mutex::new(HashMap::new()),
+                stopping: AtomicBool::new(false),
             }),
         })
     }
@@ -363,6 +385,7 @@ impl Workspace {
                 terminal: self.inner.setup.open.terminal.is_some(),
             },
             models: self.inner.models().clone(),
+            workflows: self.inner.setup.workflows.clone(),
         }
     }
 
@@ -479,18 +502,35 @@ impl Workspace {
         Ok(())
     }
 
+    ///
+    /// Without an agent, the workflow's first stage chooses one, as `config.toml`
+    /// says, and Claude on its default model when it says nothing. An agent
+    /// the person picked always wins.
     pub fn start_thread(
         &self,
         project_id: Uuid,
-        agent: &str,
+        agent: Option<&str>,
         model: Option<&str>,
         title: &str,
     ) -> Result<Thread, WorkspaceError> {
-        let agent = Agent::parse(agent).ok_or_else(|| {
-            WorkspaceError::Invalid("Choose Claude, Codex or Grok as the agent.".to_string())
-        })?;
+        let workflow = self.inner.setup.workflows.of("");
+        let first = workflow.first();
+        let (agent, model, picked) = match agent {
+            Some(agent) => {
+                let agent = Agent::parse(agent).ok_or_else(|| {
+                    WorkspaceError::Invalid(
+                        "Choose Claude, Codex or Grok as the agent.".to_string(),
+                    )
+                })?;
+                (agent, checked_model(model)?, false)
+            }
+            None => match self.inner.stage_pick(None, first, None, None) {
+                Some(Ok(pick)) => (pick.agent, pick.model, true),
+                Some(Err(problem)) => return Err(WorkspaceError::Invalid(problem.to_string())),
+                None => (Agent::Claude, None, false),
+            },
+        };
         let title = title.trim();
-        let model = checked_model(model)?;
         let mut state = self.inner.state();
         state.project(project_id)?;
         let thread = state.ready(project_id)?.save(Thread {
@@ -509,6 +549,16 @@ impl Workspace {
             change: None,
             finished: None,
             reviewer: None,
+            workflow: workflow.name.clone(),
+            stage: first,
+            stage_since: Some(Utc::now()),
+            plan: None,
+            rounds: 0,
+            held: false,
+            picks: match picked {
+                true => [(first, agent.name().to_string())].into(),
+                false => Default::default(),
+            },
             created_at: Utc::now(),
         })?;
         drop(state);
@@ -631,6 +681,22 @@ impl Workspace {
         text: &str,
         to: Voice,
     ) -> Result<Entry, WorkspaceError> {
+        self.send(thread_id, text, to, Starter::Person)
+    }
+
+    /// Sends a message, from the person or from Teryon carrying the thread on to its next stage.
+    ///
+    /// A message from the person clears what holds Teryon back from starting
+    /// agents by itself: the count of rounds without them, and a stop. A
+    /// thread whose change is done starts its workflow over, since the
+    /// message can start a new change.
+    fn send(
+        &self,
+        thread_id: Uuid,
+        text: &str,
+        to: Voice,
+        starter: Starter,
+    ) -> Result<Entry, WorkspaceError> {
         let text = text.trim();
         if text.is_empty() {
             return Err(WorkspaceError::Invalid(
@@ -646,11 +712,64 @@ impl Workspace {
                 "Nobody reviews this thread yet. Ask for a review first.".to_string(),
             ));
         }
+        // What the thread says before the message: a stage it moved to, and who takes that stage.
+        let mut thread = thread;
+        let mut early: Vec<Entry> = Vec::new();
+        let mut remembered: Option<(Stage, Agent)> = None;
+        match (&starter, to) {
+            (Starter::Person, Voice::Author) => {
+                // A thread starting over from Done gets its first stage's agent, as a new thread does.
+                let next = stage_after(
+                    self.inner.workflow_of(&thread),
+                    thread.stage,
+                    Happening::PersonWrote,
+                );
+                let pick = match next.and_then(|stage| {
+                    self.inner
+                        .stage_pick(Some(&thread), stage, None, None)
+                        .map(|pick| (stage, pick))
+                }) {
+                    Some((stage, Ok(pick))) => Some((stage, pick)),
+                    Some((_, Err(problem))) => {
+                        return Err(WorkspaceError::Invalid(problem.to_string()))
+                    }
+                    None => None,
+                };
+                if let Some((entry, after)) = self.inner.happen(
+                    store,
+                    &thread,
+                    Happening::PersonWrote,
+                    Mover::Person("you wrote again".to_string()),
+                )? {
+                    early.push(entry);
+                    thread = after;
+                }
+                if let Some((stage, pick)) = pick {
+                    let (entries, after) =
+                        self.inner.hand_over(store, &thread, stage, &pick, true)?;
+                    early.extend(entries);
+                    thread = after;
+                    remembered = Some((stage, pick.agent));
+                }
+            }
+            (Starter::Teryon { stage, pick }, _) => {
+                let (entries, after) =
+                    self.inner
+                        .hand_over(store, &thread, *stage, pick, to == Voice::Author)?;
+                early.extend(entries);
+                thread = after;
+                remembered = Some((*stage, pick.agent));
+            }
+            (Starter::Person, Voice::Reviewer) => {}
+        }
         let message = handover_message(store, &thread, to, text)?;
         let mut draft = EntryDraft::user_message(text).by(to);
         if to == Voice::Author {
             // Which agent a message went to tells the history whose work followed, see `history::turns`.
             draft.body["agent"] = thread.agent.clone().into();
+        }
+        if let Starter::Teryon { .. } = starter {
+            draft.body["automatic"] = true.into();
         }
         if let Some(reviewer) = thread
             .reviewer
@@ -662,7 +781,17 @@ impl Workspace {
         let entry = store.append(thread_id, draft.kind.name(), draft.body)?;
         let thread = store.change(thread_id, |thread| {
             thread.status = Status::Running;
-            thread.asking = false;
+            match starter {
+                Starter::Person => {
+                    thread.asking = false;
+                    thread.rounds = 0;
+                    thread.held = false;
+                }
+                Starter::Teryon { .. } => thread.rounds += 1,
+            }
+            if let Some((stage, agent)) = remembered {
+                thread.picks.insert(stage, agent.name().to_string());
+            }
             if thread.title.is_empty() {
                 thread.title = title_from(text);
             }
@@ -680,6 +809,9 @@ impl Workspace {
         let directory = state.project(thread.project_id)?.directory.clone();
         drop(state);
 
+        for early in early {
+            self.inner.announce(Event::EntryAdded { entry: early });
+        }
         self.inner.announce(Event::EntryAdded {
             entry: entry.clone(),
         });
@@ -705,6 +837,17 @@ impl Workspace {
             WorkspaceError::Invalid("Choose Claude, Codex or Grok as the reviewer.".to_string())
         })?;
         let model = checked_model(model)?;
+        self.review(thread_id, agent, model, Starter::Person)
+    }
+
+    /// Starts a review, asked for by the person or by Teryon when the thread reached its review stage.
+    fn review(
+        &self,
+        thread_id: Uuid,
+        agent: Agent,
+        model: Option<String>,
+        starter: Starter,
+    ) -> Result<Entry, WorkspaceError> {
         let mut state = self.inner.state();
         let (store, thread) = state.holding(thread_id)?;
         self.inner.check_free(&thread)?;
@@ -749,9 +892,28 @@ impl Workspace {
             .naming(agent);
         let mut body = notice.body;
         body["starts_review"] = true.into();
+        let taking = match &starter {
+            Starter::Teryon { stage, pick } => {
+                self.inner.hand_over(store, &thread, *stage, pick, false)?.0
+            }
+            Starter::Person => Vec::new(),
+        };
         let entry = store.append(thread_id, notice.kind.name(), body)?;
+        let moved = match starter {
+            Starter::Person => self.inner.happen(
+                store,
+                &thread,
+                Happening::ReviewAsked,
+                Mover::Person("you asked for a review".to_string()),
+            )?,
+            Starter::Teryon { .. } => None,
+        };
         let thread = store.change(thread_id, |thread| {
             thread.status = Status::Running;
+            if let Starter::Teryon { stage, .. } = &starter {
+                thread.rounds += 1;
+                thread.picks.insert(*stage, agent.name().to_string());
+            }
             if !same_reviewer {
                 thread.reviewer = Some(Reviewer {
                     agent: agent.name().to_string(),
@@ -771,9 +933,16 @@ impl Workspace {
         let directory = state.project(thread.project_id)?.directory.clone();
         drop(state);
 
+        for taking in taking {
+            self.inner.announce(Event::EntryAdded { entry: taking });
+        }
         self.inner.announce(Event::EntryAdded {
             entry: entry.clone(),
         });
+        if let Some((stage_entry, _)) = moved {
+            self.inner
+                .announce(Event::EntryAdded { entry: stage_entry });
+        }
         self.start_turn(thread, Voice::Reviewer, directory, &message);
         Ok(entry)
     }
@@ -784,6 +953,8 @@ impl Workspace {
     /// where it stands lands where the check after its turn sees it, not in
     /// the project folder the person may be working in.
     fn start_turn(&self, thread: Thread, voice: Voice, directory: PathBuf, message: &str) {
+        // The plan is in the project, wherever the agent runs.
+        let plan = plan_path(&directory, thread.id);
         let directory = match (voice, thread.change.as_deref()) {
             (Voice::Reviewer, Some(change)) => change.path.clone(),
             _ => directory,
@@ -791,6 +962,30 @@ impl Workspace {
         self.inner.announce(Event::ThreadChanged {
             thread: thread.clone(),
         });
+        self.inner
+            .turns()
+            .insert(thread.id, TurnStart::of(voice, thread.stage));
+        let workflow = self.inner.workflow_of(&thread);
+        let staging = match voice {
+            Voice::Author => {
+                let choosing = thread.stage == workflow.first()
+                    && thread.change.is_none()
+                    && thread.finished.is_none();
+                let stage = staging(
+                    &self.inner.setup.workflows,
+                    workflow,
+                    thread.stage,
+                    choosing,
+                );
+                Some(
+                    match planning(&plan, workflow, thread.stage, thread.plan.is_some()) {
+                        Some(planned) => format!("{stage} {planned}"),
+                        None => stage,
+                    },
+                )
+            }
+            Voice::Reviewer => thread.plan.is_some().then(|| reviewing_plan(&plan)),
+        };
         self.inner.runner.start(
             Arc::new(WorkspaceJournal(self.inner.clone())),
             self.inner.setup.agents.clone(),
@@ -806,13 +1001,27 @@ impl Workspace {
                     .as_ref()
                     .map(AgentTools::environment)
                     .unwrap_or_default(),
+                staging,
             },
         );
     }
 
     /// Asks a thread's agent to stop. Does nothing when it is not running.
+    ///
+    /// A stopped thread also starts nothing by itself until the person writes
+    /// again: they stopped it for a reason, and the next stage's agent
+    /// starting a moment later would undo that.
     pub fn stop(&self, thread_id: Uuid) -> Result<(), WorkspaceError> {
-        self.inner.state().holding(thread_id)?;
+        let mut state = self.inner.state();
+        let (store, thread) = state.holding(thread_id)?;
+        let held = match thread.status == Status::Running && !thread.held {
+            true => Some(store.change(thread_id, |thread| thread.held = true)?),
+            false => None,
+        };
+        drop(state);
+        if let Some(thread) = held {
+            self.inner.announce(Event::ThreadChanged { thread });
+        }
         self.inner.runner.stop(thread_id);
         Ok(())
     }
@@ -900,6 +1109,8 @@ impl Workspace {
         let thread = store.change(thread_id, |thread| match to {
             Voice::Author => {
                 thread.model = model;
+                // The person's choice is kept for the stage, until the thread moves on.
+                thread.picks.insert(thread.stage, agent.name().to_string());
                 if switching {
                     thread.agent = agent.name().to_string();
                     thread.conversation = None;
@@ -1051,6 +1262,7 @@ impl Workspace {
 
     /// Stops every agent and waits up to `patience` for them to end.
     pub async fn shut_down(&self, patience: Duration) {
+        self.inner.stopping.store(true, Ordering::SeqCst);
         self.inner.runner.stop_all();
         let deadline = Instant::now() + patience;
         while self.inner.runner.busy() && Instant::now() < deadline {
@@ -1105,12 +1317,32 @@ impl Journal for WorkspaceJournal {
     }
 
     fn note(&self, thread_id: Uuid, change: ThreadChange) {
+        if let ThreadChange::RanOut(agent) = change {
+            if let Some(start) = self.0.turns().get_mut(&thread_id) {
+                start.ran_out = Some(agent);
+            }
+            return;
+        }
+        let finished = change == ThreadChange::Finished;
+        // The plan is read before the thread shows as done, so its line comes before the person is called.
+        let authored = self
+            .0
+            .turns()
+            .get(&thread_id)
+            .is_some_and(|start| start.voice == Voice::Author);
+        if finished && authored {
+            self.0.look_at_plan(thread_id);
+        }
+        let reviewed = match &change {
+            ThreadChange::Reviewed(findings) => Some(*findings),
+            _ => None,
+        };
         let mut state = self.0.state();
-        let thread = state
+        let changed = state
             .holding(thread_id)
             .map_err(|problem| problem.to_string())
             .and_then(|(store, _)| {
-                store
+                let thread = store
                     .change(thread_id, |thread| match change {
                         ThreadChange::Conversation(Voice::Author, named) => {
                             thread.conversation = Some(named);
@@ -1154,13 +1386,39 @@ impl Journal for WorkspaceJournal {
                                 reviewer.reviewing = false;
                             }
                         }
+                        ThreadChange::RanOut(_) => {}
                     })
-                    .map_err(|problem| problem.to_string())
+                    .map_err(|problem| problem.to_string())?;
+                let moved = match reviewed {
+                    Some(findings) => self
+                        .0
+                        .happen(
+                            store,
+                            &thread,
+                            Happening::Reviewed(findings),
+                            Mover::Teryon(findings_text(findings)),
+                        )
+                        .map_err(|problem| problem.to_string())?,
+                    None => None,
+                };
+                Ok((thread, moved))
             });
         drop(state);
-        match thread {
-            Ok(thread) => self.0.announce(Event::ThreadChanged { thread }),
+        match changed {
+            Ok((thread, moved)) => {
+                self.0.announce(Event::ThreadChanged { thread });
+                self.0.announce_moved(moved);
+            }
             Err(problem) => error!("could not store a change to a thread: {problem}"),
+        }
+        if finished {
+            let start = self.0.turns().remove(&thread_id);
+            if let Some(start) = start {
+                Workspace {
+                    inner: self.0.clone(),
+                }
+                .carry_on(thread_id, start);
+            }
         }
     }
 
@@ -1206,6 +1464,16 @@ impl Journal for WorkspaceJournal {
             Ok(None) => {}
             Err(problem) => error!("could not keep an agent's limits: {problem}"),
         }
+    }
+}
+
+/// "3 findings", for the line that moves a thread after a review.
+fn findings_text(findings: Option<u32>) -> String {
+    match findings {
+        Some(0) => "no findings".to_string(),
+        Some(1) => "1 finding".to_string(),
+        Some(count) => format!("{count} findings"),
+        None => "a review without a count".to_string(),
     }
 }
 

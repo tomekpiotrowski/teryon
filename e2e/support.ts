@@ -34,8 +34,8 @@ interface Service {
   readonly process: ChildProcess;
 }
 
-/** Starts a service in a fresh home folder and waits for the address it prints. */
-async function startService(origin: string): Promise<Service> {
+/** Starts a service in a fresh home folder, with `more` added to its settings, and waits for the address it prints. */
+async function startService(origin: string, more: string): Promise<Service> {
   const home = mkdtempSync(join(tmpdir(), "teryon-e2e-"));
   mkdirSync(join(home, "config"), { recursive: true });
   writeFileSync(
@@ -59,6 +59,7 @@ async function startService(origin: string): Promise<Service> {
       "[agents.grok]",
       `program = "${join(samples, "fake-grok.sh")}"`,
       "",
+      more,
     ].join("\n"),
   );
   const child = spawn(program, ["--home", home, "service", "--print-address", `${origin}/`], {
@@ -80,10 +81,16 @@ async function stopService(service: Service): Promise<void> {
   await ended;
 }
 
-/** Playwright's `test`, with a service of its own for every test. */
-export const test = base.extend<{ service: Service }>({
-  service: async ({ baseURL }, use) => {
-    const service = await startService(appOrigin(baseURL));
+/**
+ * Playwright's `test`, with a service of its own for every test.
+ *
+ * `settings` is added to the service's `config.toml`, for a test that needs
+ * more than the fake agents: `test.use({ settings: "[stages.review]\n…" })`.
+ */
+export const test = base.extend<{ service: Service; settings: string }>({
+  settings: ["", { option: true }],
+  service: async ({ baseURL, settings }, use) => {
+    const service = await startService(appOrigin(baseURL), settings);
     await use(service);
     await stopService(service);
   },

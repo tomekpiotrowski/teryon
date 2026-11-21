@@ -1,3 +1,4 @@
+import { NO_WORKFLOWS } from '../workspace/workspace.model';
 import { TestBed } from '@angular/core/testing';
 import { firstValueFrom } from 'rxjs';
 import { vi } from 'vitest';
@@ -32,7 +33,7 @@ class FakeSocket implements Socket {
   }
 }
 
-const SNAPSHOT: ServiceMessage = { type: 'event', event: { type: 'snapshot', projects: [], threads: [], opens: { editor: false, terminal: false }, models: { claude: [], codex: [], grok: [] } } };
+const SNAPSHOT: ServiceMessage = { type: 'event', event: { type: 'snapshot', projects: [], threads: [], opens: { editor: false, terminal: false }, models: { claude: [], codex: [], grok: [] }, workflows: NO_WORKFLOWS } };
 
 /** What the address finder does on one attempt: find an address or nothing, fail, or never finish. */
 type Finding = ServiceAddress | null | { readonly fails: unknown } | 'never';

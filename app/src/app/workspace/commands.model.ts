@@ -17,6 +17,7 @@ import {
   type Choice,
   choiceLabel,
   chosen,
+  firstStageChooses,
   isBareLetter,
   type KeyPress,
   type ModelLists,
@@ -31,6 +32,8 @@ import {
   threadChoice,
   threadLabel,
   type Voice,
+  workflowOf,
+  type Workflows,
 } from './workspace.model';
 
 /** The sections of the menu, in the order they are listed before anything is typed. */
@@ -40,7 +43,10 @@ export type CommandGroup = 'attention' | 'thread' | 'project' | 'change' | 'acti
 export type CommandAction =
   | { readonly kind: 'openThread'; readonly thread: Thread }
   | { readonly kind: 'openProject'; readonly project: Project }
-  | { readonly kind: 'showScreen'; readonly screen: 'files' | 'history' | 'usage' }
+  | { readonly kind: 'showScreen'; readonly screen: 'files' | 'history' | 'usage' | 'plan' }
+  /** The board of the open project, or of every project. */
+  | { readonly kind: 'showBoard'; readonly everyProject: boolean }
+  | { readonly kind: 'chooseWorkflow'; readonly thread: Thread; readonly workflow: string }
   | { readonly kind: 'newProject' }
   | { readonly kind: 'removeProject'; readonly project: Project }
   | { readonly kind: 'useChoice'; readonly choice: Choice }
@@ -95,6 +101,8 @@ export interface Situation {
   readonly opens: Opens;
   /** Whether the open thread's agent waits for answers and the person put its questions away. */
   readonly questionsPutAway: boolean;
+  /** The workflows threads can follow. */
+  readonly workflows: Workflows;
 }
 
 /** One line of the menu: a command, under a heading when it starts a section. */
@@ -162,15 +170,39 @@ export function commandList(situation: Situation): Command[] {
       command('action:history', 'History', 'action', { kind: 'showScreen', screen: 'history' }, { detail: project.name, key: 'h' }),
     );
   }
+  actions.push(
+    project
+      ? command('action:board', 'Board', 'action', { kind: 'showBoard', everyProject: false }, { detail: project.name, key: 'b' })
+      : command('action:board', 'Board', 'action', { kind: 'showBoard', everyProject: true }, { detail: 'every project', key: 'b' }),
+  );
+  if (project) {
+    actions.push(command('action:boardEvery', 'Board of every project', 'action', { kind: 'showBoard', everyProject: true }, { detail: 'every project' }));
+  }
+  if (thread?.plan) {
+    actions.push(command('action:plan', 'Plan', 'action', { kind: 'showScreen', screen: 'plan' }, { detail: thread.plan.title, key: 'p' }));
+  }
   actions.push(command('action:usage', 'Usage', 'action', { kind: 'showScreen', screen: 'usage' }, { detail: 'every agent', key: 'u' }));
+  if (thread) {
+    const current = workflowOf(situation.workflows, thread).name;
+    actions.push(
+      ...situation.workflows.workflows
+        .filter((workflow) => workflow.name !== current)
+        .map((workflow) =>
+          command(`action:workflow:${workflow.name}`, `Use the ${workflow.name} workflow`, 'action', { kind: 'chooseWorkflow', thread, workflow: workflow.name }, {
+            detail: threadLabel(thread),
+          }),
+        ),
+    );
+  }
   if (thread?.status === 'running') {
     actions.push(command('action:stopAgent', 'Stop the agent', 'action', { kind: 'stopAgent', thread }, { detail: threadLabel(thread) }));
   }
   actions.push(...threadChoiceCommands(situation));
-  const current = chosen(situation.newThreads);
+  // While the first stage chooses for new threads, every agent and model is something else to pick.
+  const current = situation.newThreads.picked || !firstStageChooses(situation.workflows) ? chosen(situation.newThreads) : null;
   actions.push(
     ...allChoices(situation.models)
-      .filter((choice) => !sameChoice(choice, current))
+      .filter((choice) => current === null || !sameChoice(choice, current))
       .map((choice) =>
         command(`action:use:${choiceId(choice)}`, `Use ${choiceLabel(choice)} for new threads`, 'action', { kind: 'useChoice', choice }),
       ),

@@ -305,8 +305,7 @@ mod tests {
         CodexDriver::new(&CodexSettings {
             program: "codex".to_string(),
             use_subscription,
-            models: None,
-            home: None,
+            ..CodexSettings::default()
         })
     }
 

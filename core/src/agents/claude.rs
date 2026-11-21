@@ -266,7 +266,7 @@ mod tests {
         ClaudeDriver::new(&ClaudeSettings {
             program: "claude".to_string(),
             use_subscription,
-            models: None,
+            ..ClaudeSettings::default()
         })
     }
 

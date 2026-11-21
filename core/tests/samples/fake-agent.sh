@@ -100,6 +100,34 @@ EOF
   printf '\n' >> .fake-agent-asked
 }
 
+# Reports a stage through Teryon, as agents are told to, when the message
+# says "report stage <stage>", and chooses a workflow on "choose workflow
+# <name>". What `teryon` printed on errors goes to `.fake-agent-stage`,
+# empty when it agreed.
+report_stage() {
+  stage=""
+  workflow=""
+  case "$*" in *"report stage"*) stage=$(word_after "report stage" "$*") ;; esac
+  case "$*" in *"choose workflow"*) workflow=$(word_after "choose workflow" "$*") ;; esac
+  : > .fake-agent-stage
+  if [ -n "$workflow" ]; then
+    teryon thread workflow "$workflow" 2>>.fake-agent-stage
+  fi
+  if [ -n "$stage" ]; then
+    teryon thread stage "$stage" 2>>.fake-agent-stage
+  fi
+  printf '\n' >> .fake-agent-stage
+}
+
+# Writes the plan where its brief says, as agents are told to, with the
+# title in quotes after "write a plan", such as `write a plan "Login fix"`.
+write_plan() {
+  title=$(printf '%s\n' "$*" | tr '\n' ' ' | sed -n 's/.*write a plan "\([^"]*\)".*/\1/p')
+  path=$(printf '%s\n' "$*" | tr '\n' ' ' | sed -n 's/.*as markdown in `\([^`]*\)`.*/\1/p')
+  [ -n "$path" ] || path=$(printf '%s\n' "$*" | tr '\n' ' ' | sed -n 's/.*The plan for this thread is in `\([^`]*\)`.*/\1/p')
+  printf '# %s\n\nSteps for %s.\n' "$title" "$title" > "$path"
+}
+
 # Makes a worktree by hand, ignoring the instruction, as an agent might.
 make_worktree() {
   name=$(word_after "make a worktree called" "$*")
@@ -122,7 +150,12 @@ review() {
     head -n 1 "$samples/$agent-first.jsonl"
     exec sleep 30
   fi
-  cat "$samples/$agent-$1.jsonl"
+  # With `.fake-review-clean`, every review finds nothing, as a second review does.
+  if [ -f "$project/.fake-review-clean" ]; then
+    cat "$samples/$agent-review-again.jsonl"
+  else
+    cat "$samples/$agent-$1.jsonl"
+  fi
 }
 
 case "$*" in
@@ -138,6 +171,11 @@ case "$*" in
     ;;
   *"end silently"*)
     exit 4
+    ;;
+  *"report stage"*"and wait"*)
+    report_stage "$*"
+    head -n 1 "$samples/$agent-first.jsonl"
+    exec sleep 30
     ;;
   *"be slow"*)
     head -n 1 "$samples/$agent-first.jsonl"
@@ -155,8 +193,21 @@ case "$*" in
   *"use tools"*)
     cat "$samples/$agent-tools.jsonl"
     ;;
+  *"write a plan"*)
+    write_plan "$*"
+    cat "$samples/$agent-first.jsonl"
+    ;;
+  *"start a change"*"report stage"*)
+    start_change "$*"
+    report_stage "$*"
+    cat "$samples/$agent-first.jsonl"
+    ;;
   *"start a change"*)
     start_change "$*"
+    cat "$samples/$agent-first.jsonl"
+    ;;
+  *"report stage"*|*"choose workflow"*)
+    report_stage "$*"
     cat "$samples/$agent-first.jsonl"
     ;;
   *"ask questions slowly"*)

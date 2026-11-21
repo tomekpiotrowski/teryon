@@ -165,7 +165,10 @@ lets_expect! { #tokio_test
         expect(lines[0].clone()) to equal(reviewers("notice", "Grok reviews the change."))
         expect(project.scene.entries(&thread)[before].body["starts_review"].clone()) to equal(Value::Bool(true))
         expect(lines.contains(&reviewers("agent_message", FIRST_REVIEW))) to be_true
-        expect(lines.iter().all(|(_, reviewer, _)| *reviewer)) to be_true
+        expect(lines.iter().filter(|(kind, _, _)| kind != "stage").all(|(_, reviewer, _)| *reviewer)) to be_true
+        // requirement: asking for a review moves the thread to In review, and findings move it back to Implementing
+        let moves: Vec<String> = lines.iter().filter(|(kind, _, _)| kind == "stage").map(|(_, _, text)| text.clone()).collect();
+        expect(moves) to equal(vec!["Implementing → In review · you asked for a review".to_string(), "In review → Implementing · 2 findings".to_string()])
         let reviewer = project.scene.thread_now(&thread).reviewer.expect("a reviewer");
         let conversation = reviewer.conversation.clone().expect("the reviewer's conversation is kept");
         expect((reviewer.agent.as_str(), reviewer.reviewing)) to equal(("grok", false))

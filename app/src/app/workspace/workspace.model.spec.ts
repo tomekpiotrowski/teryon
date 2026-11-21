@@ -7,6 +7,9 @@ import {
   chosen,
   choosing,
   FIRST_NEW_THREADS,
+  firstStageChooses,
+  newThreadLabel,
+  startingChoice,
   modelLabel,
   sameChoice,
   switchingAgent,
@@ -61,6 +64,12 @@ import {
   type Project,
   type Thread,
   type ThreadEntry,
+  NO_WORKFLOWS as STAGE_DEFAULTS,
+  stageLabel,
+  stageOf,
+  workflowOf,
+  defaultWorkflow,
+  type Workflows,
 } from './workspace.model';
 import { gitWordsIn } from './plain-words.testing';
 
@@ -453,6 +462,32 @@ describe('choices', () => {
 
   it('starts new threads on Claude\'s default', () => {
     expect(chosen(FIRST_NEW_THREADS)).toEqual({ agent: 'claude', model: null });
+  });
+
+  it('lets the first stage choose for new threads until the person picks', () => {
+    expect(startingChoice(FIRST_NEW_THREADS)).toBeNull();
+    expect(startingChoice(choosing(FIRST_NEW_THREADS, { agent: 'codex', model: null }))).toEqual({ agent: 'codex', model: null });
+    expect(startingChoice(switchingAgent(FIRST_NEW_THREADS))).toEqual({ agent: 'codex', model: null });
+  });
+
+  it('goes round the stage\'s choice and every agent when the first stage chooses', () => {
+    const first = switchingAgent(FIRST_NEW_THREADS, true);
+    expect([first.agent, first.picked]).toEqual(['claude', true]);
+    const third = switchingAgent(switchingAgent(first, true), true);
+    expect([third.agent, third.picked]).toEqual(['grok', true]);
+    expect(switchingAgent(third, true).picked).toBe(false);
+  });
+
+  it('says what new threads start on: the first stage\'s choice until the person picks', () => {
+    const choosingTalk: Workflows = {
+      ...STAGE_DEFAULTS,
+      labels: STAGE_DEFAULTS.labels.map((label) => (label.stage === 'talking' ? { ...label, chooses: 'Prefer Claude · strong' } : label)),
+    };
+    expect(newThreadLabel(FIRST_NEW_THREADS, choosingTalk)).toBe('Talking: Prefer Claude · strong');
+    expect(newThreadLabel(choosing(FIRST_NEW_THREADS, { agent: 'grok', model: null }), choosingTalk)).toBe('Grok · default');
+    expect(newThreadLabel(FIRST_NEW_THREADS, STAGE_DEFAULTS)).toBe('Claude · default');
+    expect(firstStageChooses(choosingTalk)).toBe(true);
+    expect(firstStageChooses(STAGE_DEFAULTS)).toBe(false);
   });
 
   it('remembers the model chosen for each agent, across switching agents', () => {
@@ -1086,5 +1121,55 @@ describe('discardWarning', () => {
 
   it('and the request to catch up never use a git word', () => {
     expect([discardWarning(change({})), CATCH_UP_REQUEST].flatMap(gitWordsIn)).toEqual([]);
+  });
+});
+
+describe('stages', () => {
+  const relabelled: Workflows = {
+    default: 'small',
+    workflows: [
+      { name: 'default', description: '', stages: ['talking', 'planning', 'implementing', 'review', 'ready', 'done'] },
+      { name: 'small', description: '', stages: ['talking', 'implementing', 'ready', 'done'] },
+    ],
+    labels: [{ stage: 'ready', label: 'Ready to merge', chooses: null }],
+  };
+
+  it('names a stage as the service labelled it, or as usual', () => {
+    expect(stageLabel(relabelled, 'ready')).toBe('Ready to merge');
+    expect(stageLabel(relabelled, 'review')).toBe('In review');
+    expect(stageLabel(STAGE_DEFAULTS, 'ready')).toBe('Ready to apply');
+  });
+
+  it('counts a thread from before stages as talking', () => {
+    expect(stageOf(thread('t', 'a', '2026-11-14T10:00:00'))).toBe('talking');
+    expect(stageOf({ ...thread('t', 'a', '2026-11-14T10:00:00'), stage: 'review' })).toBe('review');
+  });
+
+  it('gives a thread its workflow, or the default when it names none or one no longer set up', () => {
+    const base = thread('t', 'a', '2026-11-14T10:00:00');
+    expect(workflowOf(relabelled, { ...base, workflow: 'default' }).name).toBe('default');
+    expect(workflowOf(relabelled, base).name).toBe('small');
+    expect(workflowOf(relabelled, { ...base, workflow: 'gone' }).name).toBe('small');
+  });
+
+  it('falls back to the first workflow when the default is not among them', () => {
+    expect(defaultWorkflow({ ...relabelled, default: 'gone' }).name).toBe('default');
+    expect(defaultWorkflow({ ...relabelled, workflows: [] }).name).toBe('default');
+  });
+
+  it('shows the line that says the plan was written', () => {
+    expect(entryLine(entry('plan', { text: 'Plan written · Login fix', title: 'Login fix', first: true }))).toEqual({
+      kind: 'plan',
+      text: 'Plan written · Login fix',
+      reviewer: false,
+    });
+  });
+
+  it('shows the line that says a thread moved', () => {
+    expect(entryLine(entry('stage', { text: 'Talking → Planning · by Claude', from: 'talking', to: 'planning' }))).toEqual({
+      kind: 'stage',
+      text: 'Talking → Planning · by Claude',
+      reviewer: false,
+    });
   });
 });

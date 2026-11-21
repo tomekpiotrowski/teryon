@@ -13,6 +13,7 @@
 pub mod projects;
 pub mod threads;
 
+use std::collections::BTreeMap;
 use std::fs::{rename, write};
 use std::io::Error as IoError;
 use std::path::{Path, PathBuf};
@@ -25,6 +26,8 @@ use ts_rs::TS;
 use uuid::Uuid;
 
 use crate::changes::{Change, Finish};
+use crate::plans::PlanInfo;
+use crate::workflow::Stage;
 
 /// Why something could not be read or stored.
 #[derive(Debug, Error)]
@@ -141,6 +144,32 @@ pub struct Thread {
     /// The second agent, reviewing the change. Nothing until a review is asked for.
     #[serde(default)]
     pub reviewer: Option<Reviewer>,
+    /// The workflow the thread follows, by name. Empty, or one no longer set up, means the default.
+    #[serde(default)]
+    pub workflow: String,
+    /// Where the thread's work stands, see [`crate::workflow`].
+    #[serde(default)]
+    pub stage: Stage,
+    /// When the thread moved to its stage, so the board shows the most recent work first.
+    ///
+    /// Nothing on threads stored before Teryon recorded it; their creation counts instead.
+    #[serde(default)]
+    pub stage_since: Option<DateTime<Utc>>,
+    /// How many agents Teryon started by itself since the person last wrote.
+    ///
+    /// Shown on the board, and capped by `automatic_rounds`, so an author and
+    /// a reviewer who never agree stop before they use up a subscription.
+    #[serde(default)]
+    pub rounds: u32,
+    /// Whether the person stopped the thread, so Teryon starts nothing by itself until they write again.
+    #[serde(default)]
+    pub held: bool,
+    /// What Teryon last saw of the thread's plan, see [`crate::plans`]. Nothing until one is written.
+    #[serde(default)]
+    pub plan: Option<PlanInfo>,
+    /// The provider picked for each stage, so the thread goes back to the same one, see [`crate::workflow::picking`].
+    #[serde(default)]
+    pub picks: BTreeMap<Stage, String>,
     pub created_at: DateTime<Utc>,
 }
 

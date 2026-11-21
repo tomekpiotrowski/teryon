@@ -1,0 +1,21 @@
+@if (view$ | async; as view) {
+  <div class="files plan">
+    <header class="files-bar">
+      <button class="menu-button" type="button" aria-label="Open menu" aria-keyshortcuts="/ Control+K" (click)="menuOpened.emit()">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"></path></svg>
+      </button>
+      <span class="files-mark">TERYON</span>
+      <span class="files-muted files-project">plan · {{ view.title }}</span>
+    </header>
+    <main class="plan-body" aria-label="Plan">
+      @if (view.problem) {
+        <p class="usage-problem">{{ view.problem }}</p>
+      } @else if (view.text === null) {
+        <p class="files-muted">Reading the plan…</p>
+      } @else {
+        <div class="markdown" [innerHTML]="view.text | markdown"></div>
+      }
+    </main>
+    <footer class="board-hints files-muted"><kbd>Esc</kbd> back</footer>
+  </div>
+}

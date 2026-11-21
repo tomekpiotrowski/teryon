@@ -30,8 +30,10 @@ use crate::directory::DirectoryListing;
 use crate::files::diff::{Line, LineChange};
 use crate::files::{Content, FileChange, FileEntry, FileView, Listing};
 use crate::history::{ChangedFile, Changes, Commit, History};
+use crate::plans::PlanInfo;
 use crate::store::{Entry, Project, Reviewer, Status, Thread, Verdict};
 use crate::usage::{Limits, UsageLine, UsageReport, Window};
+use crate::workflow::{Stage, StageLabel, Workflow, Workflows};
 
 /// A message from a client.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
@@ -69,7 +71,9 @@ pub enum Request {
     },
     StartThread {
         project_id: Uuid,
-        agent: String,
+        /// Nothing lets the workflow's first stage choose, see `crate::workflow::picking`.
+        #[serde(default)]
+        agent: Option<String>,
         /// Nothing leaves the model to the agent program.
         #[serde(default)]
         model: Option<String>,
@@ -122,6 +126,21 @@ pub enum Request {
         thread_id: Uuid,
         turn: Uuid,
         title: String,
+    },
+    /// Moves a thread to another stage: sent by `teryon thread stage`, run by the
+    /// thread's own agent during `turn`. The person never sets a stage directly.
+    ReportStage {
+        thread_id: Uuid,
+        turn: Uuid,
+        stage: String,
+    },
+    /// Puts a thread on another workflow: sent by `teryon thread workflow` during
+    /// `turn`, or by the person without one.
+    ChooseWorkflow {
+        thread_id: Uuid,
+        #[serde(default)]
+        turn: Option<Uuid>,
+        workflow: String,
     },
     /// Asks the person questions: sent by `teryon thread ask`, run by the
     /// thread's own agent during `turn`. `asked` is the JSON the agent wrote,
@@ -204,6 +223,10 @@ pub enum Request {
     },
     /// Every agent's latest limits and the turns of the last 14 days, for the usage screen.
     Usage,
+    /// The text of a thread's plan, see `crate::plans`.
+    Plan {
+        thread_id: Uuid,
+    },
     /// Stops the service, after stopping every agent. Only from this machine.
     Shutdown,
 }
@@ -218,9 +241,8 @@ pub enum ServiceMessage {
         id: u64,
         outcome: Outcome,
     },
-    Event {
-        event: Event,
-    },
+    /// Boxed, because an event can carry a whole thread, much larger than a reply.
+    Event { event: Box<Event> },
 }
 
 /// How a call went.
@@ -286,6 +308,10 @@ pub enum Answer {
     Usage {
         report: UsageReport,
     },
+    /// A thread's plan, as markdown.
+    Plan {
+        text: String,
+    },
 }
 
 /// What a thread's copy can be opened in.
@@ -318,6 +344,8 @@ pub enum Event {
         opens: Opens,
         /// The models each agent offers besides its default.
         models: ModelLists,
+        /// The workflows threads can follow, and what each stage is called.
+        workflows: Workflows,
     },
     /// The models on offer changed, as when Grok has listed its own after the service started.
     ModelsChanged {
@@ -400,7 +428,12 @@ pub fn typescript() -> String {
         ProjectState::decl(&config),
         DirectoryListing::decl(&config),
         Thread::decl(&config),
+        PlanInfo::decl(&config),
         Status::decl(&config),
+        Stage::decl(&config),
+        Workflows::decl(&config),
+        Workflow::decl(&config),
+        StageLabel::decl(&config),
         Change::decl(&config),
         ChangeState::decl(&config),
         Review::decl(&config),

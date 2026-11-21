@@ -71,7 +71,7 @@ impl Client {
         }
         let mut client = Self::greet(file).await?;
         match client.receive().await? {
-            ServiceMessage::Event { event } => client.waiting.push_back(event),
+            ServiceMessage::Event { event } => client.waiting.push_back(*event),
             ServiceMessage::Reply { .. } => return Err(ClientError::Closed),
         }
         Ok(client)
@@ -142,7 +142,7 @@ impl Client {
                     };
                 }
                 ServiceMessage::Reply { .. } => {}
-                ServiceMessage::Event { event } => self.waiting.push_back(event),
+                ServiceMessage::Event { event } => self.waiting.push_back(*event),
             }
         }
     }
@@ -154,7 +154,7 @@ impl Client {
         }
         loop {
             if let ServiceMessage::Event { event } = self.receive().await? {
-                return Ok(event);
+                return Ok(*event);
             }
         }
     }

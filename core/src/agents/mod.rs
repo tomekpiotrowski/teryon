@@ -18,6 +18,7 @@ pub mod models;
 pub mod naming;
 pub mod process;
 pub mod runner;
+pub mod staging;
 mod summary;
 
 use std::path::PathBuf;
@@ -98,6 +99,10 @@ pub enum EntryKind {
     TurnSummary,
     /// Questions the agent asked the person, with the turn they were asked in.
     Questions,
+    /// The thread moved to another stage, see [`crate::workflow`].
+    Stage,
+    /// The thread's plan was written or changed, see [`crate::plans`].
+    Plan,
 }
 
 impl EntryKind {
@@ -110,6 +115,8 @@ impl EntryKind {
             Self::Error => "error",
             Self::TurnSummary => "turn_summary",
             Self::Questions => "questions",
+            Self::Stage => "stage",
+            Self::Plan => "plan",
         }
     }
 }

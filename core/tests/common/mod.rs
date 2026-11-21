@@ -30,15 +30,13 @@ pub fn fake_agents() -> AgentSettings {
         stop_grace_seconds: 1,
         claude: ClaudeSettings {
             program: "tests/samples/fake-claude.sh".to_string(),
-            use_subscription: true,
-            models: None,
+            ..ClaudeSettings::default()
         },
         codex: CodexSettings {
             program: "tests/samples/fake-codex.sh".to_string(),
-            use_subscription: true,
-            models: None,
             // Never the real `~/.codex`: tests must not read a person's Codex sessions.
             home: Some(PathBuf::from("tests/samples/no-codex-home")),
+            ..CodexSettings::default()
         },
         // Grok's sandbox profiles go to a folder of the tests' own, never to the real `~/.grok`.
         grok: GrokSettings {
@@ -60,8 +58,7 @@ pub fn settings_with(program: &str) -> AgentSettings {
     AgentSettings {
         claude: ClaudeSettings {
             program: program.to_string(),
-            use_subscription: true,
-            models: None,
+            ..ClaudeSettings::default()
         },
         ..fake_agents()
     }
@@ -204,7 +201,7 @@ impl Scene {
 
     pub fn thread(&self, project: &ProjectView, agent: &str) -> Thread {
         self.workspace
-            .start_thread(project.id, agent, None, "")
+            .start_thread(project.id, Some(agent), None, "")
             .expect("the thread is started")
     }
 

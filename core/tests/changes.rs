@@ -372,7 +372,7 @@ lets_expect! { #tokio_test
             .iter()
             .map(|entry| entry.body["text"].clone())
             .collect();
-        expect(added) to equal(vec![Value::from("Copy removed.")])
+        expect(added) to equal(vec![Value::from("Copy removed."), Value::from("Talking → Done · its copy was removed")])
     }
 
     // requirement: a copy an agent makes by hand in `.teryon/worktrees/` goes to its thread when it is the only one running

@@ -280,6 +280,7 @@ mod tests {
 
     use super::*;
     use crate::store::Status;
+    use crate::workflow::Stage;
 
     fn thread() -> Thread {
         Thread {
@@ -298,6 +299,13 @@ mod tests {
             change: None,
             finished: None,
             reviewer: None,
+            workflow: String::new(),
+            stage: Stage::Talking,
+            stage_since: None,
+            plan: None,
+            rounds: 0,
+            held: false,
+            picks: BTreeMap::new(),
             created_at: Utc::now(),
         }
     }

@@ -306,7 +306,7 @@ mod tests {
             program: "grok".to_string(),
             home: Some(temp_dir().join("teryon-grok-driver-tests")),
             writable: vec!["/opt/cache".to_string()],
-            models: None,
+            ..GrokSettings::default()
         })
     }
 

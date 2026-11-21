@@ -84,7 +84,7 @@ lets_expect! { #tokio_test
         let folder = project_folder();
         let project = scene.project(&folder);
 
-        let thread = scene.workspace.start_thread(project.id, "claude", Some(" sonnet "), "").unwrap();
+        let thread = scene.workspace.start_thread(project.id, Some("claude"), Some(" sonnet "), "").unwrap();
         expect(thread.model.clone()) to equal(Some("sonnet".to_string()))
 
         scene.say(&thread, "hello").unwrap();
@@ -102,7 +102,7 @@ lets_expect! { #tokio_test
         let folder = project_folder();
         let project = scene.project(&folder);
 
-        let thread = scene.workspace.start_thread(project.id, "codex", None, "").unwrap();
+        let thread = scene.workspace.start_thread(project.id, Some("codex"), None, "").unwrap();
         expect(thread.model.clone()) to equal(None)
 
         scene.say(&thread, "hello").unwrap();
@@ -118,7 +118,7 @@ lets_expect! { #tokio_test
         let folder = project_folder();
         let project = scene.project(&folder);
 
-        let thread = scene.workspace.start_thread(project.id, "codex", Some("gpt-6-astra"), "").unwrap();
+        let thread = scene.workspace.start_thread(project.id, Some("codex"), Some("gpt-6-astra"), "").unwrap();
         scene.say(&thread, "hello").unwrap();
         scene.wait_until_idle(&thread).await;
         expect(invocations(&folder)[0].contains("-m gpt-6-astra")) to be_true
@@ -132,9 +132,9 @@ lets_expect! { #tokio_test
         let folder = project_folder();
         let project = scene.project(&folder);
 
-        let option = scene.workspace.start_thread(project.id, "claude", Some("--help"), "").map_err(|problem| problem.to_string());
+        let option = scene.workspace.start_thread(project.id, Some("claude"), Some("--help"), "").map_err(|problem| problem.to_string());
         expect(option.err()) to equal(Some("A model's name has no spaces in it, and does not start with a dash.".to_string()))
-        let blank = scene.workspace.start_thread(project.id, "claude", Some("  "), "").map_err(|problem| problem.to_string());
+        let blank = scene.workspace.start_thread(project.id, Some("claude"), Some("  "), "").map_err(|problem| problem.to_string());
         expect(blank.err()) to equal(Some("A model needs a name.".to_string()))
         expect(scene.threads().len()) to equal(0)
     }
@@ -144,7 +144,7 @@ lets_expect! { #tokio_test
         let scene = Scene::new();
         let folder = project_folder();
         let project = scene.project(&folder);
-        let thread = scene.workspace.start_thread(project.id, "claude", Some("sonnet"), "").unwrap();
+        let thread = scene.workspace.start_thread(project.id, Some("claude"), Some("sonnet"), "").unwrap();
         scene.say(&thread, "hello").unwrap();
         scene.wait_until_idle(&thread).await;
 
@@ -169,7 +169,7 @@ lets_expect! { #tokio_test
         let scene = Scene::new();
         let folder = project_folder();
         let project = scene.project(&folder);
-        let thread = scene.workspace.start_thread(project.id, "claude", Some("sonnet"), "").unwrap();
+        let thread = scene.workspace.start_thread(project.id, Some("claude"), Some("sonnet"), "").unwrap();
         scene.say(&thread, "be slow").unwrap();
 
         // The program has started, with the model the thread had then.

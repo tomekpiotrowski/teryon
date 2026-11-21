@@ -18,6 +18,7 @@ use tracing::info;
 use teryon_core::paths::Folders;
 use teryon_core::protocol::fingerprint;
 use teryon_core::settings::{Settings, SettingsError};
+use teryon_core::workflow::Workflows;
 use teryon_core::workspace::{AgentTools, Setup, Workspace, WorkspaceError};
 
 use crate::local::{bind, router, Listener};
@@ -75,13 +76,16 @@ impl Service {
         let workspace = Workspace::open(
             &folders.data,
             Setup {
-                agents: settings.agents,
-                open: settings.open,
-                github: settings.github,
+                agents: settings.agents.clone(),
+                open: settings.open.clone(),
+                github: settings.github.clone(),
                 tools: Some(AgentTools {
                     program,
                     data: folders.data.clone(),
                 }),
+                workflow: settings.workflow.clone(),
+                stages: settings.stages.clone(),
+                workflows: Workflows::from_settings(&settings),
             },
         )?;
         let listener = bind(settings.service.port)
