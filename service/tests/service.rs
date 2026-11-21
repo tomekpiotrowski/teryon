@@ -280,10 +280,15 @@ lets_expect! { #tokio_test
         };
         expect(snapshot.as_ref().map(|models| models.claude.clone())) to equal(Some(vec!["opus".to_string(), "sonnet".to_string(), "haiku".to_string()]))
         // Grok is asked when the service starts, which may finish before or after this client connects:
-        // its models arrive in the snapshot or in a later update.
+        // its models arrive in the snapshot or in a later update. Codex is asked at the same time
+        // and may announce first, so an update that does not list Grok yet is not this one.
         let grok = match snapshot.map(|models| models.grok).filter(|grok| !grok.is_empty()) {
             Some(grok) => grok,
-            None => match wait_for(&mut client, |event| matches!(event, Event::ModelsChanged { .. })).await {
+            None => match wait_for(&mut client, |event| {
+                matches!(event, Event::ModelsChanged { models } if !models.grok.is_empty())
+            })
+            .await
+            {
                 Event::ModelsChanged { models } => models.grok,
                 _ => Vec::new(),
             },

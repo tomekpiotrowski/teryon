@@ -297,6 +297,24 @@ test("a thread can be started with Codex", async ({ page }) => {
   await expect(page.locator(".thread-meta").getByText("Codex")).toBeVisible();
 });
 
+test("Codex models appear when searching from Codex default", async ({ page }) => {
+  await addProject(page, "Sample");
+  await page.getByRole("button", { name: "Change agent" }).click();
+  await expect(page.getByRole("button", { name: "Change agent" })).toHaveText("Codex · default");
+
+  await page.getByLabel("New thread").press("/");
+  await page.getByRole("combobox", { name: "Search the menu" }).fill("codex");
+  await menu(page).getByRole("option", { name: "Use Codex · GPT 6 astra for new threads", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Change agent" })).toHaveText("Codex · GPT 6 astra");
+  await page.getByLabel("New thread").fill("hello");
+  await page.getByRole("button", { name: "Run ↵" }).click();
+  await expect(page.locator(".thread-meta")).toContainText("Codex · GPT 6 astra");
+  await expect(page.getByText(/^Done in \d+s · GPT 6 astra ·/)).toBeVisible();
+
+  await choose(page, "Use Codex · GPT 6 sol in this thread");
+  await expect(page.locator(".thread-meta")).toContainText("Codex · GPT 6 sol");
+});
+
 test("a thread runs on the model chosen for it, and each turn says which model ran", async ({ page }) => {
   await addProject(page, "Sample");
 

@@ -199,7 +199,10 @@ pub struct CodexSettings {
     /// variables are not passed on; when false the environment is passed
     /// unchanged and the program decides.
     pub use_subscription: bool,
-    /// The models offered besides the program's default. Nothing means Teryon's own list, see [`crate::agents::models`].
+    /// The models offered besides the program's default.
+    ///
+    /// Nothing means asking Codex's app server for the available models when
+    /// Teryon starts. An explicit list, including an empty one, overrides discovery.
     pub models: Option<Vec<String>>,
     /// Where Codex keeps its files, where Teryon reads its usage limits.
     ///

@@ -26,6 +26,7 @@ use std::time::Duration;
 
 use chrono::Utc;
 use thiserror::Error;
+use tokio::join;
 use tokio::sync::broadcast::{channel, Receiver, Sender};
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::time::{sleep, Instant};
@@ -33,7 +34,9 @@ use tracing::{error, warn};
 use uuid::Uuid;
 
 use crate::agents::handover::handed_over;
-use crate::agents::models::{checked_model, list_grok_models, ModelError, ModelLists};
+use crate::agents::models::{
+    checked_model, list_codex_models, list_grok_models, ModelError, ModelLists,
+};
 use crate::agents::runner::{Journal, Pending, Runner, ThreadChange, TurnRequest, TurnUsage};
 use crate::agents::{Agent, EntryDraft, EntryKind, Voice};
 use crate::changes::finish::FinishError;
@@ -281,6 +284,19 @@ impl Inner {
     fn models(&self) -> MutexGuard<'_, ModelLists> {
         self.models.lock().unwrap_or_else(PoisonError::into_inner)
     }
+
+    /// Replaces one agent's models and tells listeners the lists as they now stand.
+    ///
+    /// Codex and Grok are asked together. The lists stay locked until the
+    /// notice is sent, so the slower answer includes the faster one's names
+    /// instead of publishing a copy from before that change and wiping it.
+    fn publish_models(&self, change: impl FnOnce(&mut ModelLists)) {
+        let mut models = self.models();
+        change(&mut models);
+        self.announce(Event::ModelsChanged {
+            models: models.clone(),
+        });
+    }
 }
 
 /// A person's projects and threads on this machine.
@@ -351,25 +367,31 @@ impl Workspace {
 
     /// Asks the agent programs that list their own models for them, unless `config.toml` names them.
     ///
-    /// Only Grok lists its models. Asking takes a moment and can fail, so it
-    /// happens after the service has started; clients hear the new lists
-    /// when they arrive. A failure is logged and leaves Grok with only its default.
+    /// Asking takes a moment and can fail, so it happens after the service
+    /// has started. Each list arrives independently; failures are logged and
+    /// leave that agent with its default. Explicit settings are never replaced.
     pub async fn list_models(&self) {
-        let grok = &self.inner.setup.agents.grok;
-        if grok.models.is_some() {
-            return;
-        }
-        match list_grok_models(&grok.program).await {
-            Ok(names) => {
-                let models = {
-                    let mut models = self.inner.models();
-                    models.grok = names;
-                    models.clone()
-                };
-                self.inner.announce(Event::ModelsChanged { models });
+        let codex = async {
+            let settings = &self.inner.setup.agents.codex;
+            if settings.models.is_some() {
+                return;
             }
-            Err(problem) => warn!("Grok offers only its default model: {problem}"),
-        }
+            match list_codex_models(settings).await {
+                Ok(names) => self.inner.publish_models(|models| models.codex = names),
+                Err(problem) => warn!("Codex offers only its default model: {problem}"),
+            }
+        };
+        let grok = async {
+            let settings = &self.inner.setup.agents.grok;
+            if settings.models.is_some() {
+                return;
+            }
+            match list_grok_models(&settings.program).await {
+                Ok(names) => self.inner.publish_models(|models| models.grok = names),
+                Err(problem) => warn!("Grok offers only its default model: {problem}"),
+            }
+        };
+        join!(codex, grok);
     }
 
     /// Every change from now on.

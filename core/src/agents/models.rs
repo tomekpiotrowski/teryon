@@ -6,27 +6,30 @@
 //!
 //! Lists go stale as providers release models, so Teryon keeps as little as
 //! it can. Claude takes short names that always mean its newest models.
-//! Grok lists its own models, which are asked for once when the service
-//! starts. Codex has neither, so it offers only what `config.toml` names.
+//! Grok and Codex list their own models, which are asked for once when the service
+//! starts. Codex is asked through its app server's `model/list` method.
 //! A list in `config.toml` replaces the one Teryon would use otherwise.
 
-use std::io::Error as IoError;
+use std::io::{Error as IoError, ErrorKind};
 use std::process::Stdio;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+use serde_json::{from_str, from_value, json, Value};
 use thiserror::Error;
-use tokio::process::Command;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines};
+use tokio::process::{ChildStdin, ChildStdout, Command};
 use tokio::time::timeout;
 use ts_rs::TS;
 
+use crate::agents::codex::KEY_VARIABLES;
 use crate::agents::runner::program_path;
-use crate::settings::AgentSettings;
+use crate::settings::{AgentSettings, CodexSettings};
 
 /// The short names Claude Code takes for its newest models.
 const CLAUDE_MODELS: [&str; 3] = ["opus", "sonnet", "haiku"];
 
-/// How long `grok models` may take before Grok is offered only its default.
+/// How long a program may take to list models before only its default is offered.
 const LISTING_TIME: Duration = Duration::from_secs(10);
 
 /// The models offered for each agent, besides its default.
@@ -40,8 +43,8 @@ pub struct ModelLists {
 impl ModelLists {
     /// The lists as far as they are known without asking any program.
     ///
-    /// Grok's stays empty unless `config.toml` names its models: it comes
-    /// from [`list_grok_models`] later.
+    /// Codex and Grok stay empty unless `config.toml` names their models:
+    /// their programs are asked later.
     pub fn from_settings(settings: &AgentSettings) -> Self {
         Self {
             claude: settings
@@ -55,7 +58,7 @@ impl ModelLists {
     }
 }
 
-/// Why Grok's models could not be listed.
+/// Why an agent's models could not be listed.
 #[derive(Debug, Error)]
 pub enum ListingError {
     #[error("could not start `{program}`: {source}")]
@@ -64,10 +67,138 @@ pub enum ListingError {
         #[source]
         source: IoError,
     },
-    #[error("`{program} models` did not answer within {} seconds", LISTING_TIME.as_secs())]
+    #[error("`{program}` did not list its models within {} seconds", LISTING_TIME.as_secs())]
     TooSlow { program: String },
-    #[error("`{program} models` failed: {complaint}")]
+    #[error("`{program}` could not list its models: {complaint}")]
     Failed { program: String, complaint: String },
+}
+
+/// Asks Codex for its visible models without starting a conversation or a turn.
+///
+/// The app server uses the same program and subscription policy as Codex turns.
+/// Its newline-delimited requests need an initialization handshake and may
+/// paginate. The whole exchange is bounded, and the child is stopped afterward.
+pub async fn list_codex_models(settings: &CodexSettings) -> Result<Vec<String>, ListingError> {
+    let mut command = Command::new(program_path(&settings.program));
+    command
+        .arg("app-server")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true);
+    if settings.use_subscription {
+        for variable in KEY_VARIABLES {
+            command.env_remove(variable);
+        }
+    }
+    let mut child = command
+        .spawn()
+        .map_err(|source| ListingError::Unstartable {
+            program: settings.program.clone(),
+            source,
+        })?;
+    let mut input = child.stdin.take().expect("piped stdin");
+    let mut output = BufReader::new(child.stdout.take().expect("piped stdout")).lines();
+    let result = timeout(LISTING_TIME, codex_exchange(&mut input, &mut output)).await;
+    // Kill and reap even after a protocol error or timeout. kill_on_drop also
+    // handles cancellation by the caller while a response is being read.
+    let _ = child.kill().await;
+    result
+        .map_err(|_| ListingError::TooSlow {
+            program: settings.program.clone(),
+        })?
+        .map_err(|problem| ListingError::Failed {
+            program: settings.program.clone(),
+            complaint: problem.to_string(),
+        })
+}
+
+async fn codex_exchange(
+    input: &mut ChildStdin,
+    output: &mut Lines<BufReader<ChildStdout>>,
+) -> Result<Vec<String>, IoError> {
+    send_codex(
+        input,
+        json!({"id": 0, "method": "initialize", "params": {
+            "clientInfo": {"name": "teryon", "version": env!("CARGO_PKG_VERSION")}
+        }}),
+    )
+    .await?;
+    codex_response(output, 0).await?;
+    send_codex(input, json!({"method": "initialized", "params": {}})).await?;
+    let mut cursor: Option<String> = None;
+    let mut names = Vec::new();
+    let mut id = 1;
+    loop {
+        send_codex(
+            input,
+            json!({"id": id, "method": "model/list", "params": {
+                "includeHidden": false, "cursor": cursor
+            }}),
+        )
+        .await?;
+        let page: CodexModelsPage = from_value(codex_response(output, id).await?)
+            .map_err(|problem| IoError::new(ErrorKind::InvalidData, problem))?;
+        for model in page.data {
+            if !model.hidden {
+                let name = checked_model(Some(&model.model))
+                    .map_err(|problem| IoError::new(ErrorKind::InvalidData, problem))?
+                    .expect("an explicit model name");
+                if !names.contains(&name) {
+                    names.push(name);
+                }
+            }
+        }
+        cursor = page.next_cursor;
+        if cursor.is_none() {
+            return Ok(names);
+        }
+        id += 1;
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CodexModelsPage {
+    data: Vec<CodexModel>,
+    next_cursor: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct CodexModel {
+    model: String,
+    #[serde(default)]
+    hidden: bool,
+}
+
+async fn send_codex(input: &mut ChildStdin, message: Value) -> Result<(), IoError> {
+    input.write_all(format!("{message}\n").as_bytes()).await?;
+    input.flush().await
+}
+
+/// Waits for one answer, ignoring unrelated notifications.
+async fn codex_response(
+    output: &mut Lines<BufReader<ChildStdout>>,
+    id: u64,
+) -> Result<Value, IoError> {
+    while let Some(line) = output.next_line().await? {
+        let message: Value =
+            from_str(&line).map_err(|problem| IoError::new(ErrorKind::InvalidData, problem))?;
+        if message.get("id").and_then(Value::as_u64) != Some(id) {
+            continue;
+        }
+        if let Some(error) = message.get("error") {
+            return Err(IoError::other(error.to_string()));
+        }
+        return message
+            .get("result")
+            .cloned()
+            .ok_or_else(|| IoError::new(ErrorKind::InvalidData, "Codex returned no result"));
+    }
+    Err(IoError::new(
+        ErrorKind::UnexpectedEof,
+        "Codex closed before answering",
+    ))
 }
 
 /// Asks the Grok program which models it offers.

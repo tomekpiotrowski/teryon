@@ -26,6 +26,25 @@ if [ "$*" = "models" ]; then
   cat "$samples/$agent-models.txt"
   exit 0
 fi
+# Codex's model discovery handshake. Check the request order so tests catch
+# a client that asks before initialization or forgets the next page.
+if [ "$agent" = "codex" ] && [ "$1" = "app-server" ]; then
+  IFS= read -r request
+  case "$request" in *'"method":"initialize"'*) ;; *) exit 2 ;; esac
+  echo '{"id":0,"result":{}}'
+  IFS= read -r request
+  case "$request" in *'"method":"initialized"'*) ;; *) exit 2 ;; esac
+  IFS= read -r request
+  case "$request" in *'"method":"model/list"'*) ;; *) exit 2 ;; esac
+  echo '{"method":"notice","params":{}}'
+  echo '{"id":1,"result":{"data":[{"id":"display-id","model":"gpt-6-astra"},{"model":"hidden-model","hidden":true}],"nextCursor":"page-two"}}'
+  IFS= read -r request
+  case "$request" in *'"cursor":"page-two"'*) ;; *) exit 2 ;; esac
+  echo '{"id":2,"result":{"data":[{"model":"gpt-6-astra"},{"model":"gpt-6-sol"}],"nextCursor":null}}'
+  # Stay alive until the client closes its input or stops the process.
+  cat >/dev/null
+  exit 0
+fi
 # Where the project is: a reviewer runs inside a thread's worktree, and
 # tests look for what it leaves in the project directory.
 common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)

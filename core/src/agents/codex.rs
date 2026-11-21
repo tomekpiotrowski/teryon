@@ -23,7 +23,7 @@ use crate::agents::{
 use crate::settings::CodexSettings;
 
 /// Variables that make Codex bill an API key instead of the subscription.
-const KEY_VARIABLES: [&str; 2] = ["OPENAI_API_KEY", "CODEX_API_KEY"];
+pub(super) const KEY_VARIABLES: [&str; 2] = ["OPENAI_API_KEY", "CODEX_API_KEY"];
 
 /// The settings for an author: writes in the project, everything else goes to the automatic approver.
 const AUTHOR_SANDBOX: [&str; 4] = [
