@@ -42,7 +42,7 @@ jobs:
       - name: Install the libraries Tauri needs
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xvfb
       - name: Install the Tauri command
         run: cargo install tauri-cli --version "^2" --locked
       - name: Install the app's packages
@@ -56,6 +56,8 @@ jobs:
           mkdir release
           cp target/release/bundle/appimage/*.AppImage target/release/bundle/deb/*.deb target/release/bundle/rpm/*.rpm release/
           cd release && sha256sum * > SHA256SUMS
+      - name: Check the AppImage terminal command
+        run: xvfb-run -a python3 desktop/scripts/check-appimage-command.py target/release/bundle/appimage/*.AppImage target/release/teryon --build-newer
       - uses: actions/upload-artifact@v4
         with:
           name: teryon-linux

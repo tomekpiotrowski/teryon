@@ -21,6 +21,8 @@ use std::env::{current_exe, var_os};
 use std::path::PathBuf;
 
 use serde::Serialize;
+use tauri::{Manager, State};
+use teryon_desktop::terminal_command::{SetupReport, TerminalCommand};
 
 use teryon::service_file::ServiceFile;
 use teryon::starting::{restarted_service, running_service, StartError};
@@ -127,11 +129,32 @@ fn teryon_program() -> Result<PathBuf, String> {
     Ok(folder.join(name))
 }
 
+/// Setup results remain separate from service connection errors.
+#[tauri::command]
+fn terminal_command_status(state: State<'_, TerminalCommand>) -> SetupReport {
+    state.status()
+}
+
+/// Retry only on request; a replacement names the exact conflict the person saw.
+#[tauri::command]
+fn install_terminal_command(
+    state: State<'_, TerminalCommand>,
+    replacement: Option<String>,
+) -> SetupReport {
+    state.install(replacement)
+}
+
 fn main() {
     tauri::Builder::default()
+        .setup(|app| {
+            app.manage(TerminalCommand::start());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             service_connection,
-            restart_service
+            restart_service,
+            terminal_command_status,
+            install_terminal_command
         ])
         .run(tauri::generate_context!())
         .expect("the desktop app could not start");

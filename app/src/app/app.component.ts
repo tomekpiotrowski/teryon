@@ -1,3 +1,4 @@
+import { TerminalCommandModule } from './terminal-command/terminal-command.module';
 import { Component } from '@angular/core';
 import { IonApp } from '@ionic/angular/ion-app';
 import { IonRouterOutlet } from '@ionic/angular/ion-router-outlet';
@@ -12,6 +13,6 @@ import { ErnoDevtoolsComponent } from 'erno-angular';
 @Component({
   selector: 'app-root',
   templateUrl: 'app.component.html',
-  imports: [IonApp, IonRouterOutlet, ErnoDevtoolsComponent],
+  imports: [IonApp, IonRouterOutlet, ErnoDevtoolsComponent, TerminalCommandModule],
 })
 export class AppComponent {}

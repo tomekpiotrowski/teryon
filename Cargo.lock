@@ -4363,11 +4363,18 @@ dependencies = [
 name = "teryon-desktop"
 version = "0.1.0"
 dependencies = [
+ "directories",
+ "lets_expect",
+ "nix",
+ "semver",
  "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
+ "tempfile",
  "teryon",
  "teryon-core",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

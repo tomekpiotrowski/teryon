@@ -67,7 +67,9 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run lint
       - run: bun run build
-      # App unit tests are omitted. Ionic 9's published ESM uses extensionless
+      - name: Test terminal command setup
+        run: bun run ng test --watch=false --include='src/app/service/terminal-command.spec.ts'
+      # The remaining app unit tests are omitted here. Ionic 9's published ESM uses extensionless
       # relative imports (`./navigation/back-button`) that Vitest/jsdom cannot
       # resolve. Do not add `bun run test:ci` here until `erno test --app` is
       # green locally.
@@ -146,7 +148,9 @@ jobs:
           cargo build -p teryon
           cd app && node ../desktop/scripts/copy-teryon.mjs debug
       - name: Clippy
-        run: cargo clippy -p teryon-desktop --features tauri/custom-protocol -- -D warnings
+        run: cargo clippy -p teryon-desktop --all-targets --features tauri/custom-protocol -- -D warnings
+      - name: Test command installation
+        run: cargo test -p teryon-desktop --lib
 
   e2e:
     # Every test starts a `teryon service` of its own; nothing else is needed.
