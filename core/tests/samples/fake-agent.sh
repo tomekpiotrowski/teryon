@@ -237,7 +237,19 @@ case "$*" in
   *"remember the turn and wait"*)
     remember_turn
     head -n 1 "$samples/$agent-first.jsonl"
-    exec sleep 30
+    # Stays the process that was started, so a test can let it finish and
+    # read the arguments it still has. `.fake-agent-release` in the project
+    # ends the wait. Without that file the wait is about thirty seconds, and
+    # a stop still reaches this process because nothing here ignores the signal.
+    waited=0
+    while [ "$waited" -lt 150 ]; do
+      if [ -f "$project/.fake-agent-release" ]; then
+        break
+      fi
+      sleep 0.2
+      waited=$((waited + 1))
+    done
+    printf 'finished %s\n' "$*" >> .fake-agent-turn
     ;;
   *"write markdown"*)
     # Not a recording as such: the first one with the answer replaced by hand

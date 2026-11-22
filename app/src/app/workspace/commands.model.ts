@@ -43,7 +43,7 @@ export type CommandGroup = 'attention' | 'thread' | 'project' | 'change' | 'acti
 export type CommandAction =
   | { readonly kind: 'openThread'; readonly thread: Thread }
   | { readonly kind: 'openProject'; readonly project: Project }
-  | { readonly kind: 'showScreen'; readonly screen: 'files' | 'history' | 'usage' | 'plan' }
+  | { readonly kind: 'showScreen'; readonly screen: 'files' | 'history' | 'usage' | 'plan' | 'settings' }
   /** The board of the open project, or of every project. */
   | { readonly kind: 'showBoard'; readonly everyProject: boolean }
   | { readonly kind: 'chooseWorkflow'; readonly thread: Thread; readonly workflow: string }
@@ -181,7 +181,10 @@ export function commandList(situation: Situation): Command[] {
   if (thread?.plan) {
     actions.push(command('action:plan', 'Plan', 'action', { kind: 'showScreen', screen: 'plan' }, { detail: thread.plan.title, key: 'p' }));
   }
-  actions.push(command('action:usage', 'Usage', 'action', { kind: 'showScreen', screen: 'usage' }, { detail: 'every agent', key: 'u' }));
+  actions.push(
+    command('action:usage', 'Usage', 'action', { kind: 'showScreen', screen: 'usage' }, { detail: 'every agent', key: 'u' }),
+    command('action:settings', 'Settings', 'action', { kind: 'showScreen', screen: 'settings' }, { detail: 'this machine', key: 's' }),
+  );
   if (thread) {
     const current = workflowOf(situation.workflows, thread).name;
     actions.push(

@@ -11,12 +11,13 @@ import { FilesComponent } from './files.component';
 import { HistoryComponent } from './history.component';
 import { MarkdownPipe } from './markdown.pipe';
 import { RepositoryBarComponent } from './repository-bar.component';
+import { SettingsComponent } from './settings.component';
 import { UsageComponent } from './usage.component';
 import { WorkspacePage } from './workspace.page';
 
-/** The signed-in part of Teryon: the workspace screen with its menu, its file browser, its history, the board and the usage. */
+/** The signed-in part of Teryon: the workspace screen with its menu, its file browser, its history, the board, the usage and the settings. */
 @NgModule({
-  declarations: [WorkspacePage, BoardComponent, PlanComponent, CommandMenuComponent, NewProjectComponent, FilesComponent, HistoryComponent, RepositoryBarComponent, UsageComponent, QuestionsComponent, MarkdownPipe],
+  declarations: [WorkspacePage, BoardComponent, PlanComponent, CommandMenuComponent, NewProjectComponent, FilesComponent, HistoryComponent, RepositoryBarComponent, UsageComponent, SettingsComponent, QuestionsComponent, MarkdownPipe],
   imports: [CommonModule, IonContent, RouterModule.forChild([{ path: '', component: WorkspacePage }])],
 })
 export class WorkspaceModule {}

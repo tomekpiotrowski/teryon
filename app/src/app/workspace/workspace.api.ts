@@ -1,6 +1,6 @@
 import { inject, Injectable } from '@angular/core';
 import { map, type Observable } from 'rxjs';
-import type { Answer, DirectoryListing, Opener, Request, UsageReport } from '../service/protocol';
+import type { Answer, Configuration, DirectoryListing, Opener, Request, UsageReport } from '../service/protocol';
 import { ServiceConnection } from '../service/service-connection';
 import type { FileView, Listing } from './files.model';
 import type { Changes, History } from './history.model';
@@ -162,6 +162,22 @@ export class WorkspaceApi {
 
   usage(): Observable<UsageReport> {
     return this.ask({ type: 'usage' }, (answer) => (answer.type === 'usage' ? answer.report : undefined));
+  }
+
+  /** The choices the settings screen shows, as this machine is using them. */
+  configuration(): Observable<Configuration> {
+    return this.ask({ type: 'configuration' }, (answer) => (answer.type === 'configuration' ? answer.configuration : undefined));
+  }
+
+  /**
+   * Saves the settings screen and gives back what is now in use.
+   *
+   * A refusal is an error carrying the sentence, and leaves the file as it was.
+   */
+  saveConfiguration(configuration: Configuration): Observable<Configuration> {
+    return this.ask({ type: 'save_configuration', configuration }, (answer) =>
+      answer.type === 'configuration' ? answer.configuration : undefined,
+    );
   }
 
   /** Sends a request and picks the expected part of the answer. */

@@ -87,8 +87,8 @@ enum Next {
 }
 
 impl Inner {
-    pub(super) fn workflow_of(&self, thread: &Thread) -> &Workflow {
-        self.setup.workflows.of(&thread.workflow)
+    pub(super) fn workflow_of(&self, thread: &Thread) -> Workflow {
+        self.setup().workflows.of(&thread.workflow).clone()
     }
 
     /// Moves a thread to a stage and writes the line that says who moved it. The caller holds the lock.
@@ -99,7 +99,7 @@ impl Inner {
         to: Stage,
         mover: Mover,
     ) -> Result<(Entry, Thread), WorkspaceError> {
-        let workflows = &self.setup.workflows;
+        let workflows = self.setup().workflows.clone();
         let from = thread.stage;
         let (by, agent, why) = match &mover {
             Mover::Agent(agent) => (
@@ -135,7 +135,8 @@ impl Inner {
         happening: Happening,
         mover: Mover,
     ) -> Result<Option<(Entry, Thread)>, WorkspaceError> {
-        let Some(to) = moved(self.workflow_of(thread), thread.stage, happening) else {
+        let workflow = self.workflow_of(thread);
+        let Some(to) = moved(&workflow, thread.stage, happening) else {
             return Ok(None);
         };
         self.move_to(store, thread, to, mover).map(Some)
@@ -152,13 +153,15 @@ impl Inner {
         excluded: Option<Agent>,
         ran_out: Option<Agent>,
     ) -> Option<Result<Pick, PickError>> {
-        let setting = self
-            .setup
-            .stages
-            .of(stage)
-            .filter(|setting| setting.chooses())?;
-        let label = self.setup.workflows.label(stage);
-        let agents = &self.setup.agents;
+        let (setting, label, agents) = {
+            let setup = self.setup();
+            let setting = setup
+                .stages
+                .of(stage)
+                .filter(|setting| setting.chooses())
+                .cloned()?;
+            (setting, setup.workflows.label(stage), setup.agents.clone())
+        };
         let on_machine: Vec<Agent> = Agent::ALL
             .into_iter()
             .filter(|agent| installed(agents.program(*agent)))
@@ -181,7 +184,7 @@ impl Inner {
             installed: &on_machine,
             left: &left,
         };
-        Some(pick(setting, agents, &situation, &mut |count| {
+        Some(pick(&setting, &agents, &situation, &mut |count| {
             (Uuid::new_v4().as_u128() % count as u128) as usize
         }))
     }
@@ -201,7 +204,8 @@ impl Inner {
         pick: &Pick,
         author: bool,
     ) -> Result<(Vec<Entry>, Thread), WorkspaceError> {
-        let notice = EntryDraft::notice(&taking_over(pick, &self.setup.workflows.label(stage)));
+        let label = self.setup().workflows.label(stage);
+        let notice = EntryDraft::notice(&taking_over(pick, &label));
         let mut entries = vec![store.append(thread.id, notice.kind.name(), notice.body)?];
         let switching = thread.agent != pick.agent.name();
         if !author || (!switching && thread.model == pick.model) {
@@ -335,7 +339,8 @@ impl Workspace {
         let mut state = self.inner.state();
         let (store, thread) = state.holding(thread_id)?;
         let voice = self.agent_turn(&thread, turn, "teryon thread stage")?;
-        let to = reported(self.inner.workflow_of(&thread), thread.stage, stage, voice)
+        let workflow = self.inner.workflow_of(&thread);
+        let to = reported(&workflow, thread.stage, stage, voice)
             .map_err(|problem| WorkspaceError::Invalid(problem.to_string()))?;
         if to == thread.stage {
             return Ok(None);
@@ -443,11 +448,11 @@ impl Workspace {
             }
             None => Chooser::Person,
         };
-        let workflows = &self.inner.setup.workflows;
-        let current = self.inner.workflow_of(&thread);
+        let workflows = self.inner.setup().workflows.clone();
+        let current = workflows.of(&thread.workflow).clone();
         let (workflow, stage) = picked(
-            workflows,
-            current,
+            &workflows,
+            &current,
             thread.stage,
             thread.change.is_some() || thread.finished.is_some(),
             name.trim(),
@@ -491,7 +496,10 @@ impl Workspace {
     /// `automatic_rounds` starts without them.
     /// Problems go into the thread as an error, so the person sees why it waits.
     pub(super) fn carry_on(&self, thread_id: Uuid, start: TurnStart) {
-        let limit = self.inner.setup.workflow.automatic_rounds;
+        let (limit, chooses) = {
+            let setup = self.inner.setup();
+            (setup.workflow.automatic_rounds, setup.stages.any_chooses())
+        };
         let thread = match self.inner.state().holding(thread_id) {
             Ok((_, thread)) => thread,
             Err(_) => return,
@@ -502,7 +510,7 @@ impl Workspace {
             || thread.status == Status::Running
             || thread.held
             || limit == 0
-            || !self.inner.setup.stages.any_chooses()
+            || !chooses
             || (!moved && start.ran_out.is_none())
         {
             return;

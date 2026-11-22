@@ -52,6 +52,11 @@ describe('applyEvent', () => {
     expect(apply({ type: 'models_changed', models })).toEqual({ ...lists, models });
   });
 
+  it('replaces the workflows and what copies can be opened in when the settings are saved', () => {
+    const opens = { editor: true, terminal: false };
+    expect(apply({ type: 'settings_changed', opens, workflows: SMALL_ONLY })).toEqual({ ...lists, opens, workflows: SMALL_ONLY });
+  });
+
   it('adds a project at the end', () => {
     expect(apply({ type: 'project_added', project: project('c') }).projects.map((kept) => kept.id)).toEqual(['a', 'b', 'c']);
   });

@@ -175,13 +175,8 @@ impl Workspace {
         let _turn = self.inner.finishing(thread_id)?;
         let _project = self.inner.project_lock(project_id).lock_owned().await;
         self.inner.check_idle(thread_id)?;
-        let review = send_for_review(
-            &directory,
-            &change,
-            description,
-            &self.inner.setup.github.program,
-        )
-        .await?;
+        let program = self.inner.setup().github.program.clone();
+        let review = send_for_review(&directory, &change, description, &program).await?;
         self.inner.store_review(thread_id, review)?;
         self.inner.look_at(thread_id, Look::Thorough).await;
         Ok(())
@@ -211,7 +206,7 @@ impl Workspace {
                 "This thread's copy was removed outside Teryon.",
             ));
         }
-        let open = &self.inner.setup.open;
+        let open = self.inner.setup().open.clone();
         let line = match with {
             Opener::Folder => Some(file_manager(&change.path)),
             Opener::Editor => open
@@ -224,7 +219,7 @@ impl Workspace {
                 .and_then(|terminal| command_line(terminal, &change.path)),
         }
         .ok_or(WorkspaceError::Busy(
-            "Nothing is set up to open it with. Add it under [open] in Teryon's config.toml.",
+            "Nothing is set up to open it with. Set it in Settings.",
         ))?;
         start_detached(&line, &change.path)
     }
@@ -361,7 +356,8 @@ impl Inner {
         else {
             return;
         };
-        let now = match review_now(&directory, &review, &self.setup.github.program).await {
+        let program = self.setup().github.program.clone();
+        let now = match review_now(&directory, &review, &program).await {
             Ok(now) => now,
             Err(problem) => {
                 warn!(

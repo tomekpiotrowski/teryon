@@ -1282,7 +1282,8 @@ a:hover {
 
 /* The file browser. Its measurements follow the "2a · Files tab" design. */
 app-files,
-app-history {
+app-history,
+app-settings {
   display: block;
   height: 100%;
 }
@@ -2320,6 +2321,90 @@ ion-alert {
 
   /* Fourteen days do not fit with their weekdays: the date alone stays. */
   .usage-day-weekday { display: none; }
+
+  .settings-row { grid-template-columns: 1fr; gap: 4px; }
+  .settings-row input,
+  .settings-row select,
+  .settings-checks label,
+  .settings-screen .technical-button { min-height: 44px; }
+}
+
+/* The settings screen: the choices this machine keeps, in the same frame as usage. */
+.settings-body {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px 22px 28px;
+}
+
+.settings-section {
+  max-width: 880px;
+  margin: 0 auto 30px;
+}
+
+.settings-row {
+  display: grid;
+  grid-template-columns: 11rem minmax(0, 1fr);
+  align-items: center;
+  gap: 10px 14px;
+  margin: 0 0 10px;
+}
+
+.settings-row label { font-size: 13px; }
+
+.settings-workflow,
+.settings-stage {
+  min-width: 0;
+  margin: 0 0 14px;
+  border: 1px solid var(--color-divider);
+  padding: 12px 14px 14px;
+}
+
+.settings-stage legend { padding: 0 4px; }
+
+.settings-screen .settings-row input,
+.settings-screen .settings-row select {
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  border: 1px solid var(--color-divider);
+  border-radius: 0;
+  padding: 6px 10px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.settings-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 0 0 12px;
+}
+
+.settings-checks label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-hint { margin: 0 0 12px; font-size: 12.5px; }
+.settings-hint code { font-family: var(--font-code); }
+
+.settings-problem { margin: 0 0 12px; color: #9d3838; }
+:root[data-theme='dark'] .settings-problem { color: #e09696; }
+
+/* `.files button` clears the border, so the actions put it back. */
+.settings-screen .technical-button {
+  border: 1px solid var(--color-divider);
+  padding: 8px 14px;
+  background: transparent;
+}
+
+.settings-screen .technical-button.primary {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-bg);
 }
 
 /* The board: threads in columns by stage. */

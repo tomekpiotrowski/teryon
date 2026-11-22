@@ -74,6 +74,11 @@ const USUAL_STAGE_LABELS: Readonly<Record<Stage, string>> = {
   done: 'Done',
 };
 
+/** The usual word for a stage, before anyone renames it. */
+export function usualStageLabel(stage: Stage): string {
+  return USUAL_STAGE_LABELS[stage];
+}
+
 /** The workflows before the service has said which there are. */
 export const NO_WORKFLOWS: Workflows = {
   default: 'default',
@@ -378,7 +383,7 @@ export interface EntryLine {
 export const NOTHING_SELECTED: Selection = { projectId: null, threadId: null };
 
 /** What fills the screen: a project's threads, its files or its history. */
-export type Screen = 'thread' | 'files' | 'history' | 'usage' | 'board' | 'plan';
+export type Screen = 'thread' | 'files' | 'history' | 'usage' | 'board' | 'plan' | 'settings';
 
 /** A pressed key, as far as the shortcuts care. */
 export interface KeyPress {

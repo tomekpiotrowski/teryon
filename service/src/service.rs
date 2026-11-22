@@ -86,6 +86,8 @@ impl Service {
                 workflow: settings.workflow.clone(),
                 stages: settings.stages.clone(),
                 workflows: Workflows::from_settings(&settings),
+                own_workflows: settings.workflows.is_some(),
+                config_folder: Some(folders.config.clone()),
             },
         )?;
         let listener = bind(settings.service.port)

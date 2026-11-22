@@ -26,6 +26,8 @@ export function applyEvent(lists: WorkspaceLists, event: Event): WorkspaceLists 
       return { projects: event.projects as Project[], threads: event.threads as Thread[], opens: event.opens, models: event.models, workflows: event.workflows };
     case 'models_changed':
       return { ...lists, models: event.models };
+    case 'settings_changed':
+      return { ...lists, opens: event.opens, workflows: event.workflows };
     case 'project_added':
       return { ...lists, projects: upsert(lists.projects, event.project as Project) };
     case 'project_removed':

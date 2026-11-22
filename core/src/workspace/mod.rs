@@ -18,11 +18,14 @@
 mod changes;
 mod stages;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::env::{join_paths, split_paths, var_os};
 use std::ffi::OsString;
+use std::fs::{create_dir_all, read_to_string, remove_file, rename, write};
+use std::io::{Error as IoError, ErrorKind};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::process::id;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
@@ -56,7 +59,8 @@ use crate::history::{Changes, History};
 use crate::plans::plan_path;
 use crate::protocol::{Event, Opens, ProjectState, ProjectView};
 use crate::settings::{
-    AgentSettings, GitHubSettings, OpenSettings, StageSettings, WorkflowSettings,
+    revise, AgentSettings, Configuration, GitHubSettings, OpenSettings, Settings, StageSettings,
+    WorkflowDefinition, WorkflowSettings,
 };
 use crate::store::projects::ProjectList;
 use crate::store::threads::ThreadStore;
@@ -116,6 +120,10 @@ pub struct Setup {
     /// Who works in each stage, see [`crate::workflow::picking`].
     pub stages: StageSettings,
     pub workflows: Workflows,
+    /// Whether `config.toml` names its own workflows. False means the built-in pair.
+    pub own_workflows: bool,
+    /// The folder `config.toml` is read from and saved to. Nothing in tests that never save.
+    pub config_folder: Option<PathBuf>,
 }
 
 /// The `teryon` program an agent calls, and the data folder it finds the service through.
@@ -249,7 +257,10 @@ impl State {
 }
 
 struct Inner {
-    setup: Setup,
+    /// Replaced when the settings screen saves. A guard is dropped before any other lock or an await.
+    setup: Mutex<Setup>,
+    /// Held for the whole of one save of the settings file. See [`Inner::saving`].
+    saving: Mutex<()>,
     state: Mutex<State>,
     runner: Runner,
     changes: Sender<Event>,
@@ -287,6 +298,29 @@ impl Inner {
 
     fn state(&self) -> MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The settings the next decision uses.
+    ///
+    /// Drop the guard before locking anything else, and before waiting.
+    /// A turn already running keeps the copy it was given; this lock is only
+    /// for the next one. Other paths lock the threads first and then this,
+    /// so holding this and then waiting for the threads would stall both.
+    fn setup(&self) -> MutexGuard<'_, Setup> {
+        self.setup.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// One save at a time, from reading the file through applying it.
+    ///
+    /// Two saves must not pass each other. If they did, one could write, the
+    /// other could write and be applied, and the first could then apply the
+    /// copy it had already read. The file would hold the later choices and
+    /// the service would run the earlier ones until the next start.
+    ///
+    /// Take this before [`Inner::setup`]. Nothing else locks it, so that
+    /// order does not reverse. Drop it before locking the threads or waiting.
+    fn saving(&self) -> MutexGuard<'_, ()> {
+        self.saving.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     fn usage(&self) -> MutexGuard<'_, UsageBook> {
@@ -351,7 +385,8 @@ impl Workspace {
         Ok(Self {
             inner: Arc::new(Inner {
                 models,
-                setup,
+                setup: Mutex::new(setup),
+                saving: Mutex::new(()),
                 state: Mutex::new(State {
                     projects,
                     threads,
@@ -371,6 +406,10 @@ impl Workspace {
 
     /// Every project and thread as they are now.
     pub fn snapshot(&self) -> Event {
+        let (opens, workflows) = {
+            let setup = self.inner.setup();
+            (opens_of(&setup.open), setup.workflows.clone())
+        };
         let state = self.inner.state();
         Event::Snapshot {
             projects: state
@@ -380,13 +419,74 @@ impl Workspace {
                 .map(|project| state.view(project))
                 .collect(),
             threads: state.all_threads(),
-            opens: Opens {
-                editor: self.inner.setup.open.editor.is_some(),
-                terminal: self.inner.setup.open.terminal.is_some(),
-            },
+            opens,
             models: self.inner.models().clone(),
-            workflows: self.inner.setup.workflows.clone(),
+            workflows,
         }
+    }
+
+    /// The choices the settings screen shows.
+    ///
+    /// What the next turn, the next hand-over and the next copy-open will
+    /// use, including a change saved a moment ago. A turn already running
+    /// keeps the program, model and instructions it was given.
+    pub fn configuration(&self) -> Configuration {
+        Configuration::from_settings(&view_of(&self.inner.setup()))
+    }
+
+    /// Writes the settings screen's choices and starts using them.
+    ///
+    /// The file is replaced only after the same rules as startup accept the
+    /// choices, and only the parts the screen owns. A refusal leaves the file
+    /// and the running service as they were. Nothing is restarted: an agent
+    /// at work finishes as it is, and the next decision reads what was saved.
+    ///
+    /// Reading, writing and applying are one step. A later save waits, then
+    /// wins, and the file and the running service stay on that same save.
+    pub fn save_configuration(
+        &self,
+        draft: &Configuration,
+    ) -> Result<Configuration, WorkspaceError> {
+        // Held until this function returns, so the write and the apply are one save.
+        let _saving = self.inner.saving();
+        let folder = self
+            .inner
+            .setup()
+            .config_folder
+            .clone()
+            .ok_or(WorkspaceError::Invalid(
+                "These settings are not stored in a file.".to_string(),
+            ))?;
+        let path = folder.join("config.toml");
+        let current = match read_to_string(&path) {
+            Ok(text) => text,
+            Err(problem) if problem.kind() == ErrorKind::NotFound => String::new(),
+            Err(problem) => {
+                warn!("could not read the settings: {problem}");
+                return Err(WorkspaceError::Invalid(
+                    "Could not read the settings.".to_string(),
+                ));
+            }
+        };
+        let text = revise(&current, draft).map_err(WorkspaceError::Invalid)?;
+        if let Err(problem) = write_settings(&folder, &text) {
+            warn!("could not save the settings: {problem}");
+            return Err(WorkspaceError::Invalid(
+                "Could not save the settings.".to_string(),
+            ));
+        }
+        let settings = Settings::read(&folder).map_err(|problem| {
+            warn!("could not read the settings just saved: {problem}");
+            WorkspaceError::Invalid("Could not read the settings.".to_string())
+        })?;
+        let (opens, workflows) = {
+            let mut setup = self.inner.setup();
+            apply_saved(&mut setup, &settings);
+            (opens_of(&setup.open), setup.workflows.clone())
+        };
+        self.inner
+            .announce(Event::SettingsChanged { opens, workflows });
+        Ok(Configuration::from_settings(&settings))
     }
 
     /// Asks the agent programs that list their own models for them, unless `config.toml` names them.
@@ -395,27 +495,33 @@ impl Workspace {
     /// has started. Each list arrives independently; failures are logged and
     /// leave that agent with its default. Explicit settings are never replaced.
     pub async fn list_models(&self) {
-        let codex = async {
-            let settings = &self.inner.setup.agents.codex;
-            if settings.models.is_some() {
+        let (codex, grok_program, grok_named) = {
+            let setup = self.inner.setup();
+            (
+                setup.agents.codex.clone(),
+                setup.agents.grok.program.clone(),
+                setup.agents.grok.models.is_some(),
+            )
+        };
+        let codex_list = async {
+            if codex.models.is_some() {
                 return;
             }
-            match list_codex_models(settings).await {
+            match list_codex_models(&codex).await {
                 Ok(names) => self.inner.publish_models(|models| models.codex = names),
                 Err(problem) => warn!("Codex offers only its default model: {problem}"),
             }
         };
-        let grok = async {
-            let settings = &self.inner.setup.agents.grok;
-            if settings.models.is_some() {
+        let grok_list = async {
+            if grok_named {
                 return;
             }
-            match list_grok_models(&settings.program).await {
+            match list_grok_models(&grok_program).await {
                 Ok(names) => self.inner.publish_models(|models| models.grok = names),
                 Err(problem) => warn!("Grok offers only its default model: {problem}"),
             }
         };
-        join!(codex, grok);
+        join!(codex_list, grok_list);
     }
 
     /// Every change from now on.
@@ -513,7 +619,7 @@ impl Workspace {
         model: Option<&str>,
         title: &str,
     ) -> Result<Thread, WorkspaceError> {
-        let workflow = self.inner.setup.workflows.of("");
+        let workflow = self.inner.setup().workflows.of("").clone();
         let first = workflow.first();
         let (agent, model, picked) = match agent {
             Some(agent) => {
@@ -719,11 +825,8 @@ impl Workspace {
         match (&starter, to) {
             (Starter::Person, Voice::Author) => {
                 // A thread starting over from Done gets its first stage's agent, as a new thread does.
-                let next = stage_after(
-                    self.inner.workflow_of(&thread),
-                    thread.stage,
-                    Happening::PersonWrote,
-                );
+                let workflow = self.inner.workflow_of(&thread);
+                let next = stage_after(&workflow, thread.stage, Happening::PersonWrote);
                 let pick = match next.and_then(|stage| {
                     self.inner
                         .stage_pick(Some(&thread), stage, None, None)
@@ -965,20 +1068,27 @@ impl Workspace {
         self.inner
             .turns()
             .insert(thread.id, TurnStart::of(voice, thread.stage));
-        let workflow = self.inner.workflow_of(&thread);
+        let (agents, environment, workflows, workflow) = {
+            let setup = self.inner.setup();
+            (
+                setup.agents.clone(),
+                setup
+                    .tools
+                    .as_ref()
+                    .map(AgentTools::environment)
+                    .unwrap_or_default(),
+                setup.workflows.clone(),
+                setup.workflows.of(&thread.workflow).clone(),
+            )
+        };
         let staging = match voice {
             Voice::Author => {
                 let choosing = thread.stage == workflow.first()
                     && thread.change.is_none()
                     && thread.finished.is_none();
-                let stage = staging(
-                    &self.inner.setup.workflows,
-                    workflow,
-                    thread.stage,
-                    choosing,
-                );
+                let stage = staging(&workflows, &workflow, thread.stage, choosing);
                 Some(
-                    match planning(&plan, workflow, thread.stage, thread.plan.is_some()) {
+                    match planning(&plan, &workflow, thread.stage, thread.plan.is_some()) {
                         Some(planned) => format!("{stage} {planned}"),
                         None => stage,
                     },
@@ -988,19 +1098,13 @@ impl Workspace {
         };
         self.inner.runner.start(
             Arc::new(WorkspaceJournal(self.inner.clone())),
-            self.inner.setup.agents.clone(),
+            agents,
             TurnRequest {
                 thread,
                 voice,
                 directory,
                 message: message.to_string(),
-                environment: self
-                    .inner
-                    .setup
-                    .tools
-                    .as_ref()
-                    .map(AgentTools::environment)
-                    .unwrap_or_default(),
+                environment,
                 staging,
             },
         );
@@ -1465,6 +1569,115 @@ impl Journal for WorkspaceJournal {
             Err(problem) => error!("could not keep an agent's limits: {problem}"),
         }
     }
+}
+
+/// Whether the menu can offer the editor and the terminal.
+fn opens_of(open: &OpenSettings) -> Opens {
+    Opens {
+        editor: open.editor.is_some(),
+        terminal: open.terminal.is_some(),
+    }
+}
+
+/// The settings the screen owns, as `Configuration` reads them.
+///
+/// Program paths, the port and the model lists stay out: the screen neither
+/// shows nor saves them, and a later read must still see the live strengths.
+fn view_of(setup: &Setup) -> Settings {
+    let mut settings = Settings {
+        workflow: setup.workflow.clone(),
+        stages: setup.stages.clone(),
+        open: setup.open.clone(),
+        workflows: setup
+            .own_workflows
+            .then(|| workflow_definitions(&setup.workflows)),
+        ..Settings::default()
+    };
+    settings.agents.claude.strong = setup.agents.claude.strong.clone();
+    settings.agents.claude.medium = setup.agents.claude.medium.clone();
+    settings.agents.claude.fast = setup.agents.claude.fast.clone();
+    settings.agents.codex.strong = setup.agents.codex.strong.clone();
+    settings.agents.codex.medium = setup.agents.codex.medium.clone();
+    settings.agents.codex.fast = setup.agents.codex.fast.clone();
+    settings.agents.grok.strong = setup.agents.grok.strong.clone();
+    settings.agents.grok.medium = setup.agents.grok.medium.clone();
+    settings.agents.grok.fast = setup.agents.grok.fast.clone();
+    settings
+}
+
+/// Keeps a saved file in what the next decision reads.
+///
+/// Only the strengths move on the agents. Their programs, model lists, homes
+/// and subscription switches were not on the screen, so a save must not
+/// wipe a path the service started with.
+fn apply_saved(setup: &mut Setup, settings: &Settings) {
+    setup.agents.claude.strong = settings.agents.claude.strong.clone();
+    setup.agents.claude.medium = settings.agents.claude.medium.clone();
+    setup.agents.claude.fast = settings.agents.claude.fast.clone();
+    setup.agents.codex.strong = settings.agents.codex.strong.clone();
+    setup.agents.codex.medium = settings.agents.codex.medium.clone();
+    setup.agents.codex.fast = settings.agents.codex.fast.clone();
+    setup.agents.grok.strong = settings.agents.grok.strong.clone();
+    setup.agents.grok.medium = settings.agents.grok.medium.clone();
+    setup.agents.grok.fast = settings.agents.grok.fast.clone();
+    setup.open = settings.open.clone();
+    setup.workflow = settings.workflow.clone();
+    setup.stages = settings.stages.clone();
+    setup.workflows = Workflows::from_settings(settings);
+    setup.own_workflows = settings.workflows.is_some();
+}
+
+/// The workflows the screen is showing, named for the settings file.
+fn workflow_definitions(workflows: &Workflows) -> BTreeMap<String, WorkflowDefinition> {
+    workflows
+        .workflows
+        .iter()
+        .map(|workflow| {
+            (
+                workflow.name.clone(),
+                WorkflowDefinition {
+                    description: workflow.description.clone(),
+                    stages: workflow.stages.clone(),
+                },
+            )
+        })
+        .collect()
+}
+
+/// Replaces `config.toml` only once the new text is fully on disk.
+///
+/// A crash mid-write would otherwise leave a half file, and the service
+/// would refuse to start. Each save uses its own temporary file beside
+/// `config.toml` and renames it over the real one, which replaces the whole
+/// file or leaves the old one. A shared name would let one save truncate
+/// the file another is about to rename, and that save would then be told
+/// it failed even though its text had landed.
+fn write_settings(folder: &Path, text: &str) -> Result<(), IoError> {
+    create_dir_all(folder)?;
+    let temporary = folder.join(writing_name());
+    if let Err(problem) = write(&temporary, text) {
+        let _ = remove_file(&temporary);
+        return Err(problem);
+    }
+    if let Err(problem) = rename(&temporary, folder.join("config.toml")) {
+        let _ = remove_file(&temporary);
+        return Err(problem);
+    }
+    Ok(())
+}
+
+/// A temporary name for one save, never `config.toml.writing` itself.
+///
+/// The counter is per process. The save lock already keeps two saves in
+/// this process apart; the name still has to differ so a file left behind
+/// under the old shared name is not reused.
+fn writing_name() -> String {
+    static WRITING: AtomicU64 = AtomicU64::new(0);
+    format!(
+        "config.toml.{}-{}.writing",
+        id(),
+        WRITING.fetch_add(1, Ordering::Relaxed)
+    )
 }
 
 /// "3 findings", for the line that moves a thread after a review.

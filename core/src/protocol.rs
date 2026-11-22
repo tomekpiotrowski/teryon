@@ -31,6 +31,9 @@ use crate::files::diff::{Line, LineChange};
 use crate::files::{Content, FileChange, FileEntry, FileView, Listing};
 use crate::history::{ChangedFile, Changes, Commit, History};
 use crate::plans::PlanInfo;
+use crate::settings::{
+    Configuration, ConfiguredStage, ConfiguredWorkflow, StageProvider, Strength, StrengthModels,
+};
 use crate::store::{Entry, Project, Reviewer, Status, Thread, Verdict};
 use crate::usage::{Limits, UsageLine, UsageReport, Window};
 use crate::workflow::{Stage, StageLabel, Workflow, Workflows};
@@ -227,6 +230,12 @@ pub enum Request {
     Plan {
         thread_id: Uuid,
     },
+    /// The choices the settings screen shows. Only from this machine.
+    Configuration,
+    /// Replaces those choices. Only from this machine. A running agent is left as it is.
+    SaveConfiguration {
+        configuration: Configuration,
+    },
     /// Stops the service, after stopping every agent. Only from this machine.
     Shutdown,
 }
@@ -312,6 +321,10 @@ pub enum Answer {
     Plan {
         text: String,
     },
+    /// The choices the settings screen shows, after reading or saving them.
+    Configuration {
+        configuration: Configuration,
+    },
 }
 
 /// What a thread's copy can be opened in.
@@ -371,6 +384,11 @@ pub enum Event {
     /// A turn ended and was added to the usage log.
     UsageRecorded {
         line: UsageLine,
+    },
+    /// The settings screen saved. Clients use the new workflows, labels and openers without asking again.
+    SettingsChanged {
+        opens: Opens,
+        workflows: Workflows,
     },
 }
 
@@ -466,6 +484,12 @@ pub fn typescript() -> String {
         Limits::decl(&config),
         Window::decl(&config),
         UsageLine::decl(&config),
+        Configuration::decl(&config),
+        ConfiguredWorkflow::decl(&config),
+        ConfiguredStage::decl(&config),
+        StageProvider::decl(&config),
+        StrengthModels::decl(&config),
+        Strength::decl(&config),
     ];
     let mut text = String::from(
         "// Generated from core/src/protocol.rs by `UPDATE_PROTOCOL=1 cargo test -p teryon-core protocol`.\n\

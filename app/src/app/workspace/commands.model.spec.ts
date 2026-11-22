@@ -102,6 +102,7 @@ describe('commandList', () => {
     expect(ids(commandList(situation()))).toEqual([
       'action:board',
       'action:usage',
+      'action:settings',
       'action:use:codex:default',
       'action:use:grok:default',
       'action:newProject',
@@ -122,6 +123,7 @@ describe('commandList', () => {
       'action:board',
       'action:boardEvery',
       'action:usage',
+      'action:settings',
       'action:use:codex:default',
       'action:use:grok:default',
       'action:newProject',
@@ -211,6 +213,18 @@ describe('commandList', () => {
     }
   });
 
+  it('offers the settings, with its key, with or without a project', () => {
+    for (const project of [null, first]) {
+      expect(commandList(situation({ groups, project })).find((candidate) => candidate.id === 'action:settings')).toMatchObject({
+        title: 'Settings',
+        detail: 'this machine',
+        key: 's',
+        leader: null,
+        action: { kind: 'showScreen', screen: 'settings' },
+      });
+    }
+  });
+
   it('offers to stop the agent only in a thread one is working in', () => {
     const idle = commandList(situation({ groups, project: first, thread: older }));
     const running = commandList(situation({ groups, project: second, thread: newest }));
@@ -220,7 +234,8 @@ describe('commandList', () => {
       detail: 'Thread t2',
       action: { kind: 'stopAgent', thread: newest },
     });
-    expect(ids(running).indexOf('action:stopAgent')).toBe(ids(running).indexOf('action:usage') + 1);
+    expect(ids(running).indexOf('action:settings')).toBe(ids(running).indexOf('action:usage') + 1);
+    expect(ids(running).indexOf('action:stopAgent')).toBe(ids(running).indexOf('action:settings') + 1);
   });
 
   describe('the agent commands', () => {
@@ -725,6 +740,7 @@ describe('the commands for a thread\'s change', () => {
       'action:board',
       'action:boardEvery',
       'action:usage',
+      'action:settings',
       'action:useInThread:codex:default',
       'action:useInThread:grok:default',
       'action:use:codex:default',

@@ -1,7 +1,9 @@
 <ion-content class="workspace-content" [fullscreen]="true" [scrollY]="false">
   @if (view$ | async; as view) {
     @let screen = screen$ | async;
-    @if (screen === 'usage') {
+    @if (screen === 'settings') {
+      <app-settings (closed)="screen$.next('thread')" (menuOpened)="openMenu()"></app-settings>
+    } @else if (screen === 'usage') {
       <app-usage (closed)="screen$.next('thread')" (menuOpened)="openMenu()"></app-usage>
     } @else if (screen === 'plan') {
       <app-plan [thread]="view.thread" (menuOpened)="openMenu()"></app-plan>

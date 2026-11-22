@@ -62,6 +62,8 @@ impl Session {
             | Request::Directories { .. }
             | Request::OpenCopy { .. }
             | Request::OpenReview { .. }
+            | Request::Configuration
+            | Request::SaveConfiguration { .. }
             | Request::Shutdown
                 if !local =>
             {
@@ -291,6 +293,13 @@ impl Session {
                 .change(project_id, &commit, from.as_deref(), &path)
                 .await
                 .map(|file| Answer::File { file })
+                .map_err(|problem| problem.to_string()),
+            Request::Configuration => Ok(Answer::Configuration {
+                configuration: workspace.configuration(),
+            }),
+            Request::SaveConfiguration { configuration } => workspace
+                .save_configuration(&configuration)
+                .map(|configuration| Answer::Configuration { configuration })
                 .map_err(|problem| problem.to_string()),
         };
         (answer, Aftermath::Nothing)

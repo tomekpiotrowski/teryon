@@ -19,7 +19,7 @@ function changeLine(page: Page) {
   return page.getByRole("region", { name: "This thread’s changes" });
 }
 
-test("Escape returns from code, history and usage to the same thread and draft", async ({ page }) => {
+test("Escape returns from code, history, usage and settings to the same thread and draft", async ({ page }) => {
   await addProject(page, "Sample", (folder) => {
     git(folder, "init", "-q", "-b", "main");
     put(folder, "README.md", "# Sample\n");
@@ -31,7 +31,7 @@ test("Escape returns from code, history and usage to the same thread and draft",
   await expect(changeLine(page)).toContainText("1 file changed");
   await page.getByLabel("Reply").fill("Keep this reply");
 
-  for (const [key, selector] of [["c", "app-files"], ["h", "app-history"], ["u", "app-usage"]]) {
+  for (const [key, selector] of [["c", "app-files"], ["h", "app-history"], ["u", "app-usage"], ["s", "app-settings"]]) {
     await page.getByLabel("Reply").press("Escape");
     await page.keyboard.press(key);
     await expect(page.locator(selector)).toBeVisible();
@@ -751,7 +751,7 @@ test("the theme is changed from the menu, which offers nothing about accounts", 
   await expect(page.locator("html")).not.toHaveAttribute("data-theme", before ?? "");
 
   await page.keyboard.press("Control+k");
-  await expect(menu(page).getByRole("option", { name: /^Settings/ })).toHaveCount(0);
+  await expect(menu(page).getByRole("option", { name: /^Settings/ })).toBeVisible();
   await expect(menu(page).getByRole("option", { name: /^Sign out/ })).toHaveCount(0);
 });
 

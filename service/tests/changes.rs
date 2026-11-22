@@ -340,7 +340,7 @@ lets_expect! { #tokio_test
         expect(opened) to be_true
 
         let terminal = client.call(Request::OpenCopy { thread_id: thread, with: Opener::Terminal }).await;
-        let check_terminal = matches!(terminal, Err(ClientError::Refused(ref message)) if message == "Nothing is set up to open it with. Add it under [open] in Teryon's config.toml.");
+        let check_terminal = matches!(terminal, Err(ClientError::Refused(ref message)) if message == "Nothing is set up to open it with. Set it in Settings.");
         expect(check_terminal) to be_true
     }
 

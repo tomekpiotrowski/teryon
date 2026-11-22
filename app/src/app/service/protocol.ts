@@ -25,13 +25,13 @@ model: string | null, } | { "type": "change_agent", thread_id: string, to: Voice
 /**
  * Nothing leaves the model to the agent program.
  */
-model: string | null, } | { "type": "stop", thread_id: string, } | { "type": "mark_seen", thread_id: string, } | { "type": "start_change", thread_id: string, turn: string, name: string, from: string | null, } | { "type": "name_thread", thread_id: string, turn: string, title: string, } | { "type": "report_stage", thread_id: string, turn: string, stage: string, } | { "type": "choose_workflow", thread_id: string, turn: string | null, workflow: string, } | { "type": "ask_questions", thread_id: string, turn: string, asked: string, } | { "type": "draft_description", thread_id: string, } | { "type": "apply_change", thread_id: string, description: string, } | { "type": "catch_up", thread_id: string, } | { "type": "discard_change", thread_id: string, } | { "type": "send_for_review", thread_id: string, description: string, } | { "type": "open_review", thread_id: string, } | { "type": "open_copy", thread_id: string, with: Opener, } | { "type": "follow_thread", thread_id: string, } | { "type": "unfollow_thread", thread_id: string, } | { "type": "files", project_id: string, thread_id: string | null, branch: string | null, commit: string | null, } | { "type": "file", project_id: string, thread_id: string | null, branch: string | null, commit: string | null, path: string, } | { "type": "history", project_id: string, branch: string | null, } | { "type": "changes", project_id: string, commit: string, from: string | null, } | { "type": "change", project_id: string, commit: string, from: string | null, path: string, } | { "type": "usage" } | { "type": "plan", thread_id: string, } | { "type": "shutdown" };
+model: string | null, } | { "type": "stop", thread_id: string, } | { "type": "mark_seen", thread_id: string, } | { "type": "start_change", thread_id: string, turn: string, name: string, from: string | null, } | { "type": "name_thread", thread_id: string, turn: string, title: string, } | { "type": "report_stage", thread_id: string, turn: string, stage: string, } | { "type": "choose_workflow", thread_id: string, turn: string | null, workflow: string, } | { "type": "ask_questions", thread_id: string, turn: string, asked: string, } | { "type": "draft_description", thread_id: string, } | { "type": "apply_change", thread_id: string, description: string, } | { "type": "catch_up", thread_id: string, } | { "type": "discard_change", thread_id: string, } | { "type": "send_for_review", thread_id: string, description: string, } | { "type": "open_review", thread_id: string, } | { "type": "open_copy", thread_id: string, with: Opener, } | { "type": "follow_thread", thread_id: string, } | { "type": "unfollow_thread", thread_id: string, } | { "type": "files", project_id: string, thread_id: string | null, branch: string | null, commit: string | null, } | { "type": "file", project_id: string, thread_id: string | null, branch: string | null, commit: string | null, path: string, } | { "type": "history", project_id: string, branch: string | null, } | { "type": "changes", project_id: string, commit: string, from: string | null, } | { "type": "change", project_id: string, commit: string, from: string | null, path: string, } | { "type": "usage" } | { "type": "plan", thread_id: string, } | { "type": "configuration" } | { "type": "save_configuration", configuration: Configuration, } | { "type": "shutdown" };
 
 export type ServiceMessage = { "type": "reply", id: number, outcome: Outcome, } | { "type": "event", event: Event, };
 
 export type Outcome = { "type": "done", answer: Answer, } | { "type": "failed", message: string, };
 
-export type Answer = { "type": "nothing" } | { "type": "project", project: ProjectView, } | { "type": "directories", listing: DirectoryListing, } | { "type": "thread", thread: Thread, } | { "type": "entry", entry: Entry, } | { "type": "entries", entries: Array<Entry>, } | { "type": "listing", listing: Listing, } | { "type": "file", file: FileView, } | { "type": "history", history: History, } | { "type": "changes", changes: Changes, } | { "type": "path", path: string, } | { "type": "draft", text: string, } | { "type": "caught_up", overlaps: boolean, } | { "type": "usage", report: UsageReport, } | { "type": "plan", text: string, };
+export type Answer = { "type": "nothing" } | { "type": "project", project: ProjectView, } | { "type": "directories", listing: DirectoryListing, } | { "type": "thread", thread: Thread, } | { "type": "entry", entry: Entry, } | { "type": "entries", entries: Array<Entry>, } | { "type": "listing", listing: Listing, } | { "type": "file", file: FileView, } | { "type": "history", history: History, } | { "type": "changes", changes: Changes, } | { "type": "path", path: string, } | { "type": "draft", text: string, } | { "type": "caught_up", overlaps: boolean, } | { "type": "usage", report: UsageReport, } | { "type": "plan", text: string, } | { "type": "configuration", configuration: Configuration, };
 
 export type Event = { "type": "snapshot", projects: Array<ProjectView>, threads: Array<Thread>, opens: Opens, 
 /**
@@ -41,7 +41,7 @@ models: ModelLists,
 /**
  * The workflows threads can follow, and what each stage is called.
  */
-workflows: Workflows, } | { "type": "models_changed", models: ModelLists, } | { "type": "project_added", project: ProjectView, } | { "type": "project_removed", project_id: string, } | { "type": "thread_changed", thread: Thread, } | { "type": "entry_added", entry: Entry, } | { "type": "limits_changed", limits: Limits, } | { "type": "usage_recorded", line: UsageLine, };
+workflows: Workflows, } | { "type": "models_changed", models: ModelLists, } | { "type": "project_added", project: ProjectView, } | { "type": "project_removed", project_id: string, } | { "type": "thread_changed", thread: Thread, } | { "type": "entry_added", entry: Entry, } | { "type": "limits_changed", limits: Limits, } | { "type": "usage_recorded", line: UsageLine, } | { "type": "settings_changed", opens: Opens, workflows: Workflows, };
 
 export type ProjectView = { id: string, name: string, directory: string, created_at: string, state: ProjectState, 
 /**
@@ -556,3 +556,43 @@ model: string | null, project_id: string,
  * The project's name when the turn ran, for when the project has since been removed.
  */
 project_name: string, thread_id: string, read: number, written: number, };
+
+export type Configuration = { default_workflow: string, automatic_rounds: number, 
+/**
+ * Whether `config.toml` names its own workflows. False means the built-in pair.
+ */
+own_workflows: boolean, workflows: Array<ConfiguredWorkflow>, 
+/**
+ * One entry per stage, in the fixed order.
+ */
+stages: Array<ConfiguredStage>, claude: StrengthModels, codex: StrengthModels, grok: StrengthModels, 
+/**
+ * Empty when no editor is set up.
+ */
+editor: string, 
+/**
+ * Empty when no terminal is set up.
+ */
+terminal: string, };
+
+export type ConfiguredWorkflow = { name: string, description: string, stages: Array<Stage>, };
+
+export type ConfiguredStage = { stage: Stage, 
+/**
+ * Empty when the stage keeps its usual name.
+ */
+label: string, 
+/**
+ * Nothing when the stage keeps the thread's agent, unless `strength` is set, which means any provider.
+ */
+provider: StageProvider | null, 
+/**
+ * Nothing when the stage keeps the thread's agent.
+ */
+strength: Strength | null, };
+
+export type StageProvider = { "kind": "any", among: Array<string>, } | { "kind": "prefer", agent: string, among: Array<string>, } | { "kind": "only", agent: string, };
+
+export type StrengthModels = { strong: string, medium: string, fast: string, };
+
+export type Strength = "strong" | "medium" | "fast";

@@ -1,0 +1,197 @@
+@if (view$ | async; as view) {
+  <div class="files settings-screen">
+    <header class="files-bar">
+      <button class="menu-button" type="button" aria-label="Open menu" aria-keyshortcuts="/ Control+K" (click)="menuOpened.emit()">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"></path></svg>
+      </button>
+      <span class="files-mark">TERYON</span>
+      <span class="files-muted files-project">settings</span>
+    </header>
+
+    <main class="settings-body">
+      @if (view.loadProblem) {
+        <p class="settings-problem" role="alert">{{ view.loadProblem }}</p>
+      } @else if (view.loading) {
+        <p class="files-muted">Reading the settings…</p>
+      } @else {
+        <section class="settings-section" aria-labelledby="settings-workflows">
+          <h2 class="files-key" id="settings-workflows">Workflows</h2>
+          <div class="settings-row">
+            <label for="settings-default">New threads follow</label>
+            <select id="settings-default" [disabled]="view.saving" (change)="chooseWorkflow($event)">
+              @for (option of view.workflowOptions; track option.key) {
+                <option [value]="option.key" [selected]="option.key === view.defaultKey">{{ option.label }}</option>
+              }
+            </select>
+          </div>
+          <div class="settings-row">
+            <label for="settings-rounds">Agents started on their own</label>
+            <input id="settings-rounds" type="number" min="0" step="1" inputmode="numeric" [value]="view.rounds" [disabled]="view.saving" (input)="setRoundCount($event)" />
+          </div>
+          <p class="settings-hint files-muted">Zero means Teryon starts none. A thread already going finishes its turn.</p>
+
+          @for (workflow of view.workflows; track workflow.key) {
+            <fieldset class="settings-workflow" [attr.aria-label]="workflow.name.trim() || 'New workflow'">
+              <div class="settings-row">
+                <label [attr.for]="'workflow-name-' + workflow.key">Name</label>
+                <input
+                  [id]="'workflow-name-' + workflow.key"
+                  [value]="workflow.name"
+                  [disabled]="workflow.locked || view.saving"
+                  [attr.aria-describedby]="workflow.locked ? 'workflow-name-note-' + workflow.key : null"
+                  (input)="rename(workflow.key, $event)"
+                />
+              </div>
+              @if (workflow.locked) {
+                <p class="settings-hint files-muted" [id]="'workflow-name-note-' + workflow.key">Threads remember this name, so it stays.</p>
+              }
+              <div class="settings-row">
+                <label [attr.for]="'workflow-description-' + workflow.key">Description</label>
+                <input [id]="'workflow-description-' + workflow.key" [value]="workflow.description" [disabled]="view.saving" (input)="describe(workflow.key, $event)" />
+              </div>
+              <div class="settings-checks" [attr.aria-label]="'Stages of ' + (workflow.name.trim() || 'the new workflow')" role="group">
+                @for (choice of workflow.stageChoices; track choice.stage) {
+                  <label>
+                    <input
+                      type="checkbox"
+                      [checked]="choice.checked"
+                      [disabled]="choice.fixed || view.saving"
+                      (change)="toggleStage(workflow.key, choice.stage)"
+                    />
+                    {{ choice.label }}
+                  </label>
+                }
+              </div>
+              <button type="button" class="technical-button" [disabled]="!view.canRemove || view.saving" (click)="removeWorkflow(workflow.key)">Remove</button>
+            </fieldset>
+          }
+          @if (view.removalNote) {
+            <p class="settings-hint">{{ view.removalNote }}</p>
+          }
+          <button type="button" class="technical-button" [disabled]="view.saving" (click)="addWorkflow()">Add a workflow</button>
+        </section>
+
+        <section class="settings-section" aria-labelledby="settings-stages">
+          <h2 class="files-key" id="settings-stages">Stages</h2>
+          <p class="settings-hint files-muted">A blank label keeps the usual word. Ready and Done wait for you.</p>
+          @for (stage of view.stages; track stage.stage) {
+            <fieldset class="settings-stage" [attr.aria-label]="stage.heading">
+              <legend class="files-key">{{ stage.heading }}</legend>
+              <div class="settings-row">
+                <label [attr.for]="'stage-label-' + stage.stage">Label</label>
+                <input
+                  [id]="'stage-label-' + stage.stage"
+                  [attr.aria-label]="'Label for ' + stage.heading"
+                  [value]="stage.label"
+                  [placeholder]="stage.placeholder"
+                  [disabled]="view.saving"
+                  (input)="label(stage.stage, $event)"
+                />
+              </div>
+              @if (stage.worked) {
+                <div class="settings-row">
+                  <label [attr.for]="'stage-mode-' + stage.stage">Who works</label>
+                  <select [id]="'stage-mode-' + stage.stage" [disabled]="view.saving" (change)="chooseMode(stage.stage, $event)">
+                    <option value="keep" [selected]="stage.mode === 'keep'">Keep the thread’s agent</option>
+                    <option value="any" [selected]="stage.mode === 'any'">Any</option>
+                    <option value="prefer" [selected]="stage.mode === 'prefer'">Prefer one</option>
+                    <option value="only" [selected]="stage.mode === 'only'">Only one</option>
+                  </select>
+                </div>
+                @if (stage.showAgent) {
+                  <div class="settings-row">
+                    <label [attr.for]="'stage-agent-' + stage.stage">Agent</label>
+                    <select [id]="'stage-agent-' + stage.stage" [disabled]="view.saving" (change)="chooseAgent(stage.stage, $event)">
+                      @for (provider of stage.among; track provider.agent) {
+                        <option [value]="provider.agent" [selected]="provider.agent === stage.agent">{{ provider.label }}</option>
+                      }
+                    </select>
+                  </div>
+                }
+                @if (stage.showAmong) {
+                  <div class="settings-checks" role="group" [attr.aria-label]="'Also allowed in ' + stage.heading">
+                    @for (provider of stage.among; track provider.agent) {
+                      <label>
+                        <input type="checkbox" [checked]="provider.checked" [disabled]="view.saving" (change)="toggleProvider(stage.stage, provider.agent)" />
+                        {{ provider.label }}
+                      </label>
+                    }
+                  </div>
+                  <p class="settings-hint files-muted">Leave none ticked to allow every installed provider.</p>
+                }
+                @if (stage.showStrength) {
+                  <div class="settings-row">
+                    <label [attr.for]="'stage-strength-' + stage.stage">Strength</label>
+                    <select [id]="'stage-strength-' + stage.stage" [disabled]="view.saving" (change)="chooseStrength(stage.stage, $event)">
+                      <option value="strong" [selected]="stage.strength === 'strong'">Strong</option>
+                      <option value="medium" [selected]="stage.strength === 'medium'">Medium</option>
+                      <option value="fast" [selected]="stage.strength === 'fast'">Fast</option>
+                    </select>
+                  </div>
+                }
+              }
+            </fieldset>
+          }
+        </section>
+
+        <section class="settings-section" aria-labelledby="settings-models">
+          <h2 class="files-key" id="settings-models">Models</h2>
+          <p class="settings-hint files-muted">An empty field means the usual model. A name that is not listed still works.</p>
+          @for (group of view.models; track group.agent) {
+            <fieldset class="settings-stage" [attr.aria-label]="group.title">
+              <legend class="files-key">{{ group.title }}</legend>
+              @for (field of group.fields; track field.strength) {
+                <div class="settings-row">
+                  <label [attr.for]="field.listId">{{ field.label }}</label>
+                  <input
+                    [id]="field.listId"
+                    [attr.list]="field.listId + '-list'"
+                    [value]="field.value"
+                    [placeholder]="field.placeholder"
+                    [disabled]="view.saving"
+                    autocomplete="off"
+                    (input)="model(group.agent, field.strength, $event)"
+                  />
+                  <datalist [id]="field.listId + '-list'">
+                    @for (name of field.suggestions; track name) {
+                      <option [value]="name"></option>
+                    }
+                  </datalist>
+                </div>
+              }
+            </fieldset>
+          }
+        </section>
+
+        <section class="settings-section" aria-labelledby="settings-open">
+          <h2 class="files-key" id="settings-open">Opening a copy</h2>
+          <p class="settings-hint files-muted">A command with <code>{{ '{path}' }}</code> for where the copy is. Empty means the menu does not offer it.</p>
+          <div class="settings-row">
+            <label for="settings-editor">Editor</label>
+            <input id="settings-editor" [value]="view.editor" placeholder="code {path}" [disabled]="view.saving" (input)="editorCommand($event)" />
+          </div>
+          <div class="settings-row">
+            <label for="settings-terminal">Terminal</label>
+            <input id="settings-terminal" [value]="view.terminal" placeholder="alacritty --working-directory {path}" [disabled]="view.saving" (input)="terminalCommand($event)" />
+          </div>
+        </section>
+
+        @if (view.problem) {
+          <p class="settings-problem" role="alert">{{ view.problem }}</p>
+        }
+        <p class="settings-hint">An agent working now finishes as it is. The next turn uses what was saved.</p>
+        <div class="settings-actions">
+          <button type="button" class="technical-button" [disabled]="!view.dirty || view.saving" (click)="discard()">Discard</button>
+          <button type="button" class="technical-button primary" [disabled]="!view.dirty || view.saving" (click)="save()">{{ view.saving ? 'Saving…' : 'Save' }}</button>
+        </div>
+      }
+    </main>
+
+    <footer class="files-foot files-muted">
+      <span class="files-spacer"></span>
+      <button type="button" class="code-link" aria-keyshortcuts="/" (click)="menuOpened.emit()">menu <kbd>/</kbd></button>
+      <span aria-hidden="true">·</span>
+      <button type="button" class="code-link" aria-current="page" aria-keyshortcuts="s" (click)="closed.emit()">settings <kbd>S</kbd></button>
+    </footer>
+  </div>
+}
