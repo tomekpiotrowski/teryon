@@ -385,6 +385,29 @@ export const NOTHING_SELECTED: Selection = { projectId: null, threadId: null };
 /** What fills the screen: a project's threads, its files or its history. */
 export type Screen = 'thread' | 'files' | 'history' | 'usage' | 'board' | 'plan' | 'settings';
 
+/**
+ * Whether a screen is drawn over the thread, which then waits hidden underneath.
+ *
+ * The thread is kept on the page while another screen is shown, so coming back
+ * finds it where it was left, scrolled as it was, without drawing every line
+ * again. The files and the history need a project; without one the thread
+ * shows instead.
+ */
+export function coversThread(screen: Screen | null, project: Project | null): boolean {
+  switch (screen) {
+    case 'settings':
+    case 'usage':
+    case 'plan':
+    case 'board':
+      return true;
+    case 'files':
+    case 'history':
+      return project !== null;
+    default:
+      return false;
+  }
+}
+
 /** A pressed key, as far as the shortcuts care. */
 export interface KeyPress {
   readonly key: string;

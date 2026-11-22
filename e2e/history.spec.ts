@@ -191,6 +191,8 @@ test("the keys move between the thread, the history and the files, and through t
   await expect(composer).toBeVisible();
 
   await page.getByRole("button", { name: "history H" }).click();
+  // The thread stays on the page, hidden, with buttons of the same names; wait for the history's.
+  await expect(page.getByLabel("Commit history")).toBeVisible();
   await page.getByRole("button", { name: "code C" }).click();
   await expect(page.getByLabel("Repository files")).toBeVisible();
   await page.getByRole("button", { name: "history H" }).click();

@@ -58,6 +58,43 @@ test("Escape returns from code, history, usage and settings to the same thread a
   }
 });
 
+test("the thread is kept, scrolled as it was, while the code, the history and the board are open", async ({ page }) => {
+  await addProject(page, "Sample", (folder) => {
+    git(folder, "init", "-q", "-b", "main");
+    put(folder, "README.md", "# Sample\n");
+    commit(folder);
+  });
+  // A short window, so the thread is longer than what it shows.
+  await page.setViewportSize({ width: 900, height: 360 });
+  await page.getByLabel("New thread").fill("hello");
+  await page.getByRole("button", { name: "Run ↵" }).click();
+  await expect(page.getByLabel("Thread").getByText("ready", { exact: true })).toBeVisible();
+  await page.getByLabel("Reply").fill("use tools");
+  await page.getByRole("button", { name: "send ↵" }).click();
+  await expect(page.getByText(/is 6 bytes/)).toBeVisible();
+
+  const thread = page.getByLabel("Thread", { exact: true });
+  await thread.evaluate((element) => element.setAttribute("data-kept", "yes"));
+  const partWay = await thread.evaluate((element) => {
+    element.scrollTop = (element.scrollHeight - element.clientHeight) / 2;
+    return element.scrollTop;
+  });
+  expect(partWay).toBeGreaterThan(0);
+
+  for (const [key, selector] of [["c", "app-files"], ["h", "app-history"], ["b", "app-board"]]) {
+    await page.getByLabel("Reply").press("Escape");
+    await page.keyboard.press(key);
+    await expect(page.locator(selector)).toBeVisible();
+    await expect(thread).toBeHidden();
+
+    await page.keyboard.press("Escape");
+    await expect(page.locator(selector)).toHaveCount(0);
+    await expect(thread).toBeVisible();
+    await expect(thread).toHaveAttribute("data-kept", "yes");
+    expect(await thread.evaluate((element) => element.scrollTop)).toBe(partWay);
+  }
+});
+
 test("an agent works in a project and the thread fills in live", async ({ page }) => {
   await addProject(page, "Sample");
 
@@ -118,7 +155,6 @@ test("an agent's change shows where it stands, and its copy can be found", async
   await page.keyboard.press("Escape");
 
   // C shows the code of the thread's copy, where the agent's file is, and C again goes back.
-  await expect(page.getByLabel("Reply")).toBeFocused();
   await page.getByLabel("Reply").press("Escape");
   await page.keyboard.press("c");
   await expect(page.getByLabel("Repository files").getByRole("button", { name: "fix-login.txt" })).toBeVisible();
@@ -536,7 +572,6 @@ test("the menu lists threads, projects and actions, and typing narrows them", as
   await page.keyboard.press("Enter");
   await expect(menu(page)).toHaveCount(0);
   await expect(page.locator(".workspace-bar")).toContainText("Sample · hello");
-  await expect(page.getByLabel("Reply")).toBeFocused();
 
   // Escape leaves the message box, and the letters run their commands again.
   await page.keyboard.press("h");
@@ -646,7 +681,6 @@ test("an agent's questions are answered with number keys, and the answers go to 
   await questions.focus();
   await page.keyboard.press("Escape");
   await expect(questions).toHaveCount(0);
-  await expect(page.getByLabel("Reply")).toBeFocused();
   await page.getByLabel("Reply").press("Escape");
   await page.keyboard.press("q");
   await expect(questions).toBeFocused();
@@ -733,7 +767,6 @@ test("the agent's own slash commands are listed and go to the message box", asyn
 
   // The command waits in the message box for what follows it, and is sent like any message.
   await expect(page.getByLabel("Reply")).toHaveValue("/compact ");
-  await expect(page.getByLabel("Reply")).toBeFocused();
   await page.keyboard.type("keep the plan");
   await page.keyboard.press("Enter");
   await expect(page.getByLabel("Thread").getByText("/compact keep the plan", { exact: true })).toBeVisible();

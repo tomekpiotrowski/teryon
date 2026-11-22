@@ -19,6 +19,7 @@ import {
   reviewerOf,
   reviewersFor,
   barTitle,
+  coversThread,
   CATCH_UP_REQUEST,
   type Change,
   type ChangeState,
@@ -1171,5 +1172,29 @@ describe('stages', () => {
       text: 'Talking → Planning · by Claude',
       reviewer: false,
     });
+  });
+});
+
+describe('coversThread', () => {
+  const app: Project = { id: 'p', name: 'App', directory: '/work/app', created_at: '2026-11-01T10:00:00' };
+
+  it('leaves the thread in sight on the thread screen and before any screen is known', () => {
+    expect(coversThread('thread', app)).toBe(false);
+    expect(coversThread('thread', null)).toBe(false);
+    expect(coversThread(null, app)).toBe(false);
+  });
+
+  it('covers the thread with the settings, the usage, the plan and the board, with or without a project', () => {
+    for (const screen of ['settings', 'usage', 'plan', 'board'] as const) {
+      expect(coversThread(screen, app)).toBe(true);
+      expect(coversThread(screen, null)).toBe(true);
+    }
+  });
+
+  it('covers the thread with the files and the history only when there is a project to show', () => {
+    for (const screen of ['files', 'history'] as const) {
+      expect(coversThread(screen, app)).toBe(true);
+      expect(coversThread(screen, null)).toBe(false);
+    }
   });
 });

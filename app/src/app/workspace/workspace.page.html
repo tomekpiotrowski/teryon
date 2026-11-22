@@ -1,51 +1,57 @@
 <ion-content class="workspace-content" [fullscreen]="true" [scrollY]="false">
   @if (view$ | async; as view) {
     @let screen = screen$ | async;
-    @if (screen === 'settings') {
-      <app-settings (closed)="screen$.next('thread')" (menuOpened)="openMenu()"></app-settings>
-    } @else if (screen === 'usage') {
-      <app-usage (closed)="screen$.next('thread')" (menuOpened)="openMenu()"></app-usage>
-    } @else if (screen === 'plan') {
-      <app-plan [thread]="view.thread" (menuOpened)="openMenu()"></app-plan>
-    } @else if (screen === 'board') {
-      <app-board
-        [project]="view.project"
-        [everyProject]="(boardEvery$ | async) ?? false"
-        [openThreadId]="view.thread?.id ?? null"
-        (opened)="openFromBoard($event)"
-        (menuOpened)="openMenu()"
-      ></app-board>
-    } @else if (view.project && screen === 'files') {
-      <app-files
-        [project]="view.project"
-        [liveAgents]="view.liveAgents"
-        [thread]="view.place.threadId"
-        [branch]="view.place.branch"
-        [commit]="view.place.commit"
-        (closed)="screen$.next('thread')"
-        (historyOpened)="screen$.next('history')"
-        (branchChosen)="chooseBranch(view.project, $event)"
-        (asked)="askAbout($event)"
-        (menuOpened)="openMenu()"
-      ></app-files>
-    } @else if (view.project && screen === 'history') {
-      <app-history
-        [project]="view.project"
-        [liveAgents]="view.liveAgents"
-        [branch]="view.place.branch"
-        [threads]="view.projectThreads"
-        [openThread]="view.thread?.id ?? null"
-        [ownEmail]="null"
-        (closed)="screen$.next('thread')"
-        (filesOpened)="screen$.next('files')"
-        (branchChosen)="chooseBranch(view.project, $event)"
-        (browsed)="browseAt(view.project, $event)"
-        (threadOpened)="openThread($event)"
-        (revertAsked)="askToRevert($event)"
-        (menuOpened)="openMenu()"
-      ></app-history>
-    } @else {
-      <div class="workspace-shell">
+    @let covered = coversThread(screen, view.project);
+    <div class="workspace-layers">
+      @if (covered) {
+        <div class="workspace-cover">
+        @if (screen === 'settings') {
+          <app-settings (closed)="screen$.next('thread')" (menuOpened)="openMenu()"></app-settings>
+        } @else if (screen === 'usage') {
+          <app-usage (closed)="screen$.next('thread')" (menuOpened)="openMenu()"></app-usage>
+        } @else if (screen === 'plan') {
+          <app-plan [thread]="view.thread" (menuOpened)="openMenu()"></app-plan>
+        } @else if (screen === 'board') {
+          <app-board
+            [project]="view.project"
+            [everyProject]="(boardEvery$ | async) ?? false"
+            [openThreadId]="view.thread?.id ?? null"
+            (opened)="openFromBoard($event)"
+            (menuOpened)="openMenu()"
+          ></app-board>
+        } @else if (view.project && screen === 'files') {
+          <app-files
+            [project]="view.project"
+            [liveAgents]="view.liveAgents"
+            [thread]="view.place.threadId"
+            [branch]="view.place.branch"
+            [commit]="view.place.commit"
+            (closed)="screen$.next('thread')"
+            (historyOpened)="screen$.next('history')"
+            (branchChosen)="chooseBranch(view.project, $event)"
+            (asked)="askAbout($event)"
+            (menuOpened)="openMenu()"
+          ></app-files>
+        } @else if (view.project && screen === 'history') {
+          <app-history
+            [project]="view.project"
+            [liveAgents]="view.liveAgents"
+            [branch]="view.place.branch"
+            [threads]="view.projectThreads"
+            [openThread]="view.thread?.id ?? null"
+            [ownEmail]="null"
+            (closed)="screen$.next('thread')"
+            (filesOpened)="screen$.next('files')"
+            (branchChosen)="chooseBranch(view.project, $event)"
+            (browsed)="browseAt(view.project, $event)"
+            (threadOpened)="openThread($event)"
+            (revertAsked)="askToRevert($event)"
+            (menuOpened)="openMenu()"
+          ></app-history>
+        }
+        </div>
+      }
+      <div class="workspace-shell" [class.workspace-covered]="covered" [inert]="covered">
         <header class="files-bar workspace-bar">
           <button class="menu-button" type="button" aria-label="Open menu" aria-keyshortcuts="/ Control+K" (click)="openMenu()">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"></path></svg>
@@ -222,7 +228,7 @@
           </main>
         </div>
       </div>
-    }
+    </div>
   }
 
   @if (menuOpen$ | async) {

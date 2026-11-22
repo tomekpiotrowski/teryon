@@ -388,6 +388,28 @@ a:hover {
   --overflow: hidden;
 }
 
+/*
+ * The thread stays on the page under every other screen, so it keeps its
+ * scroll position and is not drawn again on return. `visibility` rather than
+ * `display` hides it, because WebKit can forget the scroll position of an
+ * element taken out of the layout.
+ */
+.workspace-layers {
+  position: relative;
+  height: 100%;
+}
+
+.workspace-cover {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  background: var(--color-bg);
+}
+
+.workspace-covered {
+  visibility: hidden;
+}
+
 .workspace-shell {
   display: flex;
   height: 100%;
@@ -1283,7 +1305,10 @@ a:hover {
 /* The file browser. Its measurements follow the "2a · Files tab" design. */
 app-files,
 app-history,
-app-settings {
+app-settings,
+app-plan,
+app-board,
+app-usage {
   display: block;
   height: 100%;
 }

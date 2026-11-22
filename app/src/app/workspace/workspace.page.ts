@@ -35,6 +35,7 @@ import { WorkspaceApi } from './workspace.api';
 import {
   agentLabel,
   barTitle,
+  coversThread,
   type Choice,
   choiceLabel,
   chosen,
@@ -150,6 +151,7 @@ export class WorkspacePage implements OnDestroy {
   readonly choiceLabel = choiceLabel;
   readonly threadChoice = threadChoice;
   readonly barTitle = barTitle;
+  readonly coversThread = coversThread;
   readonly runningText = runningText;
   readonly waitingText = waitingText;
   readonly connectionText = connectionText;
@@ -344,7 +346,8 @@ export class WorkspacePage implements OnDestroy {
     )
     .subscribe(() =>
       requestAnimationFrame(() => {
-        const box = this.host.nativeElement.querySelector('textarea');
+        const boxes = Array.from(this.host.nativeElement.querySelectorAll('textarea'));
+        const box = boxes.find((candidate) => !candidate.closest('[inert]'));
         box?.focus();
         box?.setSelectionRange(box.value.length, box.value.length);
       }),
