@@ -61,14 +61,18 @@ test("the board shows each thread in the column of its stage, and follows it", a
   await expect(board).toHaveCount(0);
 });
 
-test("the agent's plan shows as a line, opens on P, and follows changes", async ({ page }) => {
+test("the agent's plan shows as a line, opens on P or the plan button, and follows changes", async ({ page }) => {
   await addProject(page, "Sample");
   await page.getByLabel("New thread").fill('write a plan "Login fix"');
   await page.getByRole("button", { name: "Run ↵" }).click();
 
   const thread = page.getByLabel("Thread");
   await expect(thread.getByText("◇ Talking → Planning · a plan was written")).toBeVisible();
-  await expect(thread.getByRole("button", { name: "Plan written · Login fix" })).toBeVisible();
+  const planLine = thread.getByRole("button", { name: "Plan written · Login fix" });
+  await expect(planLine).toBeVisible();
+  // The line wears the accent colour, not the grey of the notices around it.
+  const colourOf = (line: typeof planLine) => line.evaluate((element) => getComputedStyle(element).color);
+  expect(await colourOf(planLine)).not.toBe(await thread.locator(".stage-line").first().evaluate((element) => getComputedStyle(element).color));
 
   await page.getByLabel("Reply").press("Escape");
   await page.keyboard.press("p");
@@ -79,8 +83,17 @@ test("the agent's plan shows as a line, opens on P, and follows changes", async 
 
   await page.keyboard.press("Escape");
   await expect(plan).toHaveCount(0);
+  const planButton = page.locator(".thread-composer").getByRole("button", { name: "plan", exact: true });
+  await planButton.click();
+  await expect(plan.getByRole("heading", { name: "Login fix" })).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(plan).toHaveCount(0);
   await page.getByLabel("Reply").fill('write a plan "Login fix, take two"');
   await page.getByRole("button", { name: "send ↵" }).click();
   await thread.getByRole("button", { name: "Plan changed · Login fix, take two" }).click();
   await expect(plan.getByRole("heading", { name: "Login fix, take two" })).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(planButton).toBeVisible();
 });

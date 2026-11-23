@@ -175,12 +175,20 @@
                       @if (line.card.labelled) { <span class="change-status" role="status">{{ line.card.title }}</span> }
                       @if (line.card.note) { <span class="change-note">{{ line.card.note }}</span> }
                       <span class="spacer"></span>
+                      @if (view.thread.plan) {
+                        <button type="button" class="change-action plan-action" aria-keyshortcuts="p" title="Read this thread’s plan" (click)="showPlan()">plan</button>
+                      }
                       @for (action of line.actions; track action.command.id) {
                         <button type="button" class="change-action" [attr.aria-keyshortcuts]="action.hint" (click)="run(action.command)">{{ action.command.title }}</button>
                       }
                       @if (view.thread.change) {
                         <button type="button" class="change-more" aria-label="More about this thread’s changes" (click)="openMenu(false, 'change')">more</button>
                       }
+                    </section>
+                  } @else if (view.thread.plan) {
+                    <section class="change-strip" aria-label="This thread’s plan">
+                      <span class="spacer"></span>
+                      <button type="button" class="change-action plan-action" aria-keyshortcuts="p" title="Read this thread’s plan" (click)="showPlan()">plan</button>
                     </section>
                   }
                   <label class="composer-field" [class.to-reviewer]="(target$ | async) === 'reviewer'">

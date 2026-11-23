@@ -2485,4 +2485,14 @@ ion-alert {
 }
 
 .plan-body .markdown { max-width: 880px; margin: 0 auto; }
-.plan-line { cursor: pointer; text-decoration: underline dotted; }
+.workspace-shell .plan-line {
+  cursor: pointer;
+  color: var(--color-accent-700);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.workspace-shell .plan-line:hover { color: var(--color-accent-600, var(--color-accent-700)); }
+
+/* The plan button beside the change's buttons wears the accent, not the change's tone. */
+.change-strip .plan-action { --tone: var(--color-accent-700); }
