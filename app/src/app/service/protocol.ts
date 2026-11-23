@@ -41,7 +41,13 @@ models: ModelLists,
 /**
  * The workflows threads can follow, and what each stage is called.
  */
-workflows: Workflows, } | { "type": "models_changed", models: ModelLists, } | { "type": "project_added", project: ProjectView, } | { "type": "project_removed", project_id: string, } | { "type": "thread_changed", thread: Thread, } | { "type": "entry_added", entry: Entry, } | { "type": "limits_changed", limits: Limits, } | { "type": "usage_recorded", line: UsageLine, } | { "type": "settings_changed", opens: Opens, workflows: Workflows, };
+workflows: Workflows, 
+/**
+ * Who the next new thread starts with, when the workflow's first stage chooses.
+ */
+starting: Starting | null, } | { "type": "models_changed", models: ModelLists, } | { "type": "project_added", project: ProjectView, } | { "type": "project_removed", project_id: string, } | { "type": "thread_changed", thread: Thread, } | { "type": "entry_added", entry: Entry, } | { "type": "limits_changed", limits: Limits, } | { "type": "usage_recorded", line: UsageLine, } | { "type": "starting_changed", starting: Starting | null, } | { "type": "settings_changed", opens: Opens, workflows: Workflows, };
+
+export type Starting = { "type": "provider", agent: string, model: string | null, } | { "type": "unavailable", problem: string, };
 
 export type ProjectView = { id: string, name: string, directory: string, created_at: string, state: ProjectState, 
 /**

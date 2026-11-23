@@ -17,6 +17,8 @@
 
 mod changes;
 mod stages;
+#[cfg(test)]
+mod starting_tests;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::env::{join_paths, split_paths, var_os};
@@ -29,7 +31,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use thiserror::Error;
 use tokio::join;
 use tokio::sync::broadcast::{channel, Receiver, Sender};
@@ -65,7 +67,8 @@ use crate::settings::{
 use crate::store::projects::ProjectList;
 use crate::store::threads::ThreadStore;
 use crate::store::{Entry, Project, Reviewer, Status, StoreError, Thread, Verdict};
-use crate::usage::{UsageBook, UsageError, UsageLine, UsageReport};
+use crate::usage::{Reading, UsageBook, UsageError, UsageLine, UsageReport};
+use crate::workflow::picking::{Pick, PickError};
 use crate::workflow::{moved as stage_after, Happening, Stage, Workflows};
 use crate::workspace::changes::Noticed;
 use crate::workspace::stages::{Mover, Starter, TurnStart};
@@ -276,6 +279,8 @@ struct Inner {
     usage: Mutex<UsageBook>,
     /// How each running turn started, to decide when it ends whether another agent takes over.
     turns: Mutex<HashMap<Uuid, TurnStart>>,
+    /// Who the next new thread starts with while the person has not picked, see [`Inner::refresh_starting`].
+    starting: Mutex<Option<Result<Pick, PickError>>>,
     /// Whether Teryon is shutting down, so no agent starts by itself any more.
     stopping: AtomicBool,
 }
@@ -325,6 +330,26 @@ impl Inner {
 
     fn usage(&self) -> MutexGuard<'_, UsageBook> {
         self.usage.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Keeps what a turn told about an agent's limits, tells clients, and re-checks who new threads start with.
+    ///
+    /// Failing here must not fail the turn, which has ended by now, so problems are only logged.
+    fn note_limits(&self, agent: Agent, reading: Reading, hit_limit: bool, now: DateTime<Utc>) {
+        let noted = self.usage().note(agent, reading, hit_limit, now);
+        match noted {
+            Ok(Some(limits)) => {
+                self.announce(Event::LimitsChanged { limits });
+                self.refresh_starting();
+            }
+            Ok(None) => {}
+            Err(problem) => error!("could not keep an agent's limits: {problem}"),
+        }
+    }
+
+    /// Take this first, and before any other lock.
+    fn starting(&self) -> MutexGuard<'_, Option<Result<Pick, PickError>>> {
+        self.starting.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     fn turns(&self) -> MutexGuard<'_, HashMap<Uuid, TurnStart>> {
@@ -399,6 +424,7 @@ impl Workspace {
                 project_locks: Mutex::new(HashMap::new()),
                 usage: Mutex::new(UsageBook::open(data_folder)),
                 turns: Mutex::new(HashMap::new()),
+                starting: Mutex::new(None),
                 stopping: AtomicBool::new(false),
             }),
         })
@@ -406,6 +432,7 @@ impl Workspace {
 
     /// Every project and thread as they are now.
     pub fn snapshot(&self) -> Event {
+        let starting = self.inner.refresh_starting();
         let (opens, workflows) = {
             let setup = self.inner.setup();
             (opens_of(&setup.open), setup.workflows.clone())
@@ -422,6 +449,7 @@ impl Workspace {
             opens,
             models: self.inner.models().clone(),
             workflows,
+            starting,
         }
     }
 
@@ -479,6 +507,9 @@ impl Workspace {
             warn!("could not read the settings just saved: {problem}");
             WorkspaceError::Invalid("Could not read the settings.".to_string())
         })?;
+        // Applied under the choice's lock, so a new thread never mixes the old
+        // workflow with a choice made for the new one, or the other way round.
+        let mut held = self.inner.starting();
         let (opens, workflows) = {
             let mut setup = self.inner.setup();
             apply_saved(&mut setup, &settings);
@@ -486,6 +517,8 @@ impl Workspace {
         };
         self.inner
             .announce(Event::SettingsChanged { opens, workflows });
+        self.inner.update_starting(&mut held, false);
+        drop(held);
         Ok(Configuration::from_settings(&settings))
     }
 
@@ -619,10 +652,15 @@ impl Workspace {
         model: Option<&str>,
         title: &str,
     ) -> Result<Thread, WorkspaceError> {
+        // Held from picking until the thread is saved, so two new threads never start on the same choice.
+        let mut held = match agent {
+            None => Some(self.inner.starting()),
+            Some(_) => None,
+        };
         let workflow = self.inner.setup().workflows.of("").clone();
         let first = workflow.first();
-        let (agent, model, picked) = match agent {
-            Some(agent) => {
+        let (agent, model, picked) = match (agent, held.as_mut()) {
+            (Some(agent), _) => {
                 let agent = Agent::parse(agent).ok_or_else(|| {
                     WorkspaceError::Invalid(
                         "Choose Claude, Codex or Grok as the agent.".to_string(),
@@ -630,11 +668,15 @@ impl Workspace {
                 })?;
                 (agent, checked_model(model)?, false)
             }
-            None => match self.inner.stage_pick(None, first, None, None) {
-                Some(Ok(pick)) => (pick.agent, pick.model, true),
-                Some(Err(problem)) => return Err(WorkspaceError::Invalid(problem.to_string())),
-                None => (Agent::Claude, None, false),
-            },
+            (None, Some(held)) => {
+                self.inner.update_starting(held, false);
+                match held.clone() {
+                    Some(Ok(pick)) => (pick.agent, pick.model, true),
+                    Some(Err(problem)) => return Err(WorkspaceError::Invalid(problem.to_string())),
+                    None => (Agent::Claude, None, false),
+                }
+            }
+            (None, None) => unreachable!("a thread without an agent holds the choice"),
         };
         let title = title.trim();
         let mut state = self.inner.state();
@@ -669,6 +711,10 @@ impl Workspace {
         })?;
         drop(state);
 
+        if let (true, Some(held)) = (picked, held.as_mut()) {
+            self.inner.update_starting(held, true);
+        }
+        drop(held);
         self.inner.announce(Event::ThreadChanged {
             thread: thread.clone(),
         });
@@ -1554,20 +1600,16 @@ impl Journal for WorkspaceJournal {
                 written: tokens.written,
             })
         });
-        let mut book = self.0.usage();
+        let book = self.0.usage();
         let recorded = line.map(|line| book.record(&line).map(|()| line));
-        let noted = book.note(usage.agent, usage.reading, usage.hit_limit, now);
         drop(book);
         match recorded {
             Some(Ok(line)) => self.0.announce(Event::UsageRecorded { line }),
             Some(Err(problem)) => error!("could not add a turn to the usage log: {problem}"),
             None => {}
         }
-        match noted {
-            Ok(Some(limits)) => self.0.announce(Event::LimitsChanged { limits }),
-            Ok(None) => {}
-            Err(problem) => error!("could not keep an agent's limits: {problem}"),
-        }
+        self.0
+            .note_limits(usage.agent, usage.reading, usage.hit_limit, now);
     }
 }
 

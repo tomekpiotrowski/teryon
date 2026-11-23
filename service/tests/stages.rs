@@ -17,9 +17,12 @@ use tokio::time::sleep;
 use uuid::Uuid;
 
 use common::{project_id, repository, scene_with, wait_for, Scene};
+
+use tokio::time::timeout;
+
 use teryon::client::Client;
 use teryon_core::agents::Voice;
-use teryon_core::protocol::{Answer, Event, Request};
+use teryon_core::protocol::{Answer, Event, Request, Starting};
 use teryon_core::store::{Entry, Status, Thread};
 use teryon_core::workflow::Stage;
 
@@ -136,7 +139,86 @@ async fn told(folder: &TempDir) -> String {
     panic!("the fake agent did not report a stage in time");
 }
 
+/// Who a fresh snapshot says new threads start with.
+async fn starting_for(scene: &Scene) -> Option<Starting> {
+    let mut client = scene.client().await;
+    match client.event().await.unwrap() {
+        Event::Snapshot { starting, .. } => starting,
+        other => panic!("not a snapshot: {other:?}"),
+    }
+}
+
+/// The next `StartingChanged` among the events that follow, within a moment. Nothing when there is none.
+async fn next_starting(client: &mut Client) -> Option<Option<Starting>> {
+    timeout(Duration::from_millis(500), async {
+        loop {
+            if let Event::StartingChanged { starting } = client.event().await.unwrap() {
+                return starting;
+            }
+        }
+    })
+    .await
+    .ok()
+}
+
+/// The settings screen's choices with Claude's medium model replaced.
+async fn with_medium(client: &mut Client, model: &str) -> Request {
+    let mut configuration = match client.call(Request::Configuration).await.unwrap() {
+        Answer::Configuration { configuration } => configuration,
+        other => panic!("not the settings: {other:?}"),
+    };
+    configuration.claude.medium = model.to_string();
+    Request::SaveConfiguration { configuration }
+}
+
+/// Claude on a model, as a snapshot says it.
+fn claude_on(model: &str) -> Starting {
+    Starting::Provider {
+        agent: "claude".to_string(),
+        model: Some(model.to_string()),
+    }
+}
+
+/// The first stage goes to Claude on its medium model.
+const ONLY_CLAUDE_MEDIUM: &str =
+    "[stages.talking]\nprovider = \"only claude\"\nstrength = \"medium\"\n";
+
+/// What a snapshot says for the provider and model a thread runs on.
+fn on(thread: &Thread) -> Starting {
+    Starting::Provider {
+        agent: thread.agent.clone(),
+        model: thread.model.clone(),
+    }
+}
+
 lets_expect! { #tokio_test
+    // requirement: saving settings that change the choice tells clients, and saving them again changes nothing
+    story saving_settings_updates_the_shown_choice {
+        let scene = stages_scene(ONLY_CLAUDE_MEDIUM).await;
+        let mut watcher = scene.client().await;
+        watcher.event().await.unwrap();
+        next_starting(&mut watcher).await;
+        let mut client = scene.client().await;
+
+        let save = with_medium(&mut client, "other-model").await;
+        client.call(save.clone()).await.unwrap();
+        expect(next_starting(&mut watcher).await) to equal(Some(Some(claude_on("other-model"))))
+        client.call(save).await.unwrap();
+        expect(next_starting(&mut watcher).await) to equal(None)
+    }
+
+    // requirement: the provider and model of a new thread are chosen before its message, and the thread starts on them
+    story a_new_thread_starts_on_the_shown_choice {
+        let scene = stages_scene("[stages.talking]\nprovider = \"any\"\nstrength = \"medium\"\n").await;
+        let folder = repository();
+        let shown = starting_for(&scene).await;
+        let mut client = scene.client().await;
+        let thread = started_in(&mut client, &folder, None, None).await;
+
+        expect(shown) to equal(Some(on(&thread)))
+        expect(starting_for(&scene).await.is_some()) to be_true
+    }
+
     // requirement: a new thread starts on the default workflow, in its first stage
     story a_new_thread_starts_talking {
         let scene = stages_scene("").await;

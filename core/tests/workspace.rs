@@ -565,6 +565,7 @@ lets_expect! { #tokio_test
                 Event::LimitsChanged { .. } => "limits_changed",
                 Event::UsageRecorded { .. } => "usage_recorded",
                 Event::SettingsChanged { .. } => "settings_changed",
+                Event::StartingChanged { .. } => "starting_changed",
             });
         }
         expect(names.first().copied()) to equal(Some("project_added"))

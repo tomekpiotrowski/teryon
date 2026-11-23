@@ -38,7 +38,6 @@ import {
   coversThread,
   type Choice,
   choiceLabel,
-  chosen,
   choosing,
   FIRST_NEW_THREADS,
   type NewThreads,
@@ -73,6 +72,7 @@ import {
   seenNow,
   startingChoice,
   newThreadLabel,
+  pendingChoice,
   firstStageChooses,
   stageLabel,
   stageOf,
@@ -162,10 +162,12 @@ export class WorkspacePage implements OnDestroy {
   /** The agent and model new threads start with, and the model remembered for each agent. */
   readonly newThreads$ = new BehaviorSubject<NewThreads>(FIRST_NEW_THREADS);
   /** The agent and model a new thread would start with, for the button beside the message box. */
-  readonly choice$: Observable<Choice> = this.newThreads$.pipe(map(chosen));
+  readonly choice$: Observable<Choice> = combineLatest([this.newThreads$, this.store.starting$]).pipe(
+    map(([newThreads, starting]) => pendingChoice(newThreads, starting)),
+  );
   /** What the button beside the message box says about new threads: the first stage's choice until the person picks. */
-  readonly newThreadLabel$: Observable<string> = combineLatest([this.newThreads$, this.store.workflows$]).pipe(
-    map(([newThreads, workflows]) => newThreadLabel(newThreads, workflows)),
+  readonly newThreadLabel$: Observable<string> = combineLatest([this.newThreads$, this.store.starting$]).pipe(
+    map(([newThreads, starting]) => newThreadLabel(newThreads, starting)),
   );
   readonly menuOpen$ = new BehaviorSubject(false);
   /** The one section the menu was opened on, such as the thread's changes. Nothing for the whole menu. */

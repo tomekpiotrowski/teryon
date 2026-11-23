@@ -10,6 +10,7 @@
 use std::fs::read_to_string;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
+use std::sync::MutexGuard;
 
 use chrono::Utc;
 use serde_json::json;
@@ -20,7 +21,7 @@ use super::{Inner, Workspace, WorkspaceError};
 use crate::agents::{Agent, EntryDraft, EntryKind, Voice};
 use crate::changes::reviewing::findings_in;
 use crate::plans::{plan_line, plan_path, read_plan, LARGEST_PLAN};
-use crate::protocol::Event;
+use crate::protocol::{Event, Starting};
 use crate::store::threads::ThreadStore;
 use crate::store::{Entry, Status, Thread};
 use crate::workflow::picking::{installed, pick, usage_left, Left, Pick, PickError, Situation};
@@ -153,6 +154,20 @@ impl Inner {
         excluded: Option<Agent>,
         ran_out: Option<Agent>,
     ) -> Option<Result<Pick, PickError>> {
+        let earlier = thread
+            .and_then(|thread| thread.picks.get(&stage))
+            .and_then(|name| Agent::parse(name));
+        self.stage_pick_after(earlier, stage, excluded, ran_out)
+    }
+
+    /// Like [`Inner::stage_pick`], keeping `earlier` while it can still work.
+    pub(super) fn stage_pick_after(
+        &self,
+        earlier: Option<Agent>,
+        stage: Stage,
+        excluded: Option<Agent>,
+        ran_out: Option<Agent>,
+    ) -> Option<Result<Pick, PickError>> {
         let (setting, label, agents) = {
             let setup = self.setup();
             let setting = setup
@@ -177,9 +192,7 @@ impl Inner {
         let situation = Situation {
             stage: &label,
             author: excluded,
-            earlier: thread
-                .and_then(|thread| thread.picks.get(&stage))
-                .and_then(|name| Agent::parse(name)),
+            earlier,
             ran_out,
             installed: &on_machine,
             left: &left,
@@ -187,6 +200,45 @@ impl Inner {
         Some(pick(&setting, &agents, &situation, &mut |count| {
             (Uuid::new_v4().as_u128() % count as u128) as usize
         }))
+    }
+
+    /// Who the next new thread starts with, chosen now when the held choice no longer fits.
+    ///
+    /// The held choice stays while the same pick would be allowed to return
+    /// it: asking with it as the earlier pick keeps it, and replaces it only
+    /// when its provider cannot work, is not allowed, or no longer runs the
+    /// model its strength names. Clients are told when what they show changes.
+    pub(super) fn refresh_starting(&self) -> Option<Starting> {
+        let mut held = self.starting();
+        self.update_starting(&mut held, false);
+        starting_of(held.as_ref())
+    }
+
+    /// Updates the held choice and tells clients when it changed.
+    ///
+    /// The caller holds the choice's lock, and keeps it from picking through
+    /// saving the thread to [`Inner::advance_starting`], so two new threads
+    /// never start on the same choice. The announcement is made under the
+    /// lock too, so clients never end up showing an older choice. The first
+    /// stage is read under it as well, so a settings save cannot be undone by
+    /// a call that began before it.
+    ///
+    /// With `fresh`, the earlier choice is not kept, as after a thread started on it.
+    pub(super) fn update_starting(&self, held: &mut Held<'_>, fresh: bool) {
+        let first = self.setup().workflows.of("").first();
+        let shown = starting_of(held.as_ref());
+        let earlier = match fresh {
+            true => None,
+            false => held
+                .as_ref()
+                .and_then(|held| held.as_ref().ok())
+                .map(|pick| pick.agent),
+        };
+        **held = self.stage_pick_after(earlier, first, None, None);
+        let now = starting_of(held.as_ref());
+        if now != shown {
+            self.announce(Event::StartingChanged { starting: now });
+        }
     }
 
     /// Says in the thread who takes a stage, and hands the thread's own conversation to them. The caller holds the lock.
@@ -748,6 +800,22 @@ pub(super) fn opening(from: Stage, to: Stage, plan: Option<&Path>) -> String {
         }
         _ => "Carry on with the work above.".to_string(),
     }
+}
+
+/// The held choice of who the next new thread starts with, under its lock.
+pub(super) type Held<'a> = MutexGuard<'a, Option<Result<Pick, PickError>>>;
+
+/// What clients are told about a held choice.
+pub(super) fn starting_of(held: Option<&Result<Pick, PickError>>) -> Option<Starting> {
+    held.map(|held| match held {
+        Ok(pick) => Starting::Provider {
+            agent: pick.agent.name().to_string(),
+            model: pick.model.clone(),
+        },
+        Err(problem) => Starting::Unavailable {
+            problem: problem.to_string(),
+        },
+    })
 }
 
 #[cfg(test)]

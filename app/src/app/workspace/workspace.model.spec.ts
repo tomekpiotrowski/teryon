@@ -9,6 +9,7 @@ import {
   FIRST_NEW_THREADS,
   firstStageChooses,
   newThreadLabel,
+  pendingChoice,
   startingChoice,
   modelLabel,
   sameChoice,
@@ -73,6 +74,7 @@ import {
   type Workflows,
 } from './workspace.model';
 import { gitWordsIn } from './plain-words.testing';
+import type { Starting } from './workspace.model';
 
 function project(id: string, created_at: string): Project {
   return { id, name: `Project ${id}`, directory: `/work/${id}`, created_at };
@@ -484,9 +486,15 @@ describe('choices', () => {
       ...STAGE_DEFAULTS,
       labels: STAGE_DEFAULTS.labels.map((label) => (label.stage === 'talking' ? { ...label, chooses: 'Prefer Claude · strong' } : label)),
     };
-    expect(newThreadLabel(FIRST_NEW_THREADS, choosingTalk)).toBe('Talking: Prefer Claude · strong');
-    expect(newThreadLabel(choosing(FIRST_NEW_THREADS, { agent: 'grok', model: null }), choosingTalk)).toBe('Grok · default');
-    expect(newThreadLabel(FIRST_NEW_THREADS, STAGE_DEFAULTS)).toBe('Claude · default');
+    const sonnet: Starting = { type: 'provider', agent: 'claude', model: 'claude-sonnet-5-5' };
+    expect(newThreadLabel(FIRST_NEW_THREADS, sonnet)).toBe('Claude · Sonnet 5.5');
+    expect(newThreadLabel(FIRST_NEW_THREADS, { type: 'provider', agent: 'grok', model: null })).toBe('Grok · default');
+    expect(newThreadLabel(FIRST_NEW_THREADS, { type: 'unavailable', problem: 'Used up.' })).toBe('No provider available');
+    expect(newThreadLabel(FIRST_NEW_THREADS, null)).toBe('Claude · default');
+    expect(newThreadLabel(choosing(FIRST_NEW_THREADS, { agent: 'codex', model: null }), sonnet)).toBe('Codex · default');
+    expect(newThreadLabel(choosing(FIRST_NEW_THREADS, { agent: 'codex', model: null }), { type: 'unavailable', problem: 'x' })).toBe('Codex · default');
+    expect(pendingChoice(FIRST_NEW_THREADS, sonnet)).toEqual({ agent: 'claude', model: 'claude-sonnet-5-5' });
+    expect(pendingChoice(FIRST_NEW_THREADS, { type: 'unavailable', problem: 'x' })).toEqual({ agent: 'claude', model: null });
     expect(firstStageChooses(choosingTalk)).toBe(true);
     expect(firstStageChooses(STAGE_DEFAULTS)).toBe(false);
   });

@@ -5,9 +5,9 @@
  * the screen itself cannot be unit tested until Vitest can load Ionic.
  */
 
-import type { PlanInfo, Question, Stage, Workflow, Workflows } from '../service/protocol';
+import type { PlanInfo, Question, Stage, Starting, Workflow, Workflows } from '../service/protocol';
 
-export type { PlanInfo, Stage, Workflow, Workflows };
+export type { PlanInfo, Stage, Starting, Workflow, Workflows };
 import type { Asked } from './questions.model';
 
 export type AgentName = 'claude' | 'codex' | 'grok';
@@ -195,14 +195,19 @@ export function startingChoice(newThreads: NewThreads): Choice | null {
 }
 
 /**
- * What the new-thread button says: the first stage's choice until the person picks, such as "Talking: Prefer Claude · strong".
+ * What the new-thread button says: the provider and model the service chose, until the person picks, such as "Claude · Sonnet".
  *
- * Without settings for the first stage, Claude's default, which is what the service starts.
+ * Without a choice from the first stage, Claude's default, which is what the service starts.
  */
-export function newThreadLabel(newThreads: NewThreads, workflows: Workflows): string {
-  const first = defaultWorkflow(workflows).stages[0] ?? 'talking';
-  const chooses = workflows.labels.find((label) => label.stage === first)?.chooses;
-  return !newThreads.picked && chooses ? `${stageLabel(workflows, first)}: ${chooses}` : choiceLabel(chosen(newThreads));
+export function newThreadLabel(newThreads: NewThreads, starting: Starting | null): string {
+  if (!newThreads.picked && starting?.type === 'unavailable') return 'No provider available';
+  return choiceLabel(pendingChoice(newThreads, starting));
+}
+
+/** The agent and model a new thread would start with: the person's pick, otherwise what the service chose. */
+export function pendingChoice(newThreads: NewThreads, starting: Starting | null): Choice {
+  if (!newThreads.picked && starting?.type === 'provider') return { agent: starting.agent as AgentName, model: starting.model };
+  return chosen(newThreads);
 }
 
 /** Whether the workflow's first stage chooses the agent of new threads. */

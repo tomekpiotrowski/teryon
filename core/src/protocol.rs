@@ -359,6 +359,8 @@ pub enum Event {
         models: ModelLists,
         /// The workflows threads can follow, and what each stage is called.
         workflows: Workflows,
+        /// Who the next new thread starts with, when the workflow's first stage chooses.
+        starting: Option<Starting>,
     },
     /// The models on offer changed, as when Grok has listed its own after the service started.
     ModelsChanged {
@@ -385,11 +387,30 @@ pub enum Event {
     UsageRecorded {
         line: UsageLine,
     },
+    /// Who the next new thread starts with changed, or the first stage no longer chooses.
+    StartingChanged {
+        starting: Option<Starting>,
+    },
     /// The settings screen saved. Clients use the new workflows, labels and openers without asking again.
     SettingsChanged {
         opens: Opens,
         workflows: Workflows,
     },
+}
+
+/// Who the next new thread starts with, when the person has not picked.
+///
+/// Chosen before the first message is sent, so the box can say who will answer.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum Starting {
+    /// A provider and the model its strength runs, or its default when none is set.
+    Provider {
+        agent: String,
+        model: Option<String>,
+    },
+    /// No provider can work; the text says why.
+    Unavailable { problem: String },
 }
 
 /// A project as clients see it.
@@ -442,6 +463,7 @@ pub fn typescript() -> String {
         Outcome::decl(&config),
         Answer::decl(&config),
         Event::decl(&config),
+        Starting::decl(&config),
         ProjectView::decl(&config),
         ProjectState::decl(&config),
         DirectoryListing::decl(&config),

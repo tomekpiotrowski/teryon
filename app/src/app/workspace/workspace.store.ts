@@ -16,7 +16,7 @@ import {
 } from 'rxjs';
 import { ServiceConnection } from '../service/service-connection';
 import { applyEvent, NO_LISTS, withEntries, type WorkspaceLists } from '../service/workspace-events';
-import type { ModelLists, Opens, Project, Thread, ThreadEntry, Workflows } from './workspace.model';
+import type { ModelLists, Opens, Project, Starting, Thread, ThreadEntry, Workflows } from './workspace.model';
 
 /**
  * The workspace as the screen sees it: live lists of projects, threads and entries.
@@ -54,6 +54,11 @@ export class WorkspaceStore {
   /** The workflows threads can follow, and what each stage is called. */
   readonly workflows$: Observable<Workflows> = this.lists$.pipe(
     map((lists) => lists.workflows),
+    distinctUntilChanged(),
+  );
+  /** Who the next new thread starts with, when the workflow's first stage chooses. */
+  readonly starting$: Observable<Starting | null> = this.lists$.pipe(
+    map((lists) => lists.starting),
     distinctUntilChanged(),
   );
   /** How the connection to the service stands, for the screen to explain a wait. */
