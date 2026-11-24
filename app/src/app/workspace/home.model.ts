@@ -376,17 +376,17 @@ export type CardAction = 'apply' | 'catchUp' | 'questions' | 'reply' | 'markRead
 /**
  * The action Enter takes on a card.
  *
- * A thread at work opens. A change ready to apply asks to apply it, and one
- * that overlaps newer work asks to catch up, when that command is on offer.
- * An empty command list does not withhold those: the list is a filter only
- * once it names something. Questions are focused when the agent is waiting
- * on them, and a finished result is marked read. Anything else goes to the reply.
+ * A thread at work opens. A change ready to apply, or one that overlaps
+ * newer work, runs apply when that command is on offer. An empty command list
+ * does not withhold it: the list is a filter only once it names something.
+ * Questions are focused when the agent is waiting on them, and a finished
+ * result is marked read. Anything else goes to the reply.
  */
 export function primaryCardAction(card: HomeCard, commands: readonly { id: string }[] = []): CardAction {
   const offered = (id: string) => commands.length === 0 || commands.some((command) => command.id === id);
   if (card.section === 'progress') return 'open';
   if (card.word === 'apply' && offered('change:apply')) return 'apply';
-  if (card.word === 'failed' && card.thread.change?.state?.fit === 'overlaps' && offered('change:catchUp')) return 'catchUp';
+  if (card.word === 'failed' && card.thread.change?.state?.fit === 'overlaps' && offered('change:apply')) return 'apply';
   if (card.word === 'reply') return card.thread.asking === true ? 'questions' : 'reply';
   if (card.word === 'new') return 'markRead';
   return 'reply';

@@ -519,7 +519,7 @@ lets_expect! { #tokio_test
         let project = project();
         let (thread, _) = project.changed("claude").await;
         project.review(&thread).await.unwrap();
-        project.scene.workspace.apply_change(thread.id, "Fix the login").await.unwrap();
+        project.scene.workspace.apply_change(thread.id, Some("Fix the login")).await.unwrap();
 
         expect(project.scene.thread_now(&thread).reviewer) to equal(None)
         expect(project.scene.ask_reviewer(&thread, "anything else?").map(|_| ())) to equal(Err("Nobody reviews this thread yet. Ask for a review first.".to_string()))
@@ -530,7 +530,7 @@ lets_expect! { #tokio_test
         let project = project();
         let (thread, _) = project.changed("claude").await;
         project.review(&thread).await.unwrap();
-        project.scene.workspace.apply_change(thread.id, "Fix the login").await.unwrap();
+        project.scene.workspace.apply_change(thread.id, Some("Fix the login")).await.unwrap();
 
         let _ = remove_file(project.folder.path().join(".fake-agent-turn"));
         project.scene.say(&thread, "remember the turn and wait").unwrap();

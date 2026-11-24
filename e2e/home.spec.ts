@@ -569,20 +569,20 @@ test("file changes opened from a card return to that card", async ({ page }) => 
   await expect(page.getByLabel("Repository files")).toHaveCount(0);
 });
 
-test("a change is applied from its card", async ({ page }) => {
+test("a change is applied directly from its card without a dialog", async ({ page }) => {
   const directory = await addProject(page, "Sample", (folder) => {
     git(folder, "init", "-q", "-b", "main");
     put(folder, "README.md", "# Sample\n");
     commit(folder);
   });
   const card = await finishOnHome(page, "start a change fix-login");
+  const copy = join(directory, ".teryon", "worktrees", "fix-login");
+  git(copy, "add", "-A");
+  git(copy, "commit", "-q", "-m", "Fix the login");
 
   await expandCard(card);
   await card.getByRole("button", { name: "Apply to the project" }).click();
-  const description = page.locator("ion-alert textarea");
-  await expect(description).toHaveValue("start a change fix-login");
-  await description.fill("Fix the login");
-  await page.locator("ion-alert").getByRole("button", { name: "Apply" }).click();
+  await expect(page.locator("ion-alert")).toHaveCount(0);
 
   await expect(page.getByText("Applied to the project.", { exact: true }).first()).toBeVisible();
   await expect(home(page)).toBeVisible();

@@ -172,12 +172,98 @@ review() {
   fi
 }
 
+# Resolves an overlap when Teryon started this turn for a pending apply.
+# Control files in `$project` let tests drive failure, limit, slow, ask,
+# unresolved, own-edit, and moving-base scenarios.
+resolve_overlap() {
+  wt=$(printf '%s\n' "$*" | tr '\n' ' ' | sed -n 's/.*In the worktree `\([^`]*\)`, rebase `\([^`]*\)` onto `\([^`]*\)`.*/\1/p')
+  base=$(printf '%s\n' "$*" | tr '\n' ' ' | sed -n 's/.*In the worktree `\([^`]*\)`, rebase `\([^`]*\)` onto `\([^`]*\)`.*/\3/p')
+  msg="Resolve overlap and keep fix"
+  if [ -f "$project/.fake-overlap-message" ]; then
+    msg=$(cat "$project/.fake-overlap-message")
+  fi
+  if [ -n "$wt" ] && [ -n "$base" ] && [ -d "$wt" ]; then
+    (
+      cd "$wt" || exit 1
+      git reset --hard "$base" >/dev/null 2>&1
+      printf 'resolved by %s\n' "$agent" > README.md
+      git add -A >/dev/null 2>&1
+      GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+      GIT_AUTHOR_NAME=Tester GIT_AUTHOR_EMAIL=tester@example.com \
+      GIT_COMMITTER_NAME=Tester GIT_COMMITTER_EMAIL=tester@example.com \
+      git commit -q -m "$msg" >/dev/null 2>&1
+    )
+  fi
+}
+
+handle_overlap() {
+  if [ "$agent" = "claude" ] && [ -f "$project/.fake-overlap-limit" ]; then
+    rm -f "$project/.fake-overlap-limit"
+    echo "usage limit reached" >&2
+    exit 1
+  fi
+  if [ -f "$project/.fake-overlap-fail" ]; then
+    echo "the fake agent failed while resolving" >&2
+    exit 3
+  fi
+  if [ -f "$project/.fake-overlap-slow" ]; then
+    head -n 1 "$samples/$agent-first.jsonl"
+    exec sleep 30
+  fi
+  if [ -f "$project/.fake-overlap-wait" ]; then
+    remember_turn
+    head -n 1 "$samples/$agent-first.jsonl"
+    waited=0
+    while [ "$waited" -lt 150 ]; do
+      if [ -f "$project/.fake-agent-release" ]; then
+        break
+      fi
+      sleep 0.2
+      waited=$((waited + 1))
+    done
+    resolve_overlap "$*"
+    tail -n +2 "$samples/$agent-first.jsonl"
+    exit 0
+  fi
+  if [ -f "$project/.fake-overlap-ask" ]; then
+    ask_questions
+    cat "$samples/$agent-first.jsonl"
+    exit 0
+  fi
+  if [ -f "$project/.fake-overlap-noop" ]; then
+    cat "$samples/$agent-first.jsonl"
+    exit 0
+  fi
+  resolve_overlap "$*"
+  if [ -f "$project/.fake-overlap-own-edit" ]; then
+    printf 'person edit during resolution\n' > "$project/README.md"
+  fi
+  if [ -f "$project/.fake-overlap-move-main" ]; then
+    remaining=$(cat "$project/.fake-overlap-move-main")
+    if [ "$remaining" -gt 0 ] 2>/dev/null; then
+      printf '%s\n' "$((remaining - 1))" > "$project/.fake-overlap-move-main"
+      (
+        cd "$project" || exit 1
+        printf 'newer landing %s\n' "$remaining" > README.md
+        GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
+        GIT_AUTHOR_NAME=Tester GIT_AUTHOR_EMAIL=tester@example.com \
+        GIT_COMMITTER_NAME=Tester GIT_COMMITTER_EMAIL=tester@example.com \
+        git commit -q -am "Newer landing $remaining" >/dev/null 2>&1
+      )
+    fi
+  fi
+  cat "$samples/$agent-first.jsonl"
+}
+
 case "$*" in
   *"Review the change."*)
     review review "$*"
     ;;
   *"Review it again"*)
     review review-again "$*"
+    ;;
+  *"Teryon is about to apply this change to"*)
+    handle_overlap "$*"
     ;;
   *"hit quota"*)
     if [ "$agent" = "gemini" ]; then

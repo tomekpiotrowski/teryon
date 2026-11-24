@@ -33,6 +33,14 @@ use crate::files::git::{checkouts, first_line, Git, GitError};
 /// The description of a commit Teryon makes of what the agent left uncommitted.
 pub const LEFTOVERS: &str = "Work in progress";
 
+/// Plain-language error when an automatic apply still overlaps the same base after the agent finished.
+pub const STILL_OVERLAPS: &str =
+    "Could not apply the change because it still overlaps with newer work in the project.";
+
+/// Plain-language error when newer work kept landing in the project during automatic overlap resolution.
+pub const TOO_MANY_ATTEMPTS: &str =
+    "Could not apply the change because newer work kept landing in the project. Try applying again.";
+
 /// Why a change could not be finished. The text is meant for the person.
 #[derive(Debug, Error)]
 pub enum FinishError {
@@ -50,10 +58,11 @@ pub enum FinishError {
     NoDescription,
     #[error("No files have changed, so there is nothing to apply.")]
     NothingToApply,
+    /// The change overlaps with newer work at the given base commit.
     #[error(
         "This change overlaps with newer work in the project. Ask the agent to catch up first."
     )]
-    Overlaps,
+    Overlaps(String),
     #[error("You have edits of your own to {} in the project folder. Applying would overwrite them.", listed(.0))]
     OwnEdits(Vec<String>),
     #[error("The project changed while the change was being applied. Try again.")]
@@ -83,18 +92,28 @@ pub enum CaughtUp {
     Overlaps,
 }
 
-/// Applies `change` to its base as one commit described by `description`, and removes its copy.
+/// Applies `change` to its base as one commit, and removes its copy.
 ///
-/// Returns the new commit. The caller has checked that no agent is working in the copy.
+/// Uses `description` when supplied (refusing explicit blank text), or else
+/// the agent's commit message from [`draft_description`], falling back to
+/// `fallback_title` and then the change's name. Returns the new commit.
+/// The caller has checked that no agent is working in the copy.
 pub async fn apply(
     project: &Path,
     change: &Change,
-    description: &str,
+    description: Option<&str>,
+    fallback_title: &str,
 ) -> Result<String, FinishError> {
-    let description = description.trim();
-    if description.is_empty() {
-        return Err(FinishError::NoDescription);
-    }
+    let explicit = match description {
+        Some(text) => {
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                return Err(FinishError::NoDescription);
+            }
+            Some(trimmed.to_string())
+        }
+        None => None,
+    };
     let base = ready(project, change).await?;
     let git = Git::at(project);
     let copy = Git::at(&change.path);
@@ -112,7 +131,7 @@ pub async fn apply(
         .await?
     {
         (Some(0), printed) => first_line(&printed),
-        (Some(1), _) => return Err(FinishError::Overlaps),
+        (Some(1), _) => return Err(FinishError::Overlaps(base_commit)),
         (code, _) => {
             return Err(FinishError::Git(GitError::Failed {
                 command: "merge-tree".to_string(),
@@ -120,16 +139,32 @@ pub async fn apply(
             }))
         }
     };
+    let message = match explicit {
+        Some(text) => text,
+        None => draft_description(change)
+            .await?
+            .unwrap_or_else(|| fallback_description(fallback_title, &change.name)),
+    };
     let squashed = first_line(
         &signed(&git)
             .await?
-            .output(&["commit-tree", &tree, "-p", &base_commit, "-m", description])
+            .output(&["commit-tree", &tree, "-p", &base_commit, "-m", &message])
             .await?,
     );
 
     move_base(project, change, &base_commit, &squashed).await?;
     remove(project, change).await?;
     Ok(squashed)
+}
+
+/// The fallback description when the agent left no commit of its own: the thread's title, or else the change's name.
+pub fn fallback_description(title: &str, change_name: &str) -> String {
+    let title = title.trim();
+    if title.is_empty() {
+        change_name.replace('-', " ")
+    } else {
+        title.to_string()
+    }
 }
 
 /// Brings `change` up to date with newer work in its base, unless the two overlap.
@@ -167,16 +202,13 @@ pub async fn discard(project: &Path, change: &Change) -> Result<(), FinishError>
 /// the whole change in every commit, see [`crate::changes::instruction`], so
 /// older descriptions would only repeat it. Commits Teryon made of leftovers
 /// are skipped. Nothing when the agent committed nothing.
-pub async fn draft_description(
-    project: &Path,
-    change: &Change,
-) -> Result<Option<String>, FinishError> {
+pub async fn draft_description(change: &Change) -> Result<Option<String>, FinishError> {
     let copy = Git::at(&change.path);
     if !change.path.is_dir() {
         return Err(FinishError::CopyGone);
     }
     let since = match &change.base {
-        Some(base) => Git::at(project)
+        Some(base) => copy
             .attempt(&["merge-base", &format!("refs/heads/{base}"), "HEAD"])
             .await?
             .map(|printed| first_line(&printed))
@@ -377,9 +409,9 @@ mod tests {
         files.iter().map(|file| file.to_string()).collect()
     }
 
-    /// Every refusal, for checking their words.
+    /// Every refusal and notice, for checking their words.
     fn refusals() -> Vec<String> {
-        [
+        let mut messages: Vec<String> = [
             FinishError::NoChange,
             FinishError::AgentRunning,
             FinishError::CopyGone,
@@ -387,7 +419,7 @@ mod tests {
             FinishError::Unfinished,
             FinishError::NoDescription,
             FinishError::NothingToApply,
-            FinishError::Overlaps,
+            FinishError::Overlaps("deadbeef".to_string()),
             FinishError::OwnEdits(names(&["a.rs"])),
             FinishError::ProjectMoved,
             FinishError::UpToDate,
@@ -403,7 +435,10 @@ mod tests {
         ]
         .iter()
         .map(ToString::to_string)
-        .collect()
+        .collect();
+        messages.push(STILL_OVERLAPS.to_string());
+        messages.push(TOO_MANY_ATTEMPTS.to_string());
+        messages
     }
 
     /// Whether a text holds one of git's words.
@@ -457,6 +492,64 @@ mod tests {
 
         expect(refusals().into_iter().filter(|text| speaks_git(text)).collect::<Vec<_>>()) as the_refusals {
             to never_use_a_git_word { equal(Vec::<String>::new()) }
+        }
+    }
+
+    lets_expect! { #tokio_test
+        // requirement: draft_description compares against the change's base inside the worktree even when the project directory is on another branch
+        story draft_description_ignores_project_directory_branch {
+            use std::fs::write;
+            use std::process::Command;
+            use tempfile::tempdir;
+
+            let folder = tempdir().unwrap();
+            let run_git = |dir: &Path, args: &[&str]| -> String {
+                let output = Command::new("git")
+                    .args(args)
+                    .current_dir(dir)
+                    .env("GIT_CONFIG_GLOBAL", "/dev/null")
+                    .env("GIT_CONFIG_SYSTEM", "/dev/null")
+                    .env("GIT_AUTHOR_NAME", "Tester")
+                    .env("GIT_AUTHOR_EMAIL", "tester@example.com")
+                    .env("GIT_COMMITTER_NAME", "Tester")
+                    .env("GIT_COMMITTER_EMAIL", "tester@example.com")
+                    .output()
+                    .unwrap();
+                assert!(output.status.success(), "git {args:?} failed: {}", String::from_utf8_lossy(&output.stderr));
+                String::from_utf8_lossy(&output.stdout).trim().to_string()
+            };
+
+            run_git(folder.path(), &["init", "-q", "-b", "main"]);
+            write(folder.path().join("README.md"), "hello\n").unwrap();
+            run_git(folder.path(), &["add", "-A"]);
+            run_git(folder.path(), &["commit", "-q", "-m", "Initial commit"]);
+            let start = run_git(folder.path(), &["rev-parse", "main"]);
+
+            // Create a worktree off `main` with a commit on `fix-login`.
+            let copy = folder.path().join(".teryon/worktrees/fix-login");
+            run_git(folder.path(), &["worktree", "add", "-q", "-b", "fix-login", copy.to_str().unwrap(), "main"]);
+            write(copy.join("login.txt"), "fixed\n").unwrap();
+            run_git(&copy, &["add", "-A"]);
+            run_git(&copy, &["commit", "-q", "-m", "Fix login redirect"]);
+
+            // Move the main project directory to a completely unrelated branch.
+            run_git(folder.path(), &["checkout", "-q", "-b", "unrelated"]);
+            write(folder.path().join("unrelated.txt"), "other\n").unwrap();
+            run_git(folder.path(), &["add", "-A"]);
+            run_git(folder.path(), &["commit", "-q", "-m", "Unrelated work"]);
+
+            let change = Change {
+                name: "fix-login".to_string(),
+                path: copy,
+                base: Some("main".to_string()),
+                start,
+                branch: Some("fix-login".to_string()),
+                state: None,
+                review: None,
+            };
+
+            let drafted = draft_description(&change).await.unwrap();
+            expect(drafted) to equal(Some("Fix login redirect".to_string()))
         }
     }
 }

@@ -14,6 +14,7 @@ use std::sync::MutexGuard;
 
 use chrono::Utc;
 use serde_json::json;
+use tokio::spawn;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -26,7 +27,7 @@ use crate::plans::{plan_line, plan_path, read_plan, LARGEST_PLAN};
 use crate::protocol::{DoneSeen, Event, Starting};
 use crate::settings::Strength;
 use crate::store::threads::ThreadStore;
-use crate::store::{Entry, Status, Thread};
+use crate::store::{Entry, RunEnd, Status, Thread};
 use crate::workflow::picking::{installed, pick, usage_left, Left, Pick, PickError, Situation};
 use crate::workflow::{moved, picked, reported, Chooser, Happening, Stage, Workflow};
 
@@ -595,7 +596,7 @@ impl Workspace {
 
     /// What `teryon thread stage` tells the agent after moving the thread to its new stage.
     fn stage_reply(&self, thread: &Thread, plan: &Path) -> String {
-        let taking = self.who_takes(thread, true, Voice::Author, None);
+        let taking = self.who_takes(thread, true, Voice::Author, None, false);
         let starts_automatically = self.automatic(thread) == Automatic::Allowed;
         let workflow = self.inner.workflow_of(thread);
         reply_for_stage(
@@ -704,6 +705,7 @@ impl Workspace {
                     ..TurnStart::of(Voice::Author, from)
                 },
                 false,
+                false,
             ) {
                 if let Some(draft) = extra {
                     self.write(thread_id, draft);
@@ -805,13 +807,64 @@ impl Workspace {
         if start.is_some_and(|start| start.voice == Voice::Author) {
             self.inner.look_at_plan(thread_id);
         }
+        if self.inner.pending_applies().contains_key(&thread_id) {
+            if let Some(start) = start.filter(|start| start.ran_out.is_some()) {
+                match self.carry_on(thread_id, start, true, true) {
+                    CarryOn::Started => return,
+                    CarryOn::Settle { extra, kept } => {
+                        self.inner.cancel_pending_apply(thread_id);
+                        self.settle_idle(thread_id, extra, kept);
+                        return;
+                    }
+                }
+            }
+            let can_apply = !self.inner.stopping.load(Ordering::SeqCst)
+                && self
+                    .inner
+                    .state()
+                    .holding(thread_id)
+                    .ok()
+                    .is_some_and(|(_, thread)| {
+                        !thread.held
+                            && !thread.asking
+                            && thread.ended == Some(RunEnd::Finished)
+                            && thread.change.is_some()
+                    });
+            if !can_apply {
+                self.inner.cancel_pending_apply(thread_id);
+                self.settle_idle(thread_id, None, None);
+                return;
+            }
+            let pending = self.inner.pending_applies().remove(&thread_id);
+            if let (Some(pending), Ok(finishing)) = (pending, self.inner.finishing(thread_id)) {
+                let workspace = self.clone();
+                spawn(async move {
+                    workspace
+                        .finish_pending_apply(thread_id, pending, finishing)
+                        .await;
+                });
+                return;
+            }
+            self.settle_idle(thread_id, None, None);
+            return;
+        }
         let (extra, kept) = match start {
-            Some(start) => match self.carry_on(thread_id, start, true) {
+            Some(start) => match self.carry_on(thread_id, start, true, false) {
                 CarryOn::Started => return,
                 CarryOn::Settle { extra, kept } => (extra, kept),
             },
             None => (None, None),
         };
+        self.settle_idle(thread_id, extra, kept);
+    }
+
+    /// Marks a thread idle and unread with an updated preview, writing any trailing entry and remembered pick.
+    pub(super) fn settle_idle(
+        &self,
+        thread_id: Uuid,
+        extra: Option<EntryDraft>,
+        kept: Option<(Stage, Agent)>,
+    ) {
         let mut state = self.inner.state();
         let settled = state
             .holding(thread_id)
@@ -860,7 +913,13 @@ impl Workspace {
     /// while the person has stopped the thread or after `automatic_rounds`
     /// starts without them. Problems go into the thread as an error, so the
     /// person sees why it waits.
-    fn carry_on(&self, thread_id: Uuid, start: TurnStart, handing_over: bool) -> CarryOn {
+    fn carry_on(
+        &self,
+        thread_id: Uuid,
+        start: TurnStart,
+        handing_over: bool,
+        resolving_apply: bool,
+    ) -> CarryOn {
         let nothing = CarryOn::Settle {
             extra: None,
             kept: None,
@@ -880,8 +939,12 @@ impl Workspace {
         {
             return nothing;
         }
-        let stage = thread.stage;
-        let next = self.next_step(&thread, &start);
+        let stage = if resolving_apply && (!thread.stage.worked() || thread.stage == Stage::Review) {
+            Stage::Implementing
+        } else {
+            thread.stage
+        };
+        let next = self.next_step(&thread, &start, resolving_apply);
         match (next, automatic) {
             (Next::Nothing, _) => nothing,
             (Next::Keep(pick), _) => CarryOn::Settle {
@@ -975,8 +1038,13 @@ impl Workspace {
         moved: bool,
         voice: Voice,
         ran_out: Option<Agent>,
+        resolving_apply: bool,
     ) -> Taking {
-        let stage = thread.stage;
+        let stage = if resolving_apply && (!thread.stage.worked() || thread.stage == Stage::Review) {
+            Stage::Implementing
+        } else {
+            thread.stage
+        };
         if !stage.worked() {
             return Taking::Nothing;
         }
@@ -985,7 +1053,7 @@ impl Workspace {
             self.inner
                 .stage_pick(Some(thread), stage, excluded, ran_out)
         };
-        if stage == Stage::Review {
+        if stage == Stage::Review && !resolving_apply {
             if !self.inner.setup().stages.any_chooses() || (!moved && voice != Voice::Reviewer) {
                 return Taking::Nothing;
             }
@@ -1041,9 +1109,9 @@ impl Workspace {
     }
 
     /// Who works next, from the stage the thread is in now and how the turn went.
-    fn next_step(&self, thread: &Thread, start: &TurnStart) -> Next {
+    fn next_step(&self, thread: &Thread, start: &TurnStart, resolving_apply: bool) -> Next {
         let moved = thread.stage != start.stage;
-        match self.who_takes(thread, moved, start.voice, start.ran_out) {
+        match self.who_takes(thread, moved, start.voice, start.ran_out, resolving_apply) {
             Taking::Nothing => Next::Nothing,
             Taking::Review(pick) => Next::Review(pick),
             Taking::Keep(pick) => Next::Keep(pick),

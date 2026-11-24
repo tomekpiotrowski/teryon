@@ -26,6 +26,7 @@ import {
   reviewerOf,
   reviewersFor,
   coversThread,
+  APPLY_RESOLVING_NOTICE,
   CATCH_UP_REQUEST,
   type Change,
   type ChangeState,
@@ -1099,12 +1100,12 @@ describe('changeCard', () => {
     });
   });
 
-  it('asks for catching up when it overlaps, even in review', () => {
+  it('offers applying when it overlaps, keeping the needs catching up status even in review', () => {
     expect(changeCard(working({ change: change({ fit: 'overlaps' }, review('in_review')) }), hosted)).toEqual({
       title: 'Needs catching up', labelled: true,
       note: 'overlaps with newer work',
       tone: 'attention',
-      next: ['change:catchUp'],
+      next: ['change:apply'],
     });
   });
 
@@ -1314,8 +1315,8 @@ describe('discardWarning', () => {
     expect(discardWarning(change(null))).toBe(plain);
   });
 
-  it('and the request to catch up never use a git word', () => {
-    expect([discardWarning(change({})), CATCH_UP_REQUEST].flatMap(gitWordsIn)).toEqual([]);
+  it('and the catch-up and resolving notices never use a git word', () => {
+    expect([discardWarning(change({})), CATCH_UP_REQUEST, APPLY_RESOLVING_NOTICE].flatMap(gitWordsIn)).toEqual([]);
   });
 });
 

@@ -91,9 +91,16 @@ export class WorkspaceApi {
     );
   }
 
-  /** Applies a thread's change to the project, as one entry in its history described by `description`. */
-  applyChange(threadId: string, description: string): Observable<void> {
-    return this.ask({ type: 'apply_change', thread_id: threadId, description }, () => undefined as void);
+  /**
+   * Applies a thread's change to the project as one entry in its history.
+   *
+   * Returns true when the change overlaps with newer work and the thread's
+   * agent has started catching up to apply it automatically when done.
+   */
+  applyChange(threadId: string): Observable<boolean> {
+    return this.ask({ type: 'apply_change', thread_id: threadId, description: null }, (answer) =>
+      answer.type === 'applied' ? answer.resolving : undefined,
+    );
   }
 
   /** Brings a thread's change up to date with newer work in the project. True when the two overlap, so nothing changed. */

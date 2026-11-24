@@ -361,8 +361,8 @@ lets_expect! { #tokio_test
         let check_up_to_date = matches!(up_to_date, Err(ClientError::Refused(ref message)) if message == "This change already has all the newer work in the project.");
         expect(check_up_to_date) to be_true
 
-        let applied = client.call(Request::ApplyChange { thread_id: thread, description: "Fix the login".to_string() }).await;
-        let check_applied = matches!(applied, Ok(Answer::Nothing));
+        let applied = client.call(Request::ApplyChange { thread_id: thread, description: Some("Fix the login".to_string()) }).await;
+        let check_applied = matches!(applied, Ok(Answer::Applied { resolving: false }));
         expect(check_applied) to be_true
         expect(git(folder.path(), &["log", "-1", "--format=%s"])) to equal("Fix the login".to_string())
         expect(folder.path().join("fix-login.txt").exists()) to be_true
@@ -378,6 +378,90 @@ lets_expect! { #tokio_test
         let check_discarded = matches!(discarded, Ok(Answer::Nothing));
         expect(check_discarded) to be_true
         expect(copy_of(&folder, "second").exists()) to be_false
+    }
+
+    // requirement: `teryon change apply` handles immediate apply and resolving overlap in text and JSON modes, and does not auto-apply when the agent asks a question
+    story cli_change_apply_handles_immediate_and_resolving_modes {
+        use serde_json::Value;
+        use teryon_core::changes::Finish;
+
+        let scene = scene().await;
+        let folder = repository();
+        let mut client = scene.client().await;
+        let (project, immediate) = project_and_thread(&mut client, &folder).await;
+        turn(&mut client, immediate, "start a change fix-cli").await;
+        let copy = copy_of(&folder, "fix-cli");
+        git(&copy, &["add", "-A"]);
+        git(&copy, &["commit", "-q", "-m", "Add CLI fix"]);
+
+        let run_cli = |args: &[&str]| {
+            let data = scene.data();
+            let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+            async move {
+                Command::new(program())
+                    .args(&args)
+                    .stdin(Stdio::null())
+                    .env_remove("TERYON_THREAD")
+                    .env_remove("TERYON_TURN")
+                    .env("TERYON_DATA", &data)
+                    .output()
+                    .await
+                    .expect("teryon runs")
+            }
+        };
+
+        // 1. Immediate apply in JSON mode uses the agent's commit message.
+        let immediate_short = &immediate.to_string()[..8];
+        let out = run_cli(&["--json", "change", "apply", immediate_short]).await;
+        expect(out.status.success()) to be_true
+        let payload: Value = serde_json::from_slice(&out.stdout).unwrap();
+        expect(payload["applied"].as_bool()) to equal(Some(true))
+        expect(payload["resolving"].as_bool()) to equal(Some(false))
+        expect(git(folder.path(), &["log", "-1", "--format=%s"])) to equal("Add CLI fix".to_string())
+
+        // 2. Overlapping apply in JSON mode starts resolution and applies automatically.
+        let overlapping = another_thread(&mut client, project).await;
+        turn(&mut client, overlapping, "start a change fix-overlap").await;
+        write(copy_of(&folder, "fix-overlap").join("README.md"), "agent version\n").unwrap();
+        write(folder.path().join("README.md"), "main version\n").unwrap();
+        git(folder.path(), &["commit", "-q", "-am", "Main change"]);
+
+        let overlap_short = &overlapping.to_string()[..8];
+        let out = run_cli(&["--json", "change", "apply", overlap_short]).await;
+        expect(out.status.success()) to be_true
+        let payload: Value = serde_json::from_slice(&out.stdout).unwrap();
+        expect(payload["applied"].as_bool()) to equal(Some(false))
+        expect(payload["resolving"].as_bool()) to equal(Some(true))
+
+        let applied = wait_for(&mut client, |event| {
+            matches!(event, Event::ThreadChanged { thread } if thread.id == overlapping && thread.status == Status::Idle && thread.finished == Some(Finish::Applied))
+        }).await;
+        expect(matches!(applied, Event::ThreadChanged { .. })) to be_true
+        expect(git(folder.path(), &["log", "-1", "--format=%s"])) to equal("Resolve overlap and keep fix".to_string())
+
+        // 3. Overlapping apply in text mode prints the resolving message, and if the agent asks a question it settles without applying.
+        let asking = another_thread(&mut client, project).await;
+        turn(&mut client, asking, "start a change fix-ask").await;
+        write(copy_of(&folder, "fix-ask").join("README.md"), "agent asking version\n").unwrap();
+        write(folder.path().join("README.md"), "main asking version\n").unwrap();
+        git(folder.path(), &["commit", "-q", "-am", "Main asking change"]);
+        write(folder.path().join(".fake-overlap-ask"), "\n").unwrap();
+
+        let ask_short = &asking.to_string()[..8];
+        let out = run_cli(&["change", "apply", ask_short]).await;
+        expect(out.status.success()) to be_true
+        let printed = String::from_utf8_lossy(&out.stdout);
+        expect(printed.contains("overlaps with newer work")) to be_true
+        expect(printed.contains("catching up and will apply it when done")) to be_true
+
+        let settled = wait_for(&mut client, |event| {
+            matches!(event, Event::ThreadChanged { thread } if thread.id == asking && thread.status == Status::Idle && thread.asking)
+        }).await;
+        let finished = match settled {
+            Event::ThreadChanged { thread } => thread.finished,
+            _ => unreachable!(),
+        };
+        expect(finished) to equal(None)
     }
 
     // requirement: a copy, a review or this machine's directories cannot be opened through a Teryon server, only on the machine itself

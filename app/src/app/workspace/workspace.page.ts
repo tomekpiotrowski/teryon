@@ -52,6 +52,7 @@ import {
   choosingAutomatic,
   type NewThreads,
   threadChoice,
+  APPLY_RESOLVING_NOTICE,
   CATCH_UP_REQUEST,
   type ChangeCard,
   changeCard,
@@ -1062,18 +1063,18 @@ export class WorkspacePage implements OnDestroy {
   }
 
   /**
-   * Asks for the change's description, starting from what the agent wrote, then applies the change.
+   * Applies the change directly to the project without opening a description dialog.
    *
-   * The description becomes the one entry the change adds to the project's
-   * history, so the person gets the last word on it.
+   * The entry description comes from the agent's commit. If the change overlaps
+   * with newer work, the agent starts catching up and finishes applying once done.
    */
   applyChange(thread: Thread): void {
-    this.describe(thread, {
-      header: 'Apply to the project',
-      message: 'Describe the change. It becomes one entry in the project’s history.',
-      button: 'Apply',
-      failure: 'The change could not be applied.',
-      then: (description) => this.sendApply(thread, description),
+    this.api.applyChange(thread.id).subscribe({
+      next: (resolving) => {
+        if (resolving) this.alerts.info(APPLY_RESOLVING_NOTICE);
+        else this.alerts.success('Applied to the project.');
+      },
+      error: (failure: unknown) => this.alerts.error(refusalText(failure, 'The change could not be applied.')),
     });
   }
 
@@ -1121,13 +1122,6 @@ export class WorkspacePage implements OnDestroy {
         await alert.present();
       },
       error: (failure: unknown) => this.alerts.error(refusalText(failure, ask.failure)),
-    });
-  }
-
-  private sendApply(thread: Thread, description: string): void {
-    this.api.applyChange(thread.id, description).subscribe({
-      next: () => this.alerts.success('Applied to the project.'),
-      error: (failure: unknown) => this.alerts.error(refusalText(failure, 'The change could not be applied.')),
     });
   }
 

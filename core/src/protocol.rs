@@ -176,9 +176,14 @@ pub enum Request {
         thread_id: Uuid,
     },
     /// Applies a thread's change to the project as one entry in its history, and forgets it.
+    ///
+    /// Without a description, Teryon uses what the agent committed (falling back to the thread's
+    /// title, then the change's name). When the change overlaps with newer work, Teryon starts
+    /// the thread's agent to resolve the overlap and finishes applying automatically once done.
     ApplyChange {
         thread_id: Uuid,
-        description: String,
+        #[serde(default)]
+        description: Option<String>,
     },
     /// Brings a thread's change up to date with newer work in the project, unless they overlap.
     CatchUp {
@@ -354,6 +359,10 @@ pub enum Answer {
     /// A text for the person to edit.
     Draft {
         text: String,
+    },
+    /// How applying went: landed immediately, or waiting for the agent to resolve an overlap.
+    Applied {
+        resolving: bool,
     },
     /// How catching up went: done, or left as it was because the change overlaps with newer work.
     CaughtUp {

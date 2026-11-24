@@ -40,7 +40,10 @@ pub async fn show_change(context: Context, target: String) -> ExitCode {
     }
 }
 
-/// Applies a thread's change to the project, drafting a description when none is given.
+/// Applies a thread's change to the project, using the agent's commit message when none is given.
+///
+/// When the change overlaps with newer work, Teryon starts the thread's agent to catch up
+/// and applies it automatically once the agent finishes.
 pub async fn apply_change(
     context: Context,
     target: String,
@@ -54,29 +57,39 @@ pub async fn apply_change(
         Ok(thread) => thread.clone(),
         Err(problem) => return fail(&problem.to_string()),
     };
-    let description = match resolve_description(&mut client, thread.id, description).await {
-        Ok(text) => text,
-        Err(problem) => return fail(&problem),
+    let description = match description {
+        Some(raw) => match read_message(&raw, stdin()) {
+            Ok(text) => Some(text),
+            Err(problem) => return fail(&problem),
+        },
+        None => None,
     };
     match client
         .call(Request::ApplyChange {
             thread_id: thread.id,
-            description: description.clone(),
+            description,
         })
         .await
     {
-        Ok(_) => {
+        Ok(Answer::Applied { resolving }) => {
             if context.json {
                 print_json(&json!({
-                    "applied": true,
+                    "applied": !resolving,
+                    "resolving": resolving,
                     "thread_id": thread.id,
-                    "description": description,
                 }))
+            } else if resolving {
+                println!(
+                    "The change of {} overlaps with newer work. The agent is catching up and will apply it when done.",
+                    short_id(thread.id)
+                );
+                ExitCode::SUCCESS
             } else {
                 println!("Applied change of {}.", short_id(thread.id));
                 ExitCode::SUCCESS
             }
         }
+        Ok(_) => fail("Teryon answered unexpectedly."),
         Err(problem) => fail(&problem.to_string()),
     }
 }

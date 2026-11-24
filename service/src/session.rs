@@ -16,7 +16,7 @@ use uuid::Uuid;
 use teryon_core::changes::finish::CaughtUp;
 use teryon_core::directory::browse;
 use teryon_core::protocol::{Answer, Event, Request};
-use teryon_core::workspace::{Actor, Workspace};
+use teryon_core::workspace::{Actor, ApplyOutcome, Workspace};
 
 /// Where a session comes from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -217,9 +217,11 @@ impl Session {
                 thread_id,
                 description,
             } => workspace
-                .apply_change_by(thread_id, &description, actor)
+                .apply_change_by(thread_id, description.as_deref(), actor)
                 .await
-                .map(|()| Answer::Nothing)
+                .map(|outcome| Answer::Applied {
+                    resolving: outcome == ApplyOutcome::Resolving,
+                })
                 .map_err(|problem| problem.to_string()),
             Request::CatchUp { thread_id } => workspace
                 .catch_up_by(thread_id, actor)

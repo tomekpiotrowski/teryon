@@ -317,7 +317,7 @@ mod tests {
     fn apply_change() -> Request {
         Request::ApplyChange {
             thread_id: Uuid::nil(),
-            description: "Fix".to_string(),
+            description: None,
         }
     }
 

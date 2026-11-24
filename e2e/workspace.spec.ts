@@ -214,7 +214,7 @@ test("another agent reviews a change in the same thread, and its findings go bac
   await expect(thread.locator(".review-divider")).toHaveCount(2);
 });
 
-test("an agent's change is applied to the project with the person's description", async ({ page }) => {
+test("an agent's change is applied directly without a dialog using its commit message", async ({ page }) => {
   const directory = await addProject(page, "Sample", (folder) => {
     git(folder, "init", "-q", "-b", "main");
     put(folder, "README.md", "# Sample\n");
@@ -223,14 +223,14 @@ test("an agent's change is applied to the project with the person's description"
 
   await startThread(page, "start a change fix-login");
   await expect(changeLine(page).getByRole("button", { name: "Apply to the project" })).toBeVisible();
+  const copy = join(directory, ".teryon", "worktrees", "fix-login");
+  git(copy, "add", "-A");
+  git(copy, "commit", "-q", "-m", "Fix the login\n\nIt redirected twice.");
 
   await page.getByLabel("Reply").press("Escape");
   await page.keyboard.press("w");
   await page.keyboard.press("a");
-  const description = page.locator("ion-alert textarea");
-  await expect(description).toHaveValue("start a change fix-login");
-  await description.fill("Fix the login\n\nIt redirected twice.");
-  await page.locator("ion-alert").getByRole("button", { name: "Apply" }).click();
+  await expect(page.locator("ion-alert")).toHaveCount(0);
 
   await expect(page.getByText("Applied to the project.", { exact: true }).first()).toBeVisible();
   await expect(page.getByLabel("Thread").getByText("Applied to the project.")).toBeVisible();
@@ -239,7 +239,33 @@ test("an agent's change is applied to the project with the person's description"
   await expect(changeLine(page).getByRole("button")).toHaveCount(0);
   await expect.poll(() => git(directory, "log", "-1", "--format=%B")).toBe("Fix the login\n\nIt redirected twice.");
   expect(existsSync(join(directory, "fix-login.txt"))).toBe(true);
-  expect(existsSync(join(directory, ".teryon", "worktrees", "fix-login"))).toBe(false);
+  expect(existsSync(copy)).toBe(false);
+});
+
+test("applying an overlapping change resolves it with the agent and finishes applying automatically", async ({ page }) => {
+  const directory = await addProject(page, "Sample", (folder) => {
+    git(folder, "init", "-q", "-b", "main");
+    put(folder, "README.md", "# Sample\n");
+    commit(folder);
+  });
+
+  await startThread(page, "start a change fix-overlap");
+  const copy = join(directory, ".teryon", "worktrees", "fix-overlap");
+  put(copy, "README.md", "# Agent change\n");
+  git(copy, "add", "-A");
+  git(copy, "commit", "-q", "-m", "Update README");
+  put(directory, "README.md", "# Newer main change\n");
+  commit(directory);
+
+  await page.getByLabel("Reply").press("Escape");
+  await page.keyboard.press("w");
+  await page.keyboard.press("a");
+  await expect(page.locator("ion-alert")).toHaveCount(0);
+
+  await expect(changeLine(page).getByRole("status")).toHaveText("Applied");
+  await expect(page.getByLabel("Thread").getByText("Applied to the project.")).toBeVisible();
+  await expect.poll(() => git(directory, "log", "-1", "--format=%B")).toBe("Resolve overlap and keep fix");
+  expect(existsSync(copy)).toBe(false);
 });
 
 test("an agent's change is discarded once the person confirms", async ({ page }) => {

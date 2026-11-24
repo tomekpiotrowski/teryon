@@ -522,13 +522,15 @@ describe('primaryCardAction', () => {
     return queue.cards[0];
   }
 
-  it('applies, catches up and replies on a change to apply or a failure', () => {
+  it('applies on ready or overlapping changes and replies on other failures', () => {
     const ready = card({ change: changed() });
     expect(primaryCardAction(ready, [])).toBe('apply');
     expect(primaryCardAction(ready, [{ id: 'change:apply' }])).toBe('apply');
     expect(primaryCardAction(ready, [{ id: 'other' }])).toBe('reply');
     const overlap = card({ change: changed({ fit: 'overlaps' }) });
-    expect(primaryCardAction(overlap, [])).toBe('catchUp');
+    expect(primaryCardAction(overlap, [])).toBe('apply');
+    expect(primaryCardAction(overlap, [{ id: 'change:apply' }])).toBe('apply');
+    expect(primaryCardAction(overlap, [{ id: 'change:catchUp' }])).toBe('reply');
     expect(primaryCardAction(card({ ended: 'failed' }), [])).toBe('reply');
   });
 

@@ -24,10 +24,12 @@ use crate::files::git::{first_line, Git};
 
 /// What every agent that changes files is told about committing its work.
 const COMMITTING: &str = concat!(
-    "When you have changed files, commit all of your work in the worktree before you finish. ",
+    "When you have changed files, keep all of your work on the branch in a single commit in the worktree before you finish, ",
+    "with nothing left uncommitted or untracked. ",
+    "On later turns, amend that commit and update its message rather than adding new commits. ",
     "Write the message for someone reading the project's history: a short first line saying what the change does, ",
     "then, when it helps, a few lines on why. Describe the whole change on the branch so far, not only this turn's request, ",
-    "because the newest commit's message becomes the description of the change when it is merged."
+    "because that commit's message becomes the description of the change when it is applied."
 );
 
 /// The instruction for a thread that has no change yet.
@@ -48,6 +50,20 @@ pub fn starting() -> String {
 pub fn continuing(path: &Path, branch: &str) -> String {
     format!(
         "This thread's worktree is `{}`, on the branch `{branch}`. Change files only there. Do not create another worktree. {COMMITTING}",
+        path.display()
+    )
+}
+
+/// The instruction when Teryon starts an agent to resolve an overlap before applying automatically.
+///
+/// The agent rebases its branch onto the latest base and folds everything back into one commit,
+/// leaving the thread's stage untouched so Teryon can apply the change as soon as the turn ends.
+pub fn rebasing(path: &Path, branch: &str, base: &str) -> String {
+    format!(
+        "Teryon is about to apply this change to `{base}`, but `{branch}` overlaps with newer work on `{base}`. \
+        In the worktree `{}`, rebase `{branch}` onto `{base}`, resolve all conflicts, and run relevant tests to check the result. \
+        Keep all of your changes on `{branch}` in a single commit with nothing left uncommitted or untracked, and update the commit message to cover the whole change. \
+        Do not change the thread's stage: Teryon will apply the change automatically once your turn ends.",
         path.display()
     )
 }
@@ -87,6 +103,9 @@ mod tests {
             to let_questions_go_without { have(contains("A question that changes nothing needs no worktree.")) be_true }
             to forbid_other_worktrees { have(contains("Do not create worktrees any other way")) be_true }
             to ask_for_a_commit { have(ends_with(COMMITTING)) be_true }
+            to ask_for_a_single_commit { have(contains("single commit")) be_true }
+            to ask_to_amend_later { have(contains("amend that commit")) be_true }
+            to forbid_leftovers { have(contains("nothing left uncommitted or untracked")) be_true }
         }
 
         expect(continuing(Path::new("/work/app/.teryon/worktrees/fix-login"), branch)) {
@@ -98,6 +117,17 @@ mod tests {
             when(branch = "other") as when_the_agent_switched_branches to name_the_branch_checked_out {
                 have(contains("on the branch `other`")) be_true
             }
+        }
+
+        expect(rebasing(Path::new("/work/app/.teryon/worktrees/fix-login"), "fix-login", "main")) {
+            to name_the_worktree { have(contains("`/work/app/.teryon/worktrees/fix-login`")) be_true }
+            to ask_to_rebase_onto_base { have(contains("rebase `fix-login` onto `main`")) be_true }
+            to ask_to_resolve_conflicts { have(contains("resolve all conflicts")) be_true }
+            to ask_to_run_tests { have(contains("run relevant tests")) be_true }
+            to ask_for_a_single_commit { have(contains("single commit")) be_true }
+            to forbid_leftovers { have(contains("nothing left uncommitted or untracked")) be_true }
+            to ask_to_update_the_message { have(contains("update the commit message")) be_true }
+            to forbid_stage_changes { have(contains("Do not change the thread's stage")) be_true }
         }
     }
 }

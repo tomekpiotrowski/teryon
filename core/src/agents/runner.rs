@@ -137,6 +137,8 @@ pub struct TurnRequest {
     pub environment: Vec<(String, OsString)>,
     /// What the agent is told about the thread's stage and plan, see [`crate::agents::staging`].
     pub staging: Option<String>,
+    /// Extra instruction when Teryon starts the agent to resolve an overlap before applying.
+    pub rebasing: Option<String>,
     /// Antigravity variants known when the turn starts.
     pub gemini_models: Vec<ModelOption>,
 }
@@ -255,6 +257,7 @@ async fn run_turn(
         message,
         mut environment,
         staging,
+        rebasing,
         gemini_models,
     } = request;
     environment.push(("TERYON_THREAD".to_string(), thread.id.to_string().into()));
@@ -291,7 +294,10 @@ async fn run_turn(
     let brief = match voice {
         Voice::Author => with_naming(
             thread.named,
-            Some(with_asking(Some(with_others(joined(brief, staging))))),
+            Some(with_asking(Some(with_others(joined(
+                joined(brief, staging),
+                rebasing,
+            ))))),
         ),
         Voice::Reviewer => joined(brief, staging),
     };

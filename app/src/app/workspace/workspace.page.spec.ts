@@ -6,7 +6,20 @@ import { BehaviorSubject, EMPTY, type Observable, of, Subject, throwError } from
 import { vi } from 'vitest';
 
 import { WorkspaceApi } from './workspace.api';
-import { type Choice, FIRST_NEW_THREADS, NO_MODELS, NO_WORKFLOWS, type Change, type Opens, type Project, type Screen, type Thread, type ThreadEntry } from './workspace.model';
+import {
+  APPLY_RESOLVING_NOTICE,
+  type Choice,
+  FIRST_NEW_THREADS,
+  NO_MODELS,
+  NO_WORKFLOWS,
+  REFUSAL,
+  type Change,
+  type Opens,
+  type Project,
+  type Screen,
+  type Thread,
+  type ThreadEntry,
+} from './workspace.model';
 import { WorkspaceModule } from './workspace.module';
 import { WorkspacePage } from './workspace.page';
 import { WorkspaceStore } from './workspace.store';
@@ -74,6 +87,9 @@ interface ApiDouble {
   createThread: ReturnType<typeof vi.fn>;
   sendMessage: ReturnType<typeof vi.fn>;
   catchUp: ReturnType<typeof vi.fn>;
+  applyChange: ReturnType<typeof vi.fn>;
+  draftDescription: ReturnType<typeof vi.fn>;
+  sendForReview: ReturnType<typeof vi.fn>;
 }
 
 describe('WorkspacePage', () => {
@@ -81,6 +97,7 @@ describe('WorkspacePage', () => {
   let store: StoreDouble;
   let api: ApiDouble;
   let alerts: { error: ReturnType<typeof vi.fn>; info: ReturnType<typeof vi.fn>; success: ReturnType<typeof vi.fn> };
+  let alertController: { create: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
     const stored = new Map<string, string>();
@@ -94,8 +111,12 @@ describe('WorkspacePage', () => {
       createThread: vi.fn(),
       sendMessage: vi.fn(),
       catchUp: vi.fn(() => of(false)),
+      applyChange: vi.fn(() => of(false)),
+      draftDescription: vi.fn(() => of('Draft description')),
+      sendForReview: vi.fn(() => of(undefined)),
     };
     alerts = { error: vi.fn(), info: vi.fn(), success: vi.fn() };
+    alertController = { create: vi.fn(() => Promise.resolve({ present: vi.fn(() => Promise.resolve()) })) };
     TestBed.configureTestingModule({
       imports: [WorkspaceModule],
       providers: [
@@ -103,7 +124,7 @@ describe('WorkspacePage', () => {
         { provide: WorkspaceStore, useValue: store },
         { provide: WorkspaceApi, useValue: api },
         { provide: ErnoAlertsService, useValue: alerts },
-        { provide: AlertController, useValue: {} },
+        { provide: AlertController, useValue: alertController },
       ],
     }).overrideTemplate(WorkspacePage, ''); // Only what the page decides is looked at here, not how it shows it.
     page = TestBed.createComponent(WorkspacePage).componentInstance;
@@ -698,6 +719,57 @@ describe('WorkspacePage', () => {
       page.handleShortcut(event);
       expect(page.screen$.value).toBe('board');
       expect(event.defaultPrevented).toBe(false);
+    });
+  });
+
+  describe('applying and sending for review', () => {
+    const target = changed('t1', 'fix-login', 'fix-login');
+
+    it('applies directly without opening an alert dialog and shows success when applied immediately', () => {
+      api.applyChange.mockReturnValue(of(false));
+
+      page.applyChange(target);
+
+      expect(api.draftDescription).not.toHaveBeenCalled();
+      expect(alertController.create).not.toHaveBeenCalled();
+      expect(api.applyChange).toHaveBeenCalledWith('t1');
+      expect(alerts.success).toHaveBeenCalledWith('Applied to the project.');
+      expect(alerts.info).not.toHaveBeenCalled();
+      expect(alerts.error).not.toHaveBeenCalled();
+    });
+
+    it('shows an info toast without opening a dialog when applying starts resolving an overlap', () => {
+      api.applyChange.mockReturnValue(of(true));
+
+      page.applyChange(target);
+
+      expect(alertController.create).not.toHaveBeenCalled();
+      expect(api.applyChange).toHaveBeenCalledWith('t1');
+      expect(alerts.info).toHaveBeenCalledWith(APPLY_RESOLVING_NOTICE);
+      expect(alerts.success).not.toHaveBeenCalled();
+    });
+
+    it('shows the refusal reason when applying fails', () => {
+      const refusal = Object.assign(new Error('No files have changed, so there is nothing to apply.'), { name: REFUSAL });
+      api.applyChange.mockReturnValue(throwError(() => refusal));
+
+      page.applyChange(target);
+
+      expect(alertController.create).not.toHaveBeenCalled();
+      expect(alerts.error).toHaveBeenCalledWith('No files have changed, so there is nothing to apply.');
+    });
+
+    it('keeps the description dialog for sending for review on GitHub', async () => {
+      const present = vi.fn(() => Promise.resolve());
+      alertController.create.mockResolvedValue({ present });
+
+      page.sendForReview(target);
+      await Promise.resolve();
+
+      expect(api.draftDescription).toHaveBeenCalledWith('t1');
+      expect(alertController.create).toHaveBeenCalledTimes(1);
+      expect(alertController.create.mock.calls[0][0].header).toBe('Send for review on GitHub');
+      expect(present).toHaveBeenCalledTimes(1);
     });
   });
 });

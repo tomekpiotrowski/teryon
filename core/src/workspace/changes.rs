@@ -14,19 +14,24 @@ use std::collections::{HashMap, HashSet};
 use std::env::temp_dir;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, MutexGuard, PoisonError};
 use std::time::Duration;
 
+use serde_json::json;
 use tokio::process::Command;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::time::sleep;
 use tracing::{error, warn};
 use uuid::Uuid;
 
-use crate::agents::{EntryDraft, EntryKind};
+use crate::agents::{EntryDraft, EntryKind, Voice};
 use crate::changes::claim::{claimant, Candidate};
 use crate::changes::create::{create, take_over};
-use crate::changes::finish::{apply, catch_up, discard, draft_description, CaughtUp, FinishError};
+use crate::changes::finish::{
+    apply, catch_up, discard, draft_description, fallback_description, CaughtUp, FinishError,
+    STILL_OVERLAPS, TOO_MANY_ATTEMPTS,
+};
 use crate::changes::github::{review_now, send_for_review, tidy_after_acceptance, Tidied};
 use crate::changes::open::{browser, command_line, file_manager, CommandLine};
 use crate::changes::status::{branch_present, read_state, Look};
@@ -35,33 +40,58 @@ use crate::protocol::{Event, Opener};
 use crate::store::{Status, Thread};
 use crate::workflow::Happening;
 use crate::workspace::stages::Mover;
-use crate::workspace::{Actor, Inner, Workspace, WorkspaceError};
+use crate::workspace::{handover_message, preview_of, Actor, Inner, Workspace, WorkspaceError};
 
 /// How long Discard waits for a stopped agent to end.
 const STOP_PATIENCE: Duration = Duration::from_secs(30);
 
+/// Maximum automatic catch-up turns when newer work keeps landing during overlap resolution.
+const MAX_APPLY_ATTEMPTS: u32 = 3;
+
+/// Plain-language message sent to the thread's agent when applying hits an overlap.
+const RESOLVE_OVERLAP_MESSAGE: &str =
+    "Bring this change up to date with the newer work in the project, and resolve where the two overlap.";
+
+/// How applying a thread's change went.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ApplyOutcome {
+    /// The change landed in the project and its copy was removed.
+    Applied,
+    /// The change overlapped with newer work, so the agent started resolving it and will apply automatically once done.
+    Resolving,
+}
+
+/// An apply waiting for the thread's own agent to resolve an overlap with newer work.
+#[derive(Clone, Debug)]
+pub(super) struct PendingApply {
+    pub description: Option<String>,
+    pub actor: Actor,
+    /// The base commit that overlapped when the current resolution turn started.
+    pub base_commit: String,
+    /// How many catch-up turns have been started for this apply.
+    pub attempts: u32,
+}
+
 impl Workspace {
-    /// A starting point for the description of a thread's change, for the person to edit before applying.
+    /// A starting point for the description of a thread's change, for the person to edit before sending for review.
     ///
     /// What the agent said about its work when it committed, or else the thread's title.
     pub async fn draft_description(&self, thread_id: Uuid) -> Result<String, WorkspaceError> {
-        let (directory, _, thread, change) = self.inner.finishable(thread_id)?;
-        let drafted = draft_description(&directory, &change).await?;
-        Ok(drafted.unwrap_or_else(|| {
-            if thread.title.is_empty() {
-                change.name.replace('-', " ")
-            } else {
-                thread.title.clone()
-            }
-        }))
+        let (_, _, thread, change) = self.inner.finishable(thread_id)?;
+        let drafted = draft_description(&change).await?;
+        Ok(drafted.unwrap_or_else(|| fallback_description(&thread.title, &change.name)))
     }
 
     /// Applies a thread's change to the project as one entry in its history, and forgets the change.
+    ///
+    /// Without `description`, uses the agent's commit message. When the change overlaps with
+    /// newer work, starts the thread's own agent to resolve the overlap and finishes applying
+    /// automatically when the agent is done.
     pub async fn apply_change(
         &self,
         thread_id: Uuid,
-        description: &str,
-    ) -> Result<(), WorkspaceError> {
+        description: Option<&str>,
+    ) -> Result<ApplyOutcome, WorkspaceError> {
         self.apply_change_by(thread_id, description, Actor::Person)
             .await
     }
@@ -70,23 +100,245 @@ impl Workspace {
     pub async fn apply_change_by(
         &self,
         thread_id: Uuid,
-        description: &str,
+        description: Option<&str>,
         actor: Actor,
+    ) -> Result<ApplyOutcome, WorkspaceError> {
+        if description.is_some_and(|text| text.trim().is_empty()) {
+            return Err(FinishError::NoDescription.into());
+        }
+        let (_, project_id, _, _) = self.inner.finishable(thread_id)?;
+        let turn = self.inner.finishing(thread_id)?;
+        let project_lock = self.inner.project_lock(project_id).lock_owned().await;
+        let (directory, project_id, thread, change) = self.inner.finishable(thread_id)?;
+        match apply(&directory, &change, description, &thread.title).await {
+            Ok(_) => {
+                let note = self.inner.apply_note(actor);
+                self.inner
+                    .forget_change(thread_id, Finish::Applied, &note)?;
+                self.inner.look_at_all(project_id).await;
+                Ok(ApplyOutcome::Applied)
+            }
+            Err(FinishError::Overlaps(base_commit)) => {
+                drop(project_lock);
+                drop(turn);
+                let pending = PendingApply {
+                    description: description.map(str::to_string),
+                    actor,
+                    base_commit,
+                    attempts: 1,
+                };
+                self.start_resolving_turn(thread_id, pending, false)?;
+                Ok(ApplyOutcome::Resolving)
+            }
+            Err(problem) => Err(problem.into()),
+        }
+    }
+
+    /// Starts the thread's own author agent to resolve an overlap for a pending automatic apply.
+    ///
+    /// Keeps the thread's current agent, model, conversation and stage untouched. When
+    /// `handing_over` is true, the thread is still marked running from the turn that just ended.
+    fn start_resolving_turn(
+        &self,
+        thread_id: Uuid,
+        pending: PendingApply,
+        handing_over: bool,
     ) -> Result<(), WorkspaceError> {
-        let (directory, project_id, _, change) = self.inner.finishable(thread_id)?;
-        let _turn = self.inner.finishing(thread_id)?;
-        let _project = self.inner.project_lock(project_id).lock_owned().await;
-        self.inner.check_idle(thread_id)?;
-        let note = self
-            .inner
-            .state()
-            .source(actor)
-            .map_or_else(|| "Applied to the project.".to_string(), |s| s.notice("applied this change."));
-        apply(&directory, &change, description).await?;
-        self.inner
-            .forget_change(thread_id, Finish::Applied, &note)?;
-        self.inner.look_at_all(project_id).await;
+        let mut state = self.inner.state();
+        let source = state.source(pending.actor);
+        let (store, thread) = state.holding(thread_id)?;
+        if !handing_over {
+            self.inner.check_free(&thread)?;
+        } else {
+            if self.inner.finishing_threads().contains(&thread.id) {
+                return Err(WorkspaceError::Busy(
+                    "Teryon is finishing this thread's changes. Send the message once it is done.",
+                ));
+            }
+            if thread.held || self.inner.stopping.load(Ordering::SeqCst) {
+                return Err(WorkspaceError::Busy("The thread was stopped."));
+            }
+        }
+        if thread.change.is_none() {
+            return Err(FinishError::NoChange.into());
+        }
+        let message = handover_message(store, &thread, Voice::Author, RESOLVE_OVERLAP_MESSAGE)?;
+        let mut draft = EntryDraft::user_message(RESOLVE_OVERLAP_MESSAGE).by(Voice::Author);
+        draft.body["agent"] = thread.agent.clone().into();
+        draft.body["automatic"] = true.into();
+        if !handing_over {
+            if let Some(source) = &source {
+                draft.body["from"] = json!({
+                    "thread_id": source.thread_id,
+                    "project_id": source.project_id,
+                    "title": source.title,
+                });
+            }
+        }
+        let entry = store.append(thread_id, draft.kind.name(), draft.body)?;
+        let thread = store.change(thread_id, |thread| {
+            thread.status = Status::Running;
+            thread.ended = None;
+            thread.preview = None;
+            if !handing_over {
+                thread.asking = false;
+                thread.held = false;
+                thread.put_away = false;
+                if pending.actor == Actor::Person {
+                    thread.rounds = 0;
+                }
+            }
+            if let Some(reviewer) = &mut thread.reviewer {
+                reviewer.reviewing = false;
+                if let Some(verdict) = &mut reviewer.verdict {
+                    verdict.answered = true;
+                }
+            }
+        })?;
+        let directory = state.project(thread.project_id)?.directory.clone();
+        self.inner.pending_applies().insert(thread_id, pending);
+        drop(state);
+
+        self.inner.announce(Event::EntryAdded { entry });
+        self.start_turn(thread, Voice::Author, directory, &message);
         Ok(())
+    }
+
+    /// Finishes applying a thread's change once its agent has resolved an overlap.
+    ///
+    /// Runs while the thread stays marked running so clients never see a brief idle flash
+    /// between resolution and applying, or between resolution and a retry when newer work landed.
+    pub(super) async fn finish_pending_apply(
+        &self,
+        thread_id: Uuid,
+        pending: PendingApply,
+        finishing: Finishing,
+    ) {
+        let project_id = {
+            let mut state = self.inner.state();
+            let Ok((_, thread)) = state.holding(thread_id) else {
+                drop(state);
+                drop(finishing);
+                return;
+            };
+            if self.inner.stopping.load(Ordering::SeqCst)
+                || thread.held
+                || thread.asking
+                || thread.change.is_none()
+            {
+                drop(state);
+                drop(finishing);
+                self.settle_idle(thread_id, None, None);
+                return;
+            }
+            thread.project_id
+        };
+
+        let project_lock = self.inner.project_lock(project_id).lock_owned().await;
+        let (directory, thread, change) = {
+            let mut state = self.inner.state();
+            let Ok((_, thread)) = state.holding(thread_id) else {
+                drop(state);
+                drop(project_lock);
+                drop(finishing);
+                return;
+            };
+            let Some(change) = thread.change.clone() else {
+                drop(state);
+                drop(project_lock);
+                drop(finishing);
+                self.settle_idle(thread_id, None, None);
+                return;
+            };
+            if self.inner.stopping.load(Ordering::SeqCst) || thread.held || thread.asking {
+                drop(state);
+                drop(project_lock);
+                drop(finishing);
+                self.settle_idle(thread_id, None, None);
+                return;
+            }
+            let Ok(project) = state.project(thread.project_id) else {
+                drop(state);
+                drop(project_lock);
+                drop(finishing);
+                self.settle_idle(thread_id, None, None);
+                return;
+            };
+            (project.directory.clone(), thread, *change)
+        };
+
+        let outcome = apply(
+            &directory,
+            &change,
+            pending.description.as_deref(),
+            &thread.title,
+        )
+        .await;
+        match outcome {
+            Ok(_) => {
+                let note = self.inner.apply_note(pending.actor);
+                if let Err(problem) =
+                    self.inner
+                        .forget_change_and_settle(thread_id, Finish::Applied, &note)
+                {
+                    error!("could not finish applying a thread's change: {problem}");
+                    drop(project_lock);
+                    drop(finishing);
+                    self.settle_idle(thread_id, Some(EntryDraft::error(&problem.to_string())), None);
+                    return;
+                }
+                drop(project_lock);
+                drop(finishing);
+                self.inner.look_at_all(project_id).await;
+            }
+            Err(FinishError::Overlaps(new_base))
+                if new_base != pending.base_commit && pending.attempts < MAX_APPLY_ATTEMPTS =>
+            {
+                drop(project_lock);
+                drop(finishing);
+                let next = PendingApply {
+                    base_commit: new_base,
+                    attempts: pending.attempts + 1,
+                    ..pending
+                };
+                match self.start_resolving_turn(thread_id, next, true) {
+                    Ok(()) => {}
+                    Err(WorkspaceError::Busy(_)) => {
+                        self.inner.cancel_pending_apply(thread_id);
+                        self.settle_idle(thread_id, None, None);
+                    }
+                    Err(problem) => {
+                        self.inner.cancel_pending_apply(thread_id);
+                        self.settle_idle(
+                            thread_id,
+                            Some(EntryDraft::error(&problem.to_string())),
+                            None,
+                        );
+                    }
+                }
+            }
+            Err(FinishError::Overlaps(new_base)) => {
+                drop(project_lock);
+                drop(finishing);
+                let message = if new_base == pending.base_commit {
+                    STILL_OVERLAPS
+                } else {
+                    TOO_MANY_ATTEMPTS
+                };
+                self.settle_idle(thread_id, Some(EntryDraft::error(message)), None);
+                self.inner.look_at(thread_id, Look::Thorough).await;
+            }
+            Err(problem) => {
+                drop(project_lock);
+                drop(finishing);
+                self.settle_idle(
+                    thread_id,
+                    Some(EntryDraft::error(&problem.to_string())),
+                    None,
+                );
+                self.inner.look_at(thread_id, Look::Thorough).await;
+            }
+        }
     }
 
     /// Brings a thread's change up to date with newer work in the project, unless the two overlap.
@@ -142,6 +394,7 @@ impl Workspace {
             )
         };
         let _turn = self.inner.finishing(thread_id)?;
+        self.inner.cancel_pending_apply(thread_id);
         match &source {
             Some(source) => self
                 .inner
@@ -332,7 +585,7 @@ impl Inner {
     }
 
     /// Notes that a thread's change is being finished, so no agent is started for it meanwhile.
-    fn finishing(self: &Arc<Self>, thread_id: Uuid) -> Result<Finishing, WorkspaceError> {
+    pub(super) fn finishing(self: &Arc<Self>, thread_id: Uuid) -> Result<Finishing, WorkspaceError> {
         if !self.finishing_threads().insert(thread_id) {
             return Err(WorkspaceError::Busy(
                 "Teryon is already finishing this thread's changes.",
@@ -342,6 +595,14 @@ impl Inner {
             inner: self.clone(),
             thread_id,
         })
+    }
+
+    /// Notice text recorded when `actor` applies a thread's change.
+    fn apply_note(&self, actor: Actor) -> String {
+        self.state().source(actor).map_or_else(
+            || "Applied to the project.".to_string(),
+            |source| source.notice("applied this change."),
+        )
     }
 
     pub(super) fn finishing_threads(&self) -> MutexGuard<'_, HashSet<Uuid>> {
@@ -367,7 +628,17 @@ impl Inner {
         finish: Finish,
         note: &str,
     ) -> Result<(), WorkspaceError> {
-        self.forget_change_when(thread_id, finish, note, |_| true)
+        self.forget_change_when(thread_id, finish, note, false, |_| true)
+    }
+
+    /// Forgets a thread's change and settles the thread idle and unread in the same state change.
+    fn forget_change_and_settle(
+        &self,
+        thread_id: Uuid,
+        finish: Finish,
+        note: &str,
+    ) -> Result<(), WorkspaceError> {
+        self.forget_change_when(thread_id, finish, note, true, |_| true)
     }
 
     /// Like [`Self::forget_change`], but only when `wanted` holds for the thread, checked under the same lock.
@@ -376,6 +647,7 @@ impl Inner {
         thread_id: Uuid,
         finish: Finish,
         note: &str,
+        settle: bool,
         wanted: impl FnOnce(&Thread) -> bool,
     ) -> Result<(), WorkspaceError> {
         let mut state = self.state();
@@ -385,11 +657,24 @@ impl Inner {
         }
         let notice = EntryDraft::notice(note);
         let entry = store.append(thread_id, EntryKind::Notice.name(), notice.body)?;
+        let preview = if settle {
+            store
+                .entries(thread_id)
+                .ok()
+                .and_then(|entries| preview_of(&entries))
+        } else {
+            None
+        };
         let thread = store.change(thread_id, |thread| {
             thread.change = None;
             thread.finished = Some(finish);
             // The reviewer goes with the change: it only ever works inside the change's copy.
             thread.reviewer = None;
+            if settle {
+                thread.status = Status::Idle;
+                thread.unread = true;
+                thread.preview = preview.clone();
+            }
         })?;
         let why = match finish {
             Finish::Applied => "applied to the project",
@@ -405,8 +690,14 @@ impl Inner {
         )?;
         drop(state);
         self.announce(Event::EntryAdded { entry });
-        self.announce(Event::ThreadChanged { thread });
-        self.announce_moved(moved);
+        if let Some((stage_entry, moved_thread)) = moved {
+            self.announce(Event::EntryAdded { entry: stage_entry });
+            self.announce(Event::ThreadChanged {
+                thread: moved_thread,
+            });
+        } else {
+            self.announce(Event::ThreadChanged { thread });
+        }
         Ok(())
     }
 
@@ -664,7 +955,7 @@ impl Inner {
                     .is_some_and(|known| known.name == change.name && known.start == change.start)
         };
         if let Err(problem) =
-            self.forget_change_when(thread_id, Finish::Removed, "Copy removed.", still)
+            self.forget_change_when(thread_id, Finish::Removed, "Copy removed.", false, still)
         {
             error!("could not forget a change whose copy is gone: {problem}");
         }

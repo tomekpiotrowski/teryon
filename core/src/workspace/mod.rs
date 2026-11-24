@@ -20,6 +20,8 @@ mod stages;
 #[cfg(test)]
 mod starting_tests;
 
+pub use changes::ApplyOutcome;
+
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::env::{join_paths, split_paths, var_os};
 use std::ffi::OsString;
@@ -52,6 +54,7 @@ use crate::agents::staging::{planning, reviewing_plan, staging};
 use crate::agents::{Agent, EntryDraft, EntryKind, Voice};
 use crate::changes::finish::FinishError;
 use crate::changes::github::on_github;
+use crate::changes::instruction::rebasing;
 use crate::changes::reviewing::{REVIEW_AGAIN, REVIEW_FIRST};
 use crate::changes::status::Look;
 use crate::changes::ChangeError;
@@ -72,7 +75,7 @@ use crate::store::{Entry, Project, Reviewer, RunEnd, Status, StoreError, Thread,
 use crate::usage::{Reading, UsageBook, UsageError, UsageLine, UsageReport};
 use crate::workflow::picking::{installed as program_installed, Pick, PickError};
 use crate::workflow::{moved as stage_after, Happening, Stage, Workflows};
-use crate::workspace::changes::Noticed;
+use crate::workspace::changes::{Noticed, PendingApply};
 use crate::workspace::stages::{Mover, Starter, TurnStart};
 
 /// The longest title a list shows whole.
@@ -340,6 +343,8 @@ struct Inner {
     usage: Mutex<UsageBook>,
     /// How each running turn started, to decide when it ends whether another agent takes over.
     turns: Mutex<HashMap<Uuid, TurnStart>>,
+    /// Changes waiting to be applied automatically once their agent resolves an overlap.
+    pending_applies: Mutex<HashMap<Uuid, PendingApply>>,
     /// Who the next new thread starts with while the person has not picked, see [`Inner::refresh_starting`].
     starting: Mutex<Option<Result<Pick, PickError>>>,
     /// Whether Teryon is shutting down, so no agent starts by itself any more.
@@ -433,6 +438,17 @@ impl Inner {
 
     fn turns(&self) -> MutexGuard<'_, HashMap<Uuid, TurnStart>> {
         self.turns.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub(super) fn pending_applies(&self) -> MutexGuard<'_, HashMap<Uuid, PendingApply>> {
+        self.pending_applies
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Cancels any pending automatic apply for `thread_id`.
+    pub(super) fn cancel_pending_apply(&self, thread_id: Uuid) {
+        self.pending_applies().remove(&thread_id);
     }
 
     fn announce(&self, event: Event) {
@@ -536,6 +552,7 @@ impl Workspace {
                 project_locks: Mutex::new(HashMap::new()),
                 usage: Mutex::new(UsageBook::open(data_folder)),
                 turns: Mutex::new(HashMap::new()),
+                pending_applies: Mutex::new(HashMap::new()),
                 starting: Mutex::new(None),
                 stopping: AtomicBool::new(false),
             }),
@@ -1080,6 +1097,9 @@ impl Workspace {
         };
         let (store, thread) = state.holding(thread_id)?;
         self.inner.check_can_start(&thread, &starter)?;
+        if matches!(starter, Starter::Person | Starter::Thread(_)) {
+            self.inner.cancel_pending_apply(thread_id);
+        }
         if matches!(starter, Starter::Thread(_)) {
             let from_threads = thread_turns_since_person(&store.entries(thread_id)?);
             check_thread_limit(from_threads, limit)?;
@@ -1270,6 +1290,9 @@ impl Workspace {
         };
         let (store, thread) = state.holding(thread_id)?;
         self.inner.check_can_start(&thread, &starter)?;
+        if matches!(starter, Starter::Person | Starter::Thread(_)) {
+            self.inner.cancel_pending_apply(thread_id);
+        }
         if matches!(starter, Starter::Thread(_)) {
             let from_threads = thread_turns_since_person(&store.entries(thread_id)?);
             check_thread_limit(from_threads, limit)?;
@@ -1407,9 +1430,27 @@ impl Workspace {
     /// The reviewer runs inside the change's copy, so that a file it writes
     /// where it stands lands where the check after its turn sees it, not in
     /// the project folder the person may be working in.
-    fn start_turn(&self, thread: Thread, voice: Voice, directory: PathBuf, message: &str) {
+    pub(super) fn start_turn(
+        &self,
+        thread: Thread,
+        voice: Voice,
+        directory: PathBuf,
+        message: &str,
+    ) {
         // The plan is in the project, wherever the agent runs.
         let plan = plan_path(&directory, thread.id);
+        let rebasing = match (voice, thread.change.as_deref()) {
+            (Voice::Author, Some(change))
+                if self.inner.pending_applies().contains_key(&thread.id) =>
+            {
+                let branch = change.branch.as_deref().unwrap_or(&change.name);
+                change
+                    .base
+                    .as_deref()
+                    .map(|base| rebasing(&change.path, branch, base))
+            }
+            _ => None,
+        };
         let directory = match (voice, thread.change.as_deref()) {
             (Voice::Reviewer, Some(change)) => change.path.clone(),
             _ => directory,
@@ -1458,6 +1499,7 @@ impl Workspace {
                 message: message.to_string(),
                 environment,
                 staging,
+                rebasing,
                 gemini_models: self.inner.models().gemini.clone(),
             },
         );
@@ -1483,6 +1525,7 @@ impl Workspace {
             false => None,
         };
         drop(state);
+        self.inner.cancel_pending_apply(thread_id);
         if let Some(thread) = held {
             self.inner.announce(Event::ThreadChanged { thread });
         }
@@ -1764,6 +1807,7 @@ impl Workspace {
     /// Stops every agent and waits up to `patience` for them to end.
     pub async fn shut_down(&self, patience: Duration) {
         self.inner.stopping.store(true, Ordering::SeqCst);
+        self.inner.pending_applies().clear();
         self.inner.runner.stop_all();
         let deadline = Instant::now() + patience;
         while self.inner.runner.busy() && Instant::now() < deadline {
@@ -2108,7 +2152,7 @@ fn release_interrupted(store: &mut ThreadStore) {
 
 /// The start of a message's first line, short enough for a list.
 /// The message for a thread's agent or reviewer: with the thread so far when it has just taken over from another agent.
-fn handover_message(
+pub(super) fn handover_message(
     store: &ThreadStore,
     thread: &Thread,
     voice: Voice,

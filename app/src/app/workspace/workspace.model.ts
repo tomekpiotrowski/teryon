@@ -832,7 +832,7 @@ export function changeCard(thread: Thread, project: Project | null): ChangeCard 
   if (thread.status === 'running') return card('Changing', state.files_changed ? `${files} so far` : '', 'working');
   if (state.files_changed === 0) return card('Changing', 'no files changed yet', 'working');
   if (!state.base_present) return card('Nowhere to apply', 'the version it started from is gone', 'attention');
-  if (state.fit === 'overlaps') return card('Needs catching up', 'overlaps with newer work', 'attention', ['change:catchUp']);
+  if (state.fit === 'overlaps') return card('Needs catching up', 'overlaps with newer work', 'attention', ['change:apply']);
   switch (change.review?.state) {
     case 'in_review':
     case 'accepted':
@@ -889,6 +889,10 @@ export function discardWarning(change: Change): string {
  */
 export const CATCH_UP_REQUEST =
   'Bring this change up to date with the newer work in the project, and resolve where the two overlap.';
+
+/** Shown when applying an overlapping change starts the agent to resolve it and finish applying. */
+export const APPLY_RESOLVING_NOTICE =
+  'This change overlaps with newer work. The agent is catching up and will apply it when done.';
 
 /** The screen to show once one is asked for. Asking for the screen already shown goes back to the thread. */
 export function screenAfter(current: Screen, asked: Exclude<Screen, 'thread'>): Screen {
