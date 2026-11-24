@@ -114,8 +114,7 @@ EOF
 
 # Reports a stage through Teryon, as agents are told to, when the message
 # says "report stage <stage>", and chooses a workflow on "choose workflow
-# <name>". What `teryon` printed on errors goes to `.fake-agent-stage`,
-# empty when it agreed.
+# <name>". What `teryon` printed, on either output, goes to `.fake-agent-stage`.
 report_stage() {
   stage=""
   workflow=""
@@ -123,20 +122,23 @@ report_stage() {
   case "$*" in *"choose workflow"*) workflow=$(word_after "choose workflow" "$*") ;; esac
   : > .fake-agent-stage
   if [ -n "$workflow" ]; then
-    teryon thread workflow "$workflow" 2>>.fake-agent-stage
+    teryon thread workflow "$workflow" >>.fake-agent-stage 2>&1
   fi
   if [ -n "$stage" ]; then
-    teryon thread stage "$stage" 2>>.fake-agent-stage
+    teryon thread stage "$stage" >>.fake-agent-stage 2>&1
   fi
   printf '\n' >> .fake-agent-stage
 }
 
 # Writes the plan where its brief says, as agents are told to, with the
 # title in quotes after "write a plan", such as `write a plan "Login fix"`.
+# Falls back to the thread's usual plan path when the brief did not name one,
+# so tests can still check the safety net for a plan written while talking.
 write_plan() {
   title=$(printf '%s\n' "$*" | tr '\n' ' ' | sed -n 's/.*write a plan "\([^"]*\)".*/\1/p')
   path=$(printf '%s\n' "$*" | tr '\n' ' ' | sed -n 's/.*as markdown in `\([^`]*\)`.*/\1/p')
   [ -n "$path" ] || path=$(printf '%s\n' "$*" | tr '\n' ' ' | sed -n 's/.*The plan for this thread is in `\([^`]*\)`.*/\1/p')
+  [ -n "$path" ] || path="$project/.teryon/threads/$TERYON_THREAD/plan.md"
   printf '# %s\n\nSteps for %s.\n' "$title" "$title" > "$path"
 }
 
@@ -229,7 +231,7 @@ case "$*" in
   *"use tools"*)
     cat "$samples/$agent-tools.jsonl"
     ;;
-  *"write a plan"*)
+  *'write a plan "'*)
     write_plan "$*"
     cat "$samples/$agent-first.jsonl"
     ;;

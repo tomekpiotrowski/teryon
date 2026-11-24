@@ -19,6 +19,7 @@ use uuid::Uuid;
 
 use super::{preview_of, Actor, Inner, Workspace, WorkspaceError};
 use crate::agents::models::{claude_alias_matches, split_gemini_model, Effort, ModelOption};
+use crate::agents::staging::{advice, planning};
 use crate::agents::{Agent, EntryDraft, EntryKind, Voice};
 use crate::changes::reviewing::findings_in;
 use crate::plans::{plan_line, plan_path, read_plan, LARGEST_PLAN};
@@ -120,6 +121,31 @@ enum CarryOn {
         extra: Option<EntryDraft>,
         kept: Option<(Stage, Agent)>,
     },
+}
+
+/// Who takes a thread's current stage, before building any opening message.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Taking {
+    Nothing,
+    Author(Pick),
+    Review(Pick),
+    Keep(Pick),
+    Refused(String),
+}
+
+/// Whether Teryon may start another agent for a thread automatically.
+///
+/// Shared between [`Workspace::carry_on`] when a turn ends and
+/// [`Workspace::stage_reply`] during a turn, so the reply to
+/// `teryon thread stage` stays in step with what happens next.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Automatic {
+    /// Another agent may start when the stage calls for one.
+    Allowed,
+    /// Automatic starts are off, the thread is held, or Teryon is stopping.
+    Paused,
+    /// The thread has already started this many agents in a row without the person.
+    LimitReached(u32),
 }
 
 /// What Teryon does when a turn ends.
@@ -523,19 +549,25 @@ impl Workspace {
     ///
     /// Only the agent running the thread's current turn may, as for a title.
     /// The next stage's agent starts once the turn ends, see [`Self::carry_on`].
-    /// Refusals are logged, so a thread stuck in a stage can be explained.
+    /// Answers with what the agent should do next when the stage moved, or
+    /// nothing when it stayed where it was. Refusals are logged, so a thread
+    /// stuck in a stage can be explained.
     pub fn report_stage(
         &self,
         thread_id: Uuid,
         turn: Uuid,
         stage: &str,
-    ) -> Result<(), WorkspaceError> {
+    ) -> Result<Option<String>, WorkspaceError> {
         let reporting = self.take_stage(thread_id, turn, stage);
         if let Err(problem) = &reporting {
             warn!(%thread_id, %problem, "refused the stage an agent reported");
         }
-        self.inner.announce_moved(reporting?);
-        Ok(())
+        let Some((entry, thread, plan)) = reporting? else {
+            return Ok(None);
+        };
+        let reply = self.stage_reply(&thread, &plan);
+        self.inner.announce_moved(Some((entry, thread)));
+        Ok(Some(reply))
     }
 
     fn take_stage(
@@ -543,7 +575,7 @@ impl Workspace {
         thread_id: Uuid,
         turn: Uuid,
         stage: &str,
-    ) -> Result<Option<(Entry, Thread)>, WorkspaceError> {
+    ) -> Result<Option<(Entry, Thread, PathBuf)>, WorkspaceError> {
         let mut state = self.inner.state();
         let (store, thread) = state.holding(thread_id)?;
         let voice = self.agent_turn(&thread, turn, "teryon thread stage")?;
@@ -554,9 +586,38 @@ impl Workspace {
             return Ok(None);
         }
         let agent = Agent::parse(&thread.agent);
-        self.inner
-            .move_to(store, &thread, to, Mover::Agent(agent))
-            .map(Some)
+        let (entry, moved) = self
+            .inner
+            .move_to(store, &thread, to, Mover::Agent(agent))?;
+        let plan = plan_path(&state.project(moved.project_id)?.directory, thread_id);
+        Ok(Some((entry, moved, plan)))
+    }
+
+    /// What `teryon thread stage` tells the agent after moving the thread to its new stage.
+    fn stage_reply(&self, thread: &Thread, plan: &Path) -> String {
+        let taking = self.who_takes(thread, true, Voice::Author, None);
+        let starts_automatically = self.automatic(thread) == Automatic::Allowed;
+        let workflow = self.inner.workflow_of(thread);
+        reply_for_stage(
+            &taking,
+            starts_automatically,
+            &workflow,
+            thread.stage,
+            plan,
+            thread.plan.is_some(),
+        )
+    }
+
+    /// Whether Teryon may start another agent for `thread` automatically.
+    fn automatic(&self, thread: &Thread) -> Automatic {
+        let limit = self.inner.setup().workflow.automatic_rounds;
+        if self.inner.stopping.load(Ordering::SeqCst) || thread.held || limit == 0 {
+            return Automatic::Paused;
+        }
+        if thread.rounds >= limit {
+            return Automatic::LimitReached(limit);
+        }
+        Automatic::Allowed
     }
 
     /// Which of a thread's agents runs the turn, refusing anyone else.
@@ -804,20 +865,16 @@ impl Workspace {
             extra: None,
             kept: None,
         };
-        let (limit, chooses) = {
-            let setup = self.inner.setup();
-            (setup.workflow.automatic_rounds, setup.stages.any_chooses())
-        };
+        let chooses = self.inner.setup().stages.any_chooses();
         let thread = match self.inner.state().holding(thread_id) {
             Ok((_, thread)) => thread,
             Err(_) => return nothing,
         };
         let moved = thread.stage != start.stage;
+        let automatic = self.automatic(&thread);
         // Shutting down stops agents; their turns ending must not start others.
-        if self.inner.stopping.load(Ordering::SeqCst)
+        if automatic == Automatic::Paused
             || (!handing_over && thread.status == Status::Running)
-            || thread.held
-            || limit == 0
             || !chooses
             || (!moved && start.ran_out.is_none())
         {
@@ -825,17 +882,17 @@ impl Workspace {
         }
         let stage = thread.stage;
         let next = self.next_step(&thread, &start);
-        match next {
-            Next::Nothing => nothing,
-            Next::Keep(pick) => CarryOn::Settle {
+        match (next, automatic) {
+            (Next::Nothing, _) => nothing,
+            (Next::Keep(pick), _) => CarryOn::Settle {
                 extra: None,
                 kept: Some((stage, pick.agent)),
             },
-            Next::Refused(why) => CarryOn::Settle {
+            (Next::Refused(why), _) => CarryOn::Settle {
                 extra: Some(EntryDraft::error(&why)),
                 kept: None,
             },
-            Next::Review(_) | Next::Author { .. } if thread.rounds >= limit => {
+            (Next::Review(_) | Next::Author { .. }, Automatic::LimitReached(limit)) => {
                 warn!(%thread_id, rounds = thread.rounds, "stopped starting agents without the person");
                 CarryOn::Settle {
                     extra: Some(EntryDraft::notice(&format!(
@@ -845,7 +902,8 @@ impl Workspace {
                     kept: None,
                 }
             }
-            Next::Review(pick) => {
+            (Next::Review(_) | Next::Author { .. }, Automatic::Paused) => nothing,
+            (Next::Review(pick), Automatic::Allowed) => {
                 info!(%thread_id, stage = stage.name(), agent = pick.agent.name(), model = ?pick.model, rounds = thread.rounds + 1, "starting a review by itself");
                 let (agent, model) = (pick.agent, pick.model.clone());
                 let starter = Starter::Teryon {
@@ -865,7 +923,7 @@ impl Workspace {
                     }
                 }
             }
-            Next::Author { pick, message } => {
+            (Next::Author { pick, message }, Automatic::Allowed) => {
                 info!(%thread_id, stage = stage.name(), agent = pick.agent.name(), model = ?pick.model, rounds = thread.rounds + 1, "starting an agent by itself");
                 let starter = Starter::Teryon {
                     stage,
@@ -906,43 +964,52 @@ impl Workspace {
         }
     }
 
-    /// Who works next, from the stage the thread is in now and how the turn went.
-    fn next_step(&self, thread: &Thread, start: &TurnStart) -> Next {
+    /// Who takes the thread's current stage, without building any start message.
+    ///
+    /// Shared between [`Self::next_step`] at the end of a turn and [`Self::stage_reply`]
+    /// during it, so the reply to `teryon thread stage` matches what will happen when
+    /// the turn ends.
+    fn who_takes(
+        &self,
+        thread: &Thread,
+        moved: bool,
+        voice: Voice,
+        ran_out: Option<Agent>,
+    ) -> Taking {
         let stage = thread.stage;
         if !stage.worked() {
-            return Next::Nothing;
+            return Taking::Nothing;
         }
-        let moved = stage != start.stage;
         let author = Agent::parse(&thread.agent);
         let picking = |excluded: Option<Agent>| {
             self.inner
-                .stage_pick(Some(thread), stage, excluded, start.ran_out)
+                .stage_pick(Some(thread), stage, excluded, ran_out)
         };
         if stage == Stage::Review {
-            if !moved && start.voice != Voice::Reviewer {
-                return Next::Nothing;
+            if !self.inner.setup().stages.any_chooses() || (!moved && voice != Voice::Reviewer) {
+                return Taking::Nothing;
             }
             let chosen = match (picking(author), &thread.reviewer) {
                 (Some(chosen), _) => chosen,
                 (None, Some(reviewer)) => match Agent::parse(&reviewer.agent) {
-                    Some(agent) if start.ran_out != Some(agent) => Ok(Pick {
+                    Some(agent) if ran_out != Some(agent) => Ok(Pick {
                         agent,
                         model: reviewer.model.clone(),
                         effort: reviewer.effort,
                         why: format!("{} as before", agent.label()),
                     }),
-                    _ => return Next::Nothing,
+                    _ => return Taking::Nothing,
                 },
-                (None, None) => return Next::Nothing,
+                (None, None) => return Taking::Nothing,
             };
             return match chosen {
-                Ok(pick) => Next::Review(pick),
-                Err(problem) => Next::Refused(problem.to_string()),
+                Ok(pick) => Taking::Review(pick),
+                Err(problem) => Taking::Refused(problem.to_string()),
             };
         }
         let chosen = match picking(None) {
             Some(chosen) => chosen,
-            None if start.ran_out.is_some() => return Next::Nothing,
+            None if ran_out.is_some() => return Taking::Nothing,
             None => match author {
                 Some(agent) => Ok(Pick {
                     agent,
@@ -950,12 +1017,12 @@ impl Workspace {
                     effort: thread.effort,
                     why: format!("{} as before", agent.label()),
                 }),
-                None => return Next::Nothing,
+                None => return Taking::Nothing,
             },
         };
         let pick = match chosen {
             Ok(pick) => pick,
-            Err(problem) => return Next::Refused(problem.to_string()),
+            Err(problem) => return Taking::Refused(problem.to_string()),
         };
         let same = Some(pick.agent) == author
             && same_model_choice(
@@ -966,27 +1033,41 @@ impl Workspace {
                 &self.inner.catalog_of(pick.agent),
             )
             && (pick.effort.is_none() || pick.effort == thread.effort);
-        if start.voice == Voice::Author && same && start.ran_out.is_none() {
+        if voice == Voice::Author && same && ran_out.is_none() {
             // The agent carries on with the new stage in its own turn, or on the person's next message.
-            return Next::Keep(pick);
+            return Taking::Keep(pick);
         }
-        let message = match (start.voice, start.ran_out) {
-            (_, Some(agent)) => format!(
-                "{} ran out of usage in the middle of the work above. Carry on where it stopped.",
-                agent.label()
-            ),
-            (Voice::Reviewer, None) => self
-                .findings(thread)
-                .unwrap_or_else(|| "A reviewer looked at the change. Read the review above, and fix what you agree with.".to_string()),
-            // The person chose another workflow: nothing was approved, only the stage moved.
-            (Voice::Author, None) if start.rechosen => {
-                opening(Stage::Talking, stage, self.inner.plan_of(thread).as_deref())
+        Taking::Author(pick)
+    }
+
+    /// Who works next, from the stage the thread is in now and how the turn went.
+    fn next_step(&self, thread: &Thread, start: &TurnStart) -> Next {
+        let moved = thread.stage != start.stage;
+        match self.who_takes(thread, moved, start.voice, start.ran_out) {
+            Taking::Nothing => Next::Nothing,
+            Taking::Review(pick) => Next::Review(pick),
+            Taking::Keep(pick) => Next::Keep(pick),
+            Taking::Refused(why) => Next::Refused(why),
+            Taking::Author(pick) => {
+                let message = match (start.voice, start.ran_out) {
+                    (_, Some(agent)) => format!(
+                        "{} ran out of usage in the middle of the work above. Carry on where it stopped.",
+                        agent.label()
+                    ),
+                    (Voice::Reviewer, None) => self.findings(thread).unwrap_or_else(|| {
+                        "A reviewer looked at the change. Read the review above, and fix what you agree with.".to_string()
+                    }),
+                    // The person chose another workflow: nothing was approved, only the stage moved.
+                    (Voice::Author, None) if start.rechosen => {
+                        opening(Stage::Talking, thread.stage, self.inner.plan_of(thread).as_deref())
+                    }
+                    (Voice::Author, None) => {
+                        opening(start.stage, thread.stage, self.inner.plan_of(thread).as_deref())
+                    }
+                };
+                Next::Author { pick, message }
             }
-            (Voice::Author, None) => {
-                opening(start.stage, stage, self.inner.plan_of(thread).as_deref())
-            }
-        };
-        Next::Author { pick, message }
+        }
     }
 
     /// What the reviewer found in the last review, as a message to the author, like the person's "Pass findings" draft.
@@ -1110,6 +1191,42 @@ fn taking_over(pick: &Pick, stage: &str) -> String {
     )
 }
 
+/// What `teryon thread stage` prints to the agent after a stage move.
+///
+/// Tells the agent to end its turn when another agent takes over, when the
+/// person picks the thread up next, or when nobody can take the stage, and
+/// hands it the new stage's rules when it carries on itself.
+fn reply_for_stage(
+    taking: &Taking,
+    starts_automatically: bool,
+    workflow: &Workflow,
+    stage: Stage,
+    plan: &Path,
+    has_plan: bool,
+) -> String {
+    match taking {
+        Taking::Author(_) | Taking::Review(_) if starts_automatically => format!(
+            "Another agent takes `{}` once your turn ends. Don't do its work: end your turn now.",
+            stage.name()
+        ),
+        Taking::Author(_) | Taking::Review(_) | Taking::Nothing => {
+            "The person picks this up after your turn. End your turn now.".to_string()
+        }
+        Taking::Keep(_) => {
+            let mut parts = vec![format!("You carry on with `{}`.", stage.name())];
+            let guidance = advice(workflow, stage);
+            if !guidance.is_empty() {
+                parts.push(guidance);
+            }
+            if let Some(planned) = planning(plan, workflow, stage, has_plan) {
+                parts.push(planned);
+            }
+            parts.join(" ")
+        }
+        Taking::Refused(_) => "End your turn now.".to_string(),
+    }
+}
+
 /// What the agent of a stage is told when Teryon starts it, from the stage the thread came from.
 ///
 /// A thread with a plan names the plan's file, so an agent of another
@@ -1164,6 +1281,11 @@ mod tests {
 
     use super::*;
     use crate::protocol::Event;
+    use crate::settings::{
+        AgentSettings, ClaudeSettings, CodexSettings, GrokSettings, ProviderChoice, Settings,
+        StageSetting, StageSettings, WorkflowSettings,
+    };
+    use crate::workflow::Workflows;
     use crate::workspace::Setup;
 
     fn pick(model: Option<&str>) -> Pick {
@@ -1172,6 +1294,93 @@ mod tests {
             model: model.map(str::to_string),
             effort: None,
             why: "only Codex".to_string(),
+        }
+    }
+
+    fn workflow_named(name: &str) -> Workflow {
+        Workflows::from_settings(&Settings::default())
+            .of(name)
+            .clone()
+    }
+
+    /// A sample thread in `stage`, on Claude's default model.
+    fn sample_thread(stage: Stage) -> Thread {
+        Thread {
+            id: Uuid::nil(),
+            project_id: Uuid::nil(),
+            title: String::new(),
+            named: false,
+            agent: "claude".to_string(),
+            model: None,
+            effort: None,
+            conversation: None,
+            handover: false,
+            status: Status::Idle,
+            unread: false,
+            asking: false,
+            commands: Vec::new(),
+            change: None,
+            finished: None,
+            reviewer: None,
+            workflow: "default".to_string(),
+            stage,
+            stage_since: None,
+            plan: None,
+            rounds: 0,
+            held: false,
+            put_away: false,
+            done_seen: false,
+            picks: BTreeMap::new(),
+            ended: None,
+            preview: None,
+            created_at: Utc::now(),
+        }
+    }
+
+    /// What `stage_reply` prints for a Claude thread moved to `stage` under these settings and turn state.
+    fn workspace_stage_reply(
+        stages: StageSettings,
+        stage: Stage,
+        automatic_rounds: u32,
+        rounds: u32,
+        held: bool,
+    ) -> String {
+        let home = tempdir().unwrap();
+        let setup = Setup {
+            agents: AgentSettings {
+                claude: ClaudeSettings {
+                    program: "/bin/sh".to_string(),
+                    ..ClaudeSettings::default()
+                },
+                grok: GrokSettings {
+                    program: "/bin/sh".to_string(),
+                    ..GrokSettings::default()
+                },
+                codex: CodexSettings {
+                    program: "a-program-nobody-has".to_string(),
+                    ..CodexSettings::default()
+                },
+                ..AgentSettings::default()
+            },
+            workflow: WorkflowSettings {
+                automatic_rounds,
+                ..WorkflowSettings::default()
+            },
+            stages,
+            ..Setup::default()
+        };
+        let workspace = Workspace::open(home.path(), setup).unwrap();
+        let mut thread = sample_thread(stage);
+        thread.rounds = rounds;
+        thread.held = held;
+        workspace.stage_reply(&thread, Path::new("/p/plan.md"))
+    }
+
+    fn stage_setting(provider: ProviderChoice, strength: Option<Strength>) -> StageSetting {
+        StageSetting {
+            provider: Some(provider),
+            strength,
+            ..StageSetting::default()
         }
     }
 
@@ -1270,6 +1479,104 @@ mod tests {
         expect(finish_marked(before)) {
             when(before = false) as the_time_the_thread_finished to mark_it_and_leave_the_others { equal((true, false, Stage::Talking)) }
             when(before = true) as a_time_before_that_finish to mark_nothing { equal((false, false, Stage::Talking)) }
+        }
+
+        expect(reply_for_stage(&taking, starts_automatically, &workflow, stage, Path::new("/p/plan.md"), has_plan)) as what_reporting_a_stage_prints {
+            let starts_automatically = true;
+            let workflow = workflow_named("default");
+            let stage = Stage::Planning;
+            let has_plan = false;
+
+            when(taking = Taking::Author(pick(Some("haiku")))) as another_author {
+                to tell_the_agent_to_end_its_turn {
+                    equal("Another agent takes `planning` once your turn ends. Don't do its work: end your turn now.".to_string())
+                }
+            }
+            when(taking = Taking::Author(pick(Some("haiku"))), starts_automatically = false) as another_author_when_automatic_starts_are_blocked {
+                to say_the_person_picks_it_up {
+                    equal("The person picks this up after your turn. End your turn now.".to_string())
+                }
+            }
+            when(taking = Taking::Review(pick(None)), stage = Stage::Review) as a_reviewer {
+                to tell_the_agent_to_end_its_turn {
+                    equal("Another agent takes `review` once your turn ends. Don't do its work: end your turn now.".to_string())
+                }
+            }
+            when(taking = Taking::Keep(pick(None))) as carrying_on_in_planning {
+                to include_planning_advice_and_plan_path {
+                    equal("You carry on with `planning`. Work out how, write the plan, and ask the person to approve it with `teryon thread ask`. Don't change project files before they approve. Report `implementing` only once they agree. Write the plan for this thread as markdown in `/p/plan.md`, not in the project and not in a worktree. Don't create a worktree before the person approves the plan.".to_string())
+                }
+            }
+            when(taking = Taking::Keep(pick(None)), stage = Stage::Implementing, has_plan = true) as carrying_on_in_implementing_with_a_plan {
+                to include_implementing_advice_and_existing_plan {
+                    equal("You carry on with `implementing`. Change files as the approved plan says. Report `review` once the change is complete and its tests pass. The plan for this thread is in `/p/plan.md`. Keep it current when the plan changes.".to_string())
+                }
+            }
+            when(taking = Taking::Keep(pick(None)), workflow = workflow_named("small"), stage = Stage::Implementing) as carrying_on_in_implementing_without_planning {
+                to include_ready_advice_without_mentioning_a_plan {
+                    equal("You carry on with `implementing`. Change files as agreed. Report `ready` once the change is complete and its tests pass.".to_string())
+                }
+            }
+            when(taking = Taking::Refused("nobody is installed".to_string())) as nobody_can_take_the_stage {
+                to tell_the_agent_to_end_its_turn {
+                    equal("End your turn now.".to_string())
+                }
+            }
+            when(taking = Taking::Nothing, stage = Stage::Ready) as ready_waits_for_the_person {
+                to say_the_person_picks_it_up {
+                    equal("The person picks this up after your turn. End your turn now.".to_string())
+                }
+            }
+        }
+
+        expect(workspace_stage_reply(stages, stage, automatic_rounds, rounds, held)) as stage_reply_from_workspace_settings {
+            let stages = StageSettings::default();
+            let stage = Stage::Planning;
+            let automatic_rounds = 3;
+            let rounds = 0;
+            let held = false;
+
+            when(stages = StageSettings { planning: Some(stage_setting(ProviderChoice::Only(Agent::Claude), Some(Strength::Fast))), ..StageSettings::default() }) as another_model_takes_planning {
+                to say_another_agent_takes_it {
+                    equal("Another agent takes `planning` once your turn ends. Don't do its work: end your turn now.".to_string())
+                }
+            }
+            when(stages = StageSettings { planning: Some(stage_setting(ProviderChoice::Only(Agent::Claude), Some(Strength::Fast))), ..StageSettings::default() }, automatic_rounds = 0) as automatic_rounds_disabled {
+                to say_the_person_picks_it_up {
+                    equal("The person picks this up after your turn. End your turn now.".to_string())
+                }
+            }
+            when(stages = StageSettings { planning: Some(stage_setting(ProviderChoice::Only(Agent::Claude), Some(Strength::Fast))), ..StageSettings::default() }, held = true) as held_thread {
+                to say_the_person_picks_it_up {
+                    equal("The person picks this up after your turn. End your turn now.".to_string())
+                }
+            }
+            when(stages = StageSettings { planning: Some(stage_setting(ProviderChoice::Only(Agent::Claude), Some(Strength::Fast))), ..StageSettings::default() }, automatic_rounds = 2, rounds = 2) as round_limit_reached {
+                to say_the_person_picks_it_up {
+                    equal("The person picks this up after your turn. End your turn now.".to_string())
+                }
+            }
+            when(stages = StageSettings { review: Some(stage_setting(ProviderChoice::Only(Agent::Grok), None)), ..StageSettings::default() }, stage = Stage::Review) as a_reviewer_takes_review {
+                to say_another_agent_takes_it {
+                    equal("Another agent takes `review` once your turn ends. Don't do its work: end your turn now.".to_string())
+                }
+            }
+            when(stage = Stage::Review) as review_without_stage_settings {
+                to say_the_person_picks_it_up {
+                    equal("The person picks this up after your turn. End your turn now.".to_string())
+                }
+            }
+            to carry_on_with_planning_advice {
+                equal("You carry on with `planning`. Work out how, write the plan, and ask the person to approve it with `teryon thread ask`. Don't change project files before they approve. Report `implementing` only once they agree. Write the plan for this thread as markdown in `/p/plan.md`, not in the project and not in a worktree. Don't create a worktree before the person approves the plan.".to_string())
+            }
+            when(stages = StageSettings { planning: Some(stage_setting(ProviderChoice::Only(Agent::Codex), None)), ..StageSettings::default() }) as unavailable_provider_refuses {
+                to say_end_your_turn { equal("End your turn now.".to_string()) }
+            }
+            when(stage = Stage::Ready) as ready_waits_for_the_person {
+                to say_the_person_picks_it_up {
+                    equal("The person picks this up after your turn. End your turn now.".to_string())
+                }
+            }
         }
     }
 

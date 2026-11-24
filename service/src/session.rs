@@ -188,7 +188,7 @@ impl Session {
                 stage,
             } => workspace
                 .report_stage(thread_id, turn, &stage)
-                .map(|()| Answer::Nothing)
+                .map(|text| Answer::Stage { text })
                 .map_err(|problem| problem.to_string()),
             Request::ChooseWorkflow {
                 thread_id,

@@ -148,7 +148,8 @@ pub enum Request {
         title: String,
     },
     /// Moves a thread to another stage: sent by `teryon thread stage`, run by the
-    /// thread's own agent during `turn`. The person never sets a stage directly.
+    /// thread's own agent during `turn`. Answers with what the agent should do next,
+    /// when the stage moved. The person never sets a stage directly.
     ReportStage {
         thread_id: Uuid,
         turn: Uuid,
@@ -364,6 +365,10 @@ pub enum Answer {
     /// A thread's plan, as markdown.
     Plan {
         text: String,
+    },
+    /// What `teryon thread stage` tells the agent to do next, or nothing when the stage did not move.
+    Stage {
+        text: Option<String>,
     },
     /// The choices the settings screen shows, after reading or saving them.
     ///

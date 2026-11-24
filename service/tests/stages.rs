@@ -243,7 +243,8 @@ lets_expect! { #tokio_test
     }
 
     // requirement: the agent reports a stage with `teryon thread stage`, and the thread says who moved it
-    // requirement: a stage without settings keeps the thread's agent, which carries on in its own turn
+    // requirement: a stage without settings keeps the thread's agent, which carries on in its own turn, and is given the new stage's instructions
+    // requirement: reporting the stage the thread is already in prints nothing
     story an_agent_reports_a_stage {
         let scene = stages_scene("").await;
         let folder = repository();
@@ -253,10 +254,16 @@ lets_expect! { #tokio_test
         say(&mut client, thread, "report stage planning").await;
         let after = settled(&mut client, thread, 0).await;
 
-        expect(told(&folder).await) to equal(String::new())
+        let reply = told(&folder).await;
+        expect(reply.starts_with("You carry on with `planning`. Work out how, write the plan, and ask the person to approve it with `teryon thread ask`.")) to be_true
+        expect(reply.contains("plan.md`, not in the project and not in a worktree. Don't create a worktree before the person approves the plan.")) to be_true
         expect(after.stage) to equal(Stage::Planning)
         expect(texts(&entries(&mut client, thread).await, "stage")) to equal(vec!["Talking → Planning · by Claude".to_string()])
         expect(invocations(&folder).len()) to equal(1)
+
+        say(&mut client, thread, "report stage planning").await;
+        settled(&mut client, thread, 0).await;
+        expect(told(&folder).await) to equal(String::new())
     }
 
     // requirement: when the stage changes, the stage's agent and model start by themselves once the turn ends
@@ -269,6 +276,7 @@ lets_expect! { #tokio_test
         say(&mut client, thread, "report stage implementing").await;
         let after = settled(&mut client, thread, 1).await;
 
+        expect(told(&folder).await) to equal("Another agent takes `implementing` once your turn ends. Don't do its work: end your turn now.".to_string())
         expect(after.stage) to equal(Stage::Implementing)
         expect(after.model.clone()) to equal(Some("haiku".to_string()))
         let runs = invocations(&folder);
@@ -276,6 +284,40 @@ lets_expect! { #tokio_test
         expect(runs[1].contains("--model haiku")) to be_true
         expect(runs[1].contains("Implement what was discussed above.")) to be_true
         expect(texts(&entries(&mut client, thread).await, "notice").contains(&"Claude · haiku takes Implementing (only Claude).".to_string())) to be_true
+    }
+
+    // requirement: when nobody can take the next stage, `teryon thread stage` tells the agent to end its turn and the refusal appears in the thread
+    story when_nobody_can_take_the_stage_the_agent_ends_its_turn {
+        let scene = scene_with(
+            "[agents.codex]\nprogram = \"a-program-nobody-has\"\n\n[stages.planning]\nprovider = \"only codex\"\n",
+        )
+        .await;
+        let folder = repository();
+        let mut client = scene.client().await;
+        let thread = thread_in(&mut client, &folder).await;
+
+        say(&mut client, thread, "report stage planning").await;
+        let after = settled(&mut client, thread, 0).await;
+
+        expect(told(&folder).await) to equal("End your turn now.".to_string())
+        expect(after.stage) to equal(Stage::Planning)
+        expect(invocations(&folder).len()) to equal(1)
+        expect(texts(&entries(&mut client, thread).await, "error").is_empty()) to be_false
+    }
+
+    // requirement: reporting review without stage settings tells the agent the person picks it up after the turn
+    story reporting_review_without_stage_settings_waits_for_the_person {
+        let scene = stages_scene("").await;
+        let folder = repository();
+        let mut client = scene.client().await;
+        let thread = thread_in(&mut client, &folder).await;
+
+        say(&mut client, thread, "report stage review").await;
+        let after = settled(&mut client, thread, 0).await;
+
+        expect(told(&folder).await) to equal("The person picks this up after your turn. End your turn now.".to_string())
+        expect(after.stage) to equal(Stage::Review)
+        expect(invocations(&folder).len()) to equal(1)
     }
 
     // requirement: reaching review starts the review stage's agent; findings go back to the author by themselves
@@ -617,18 +659,22 @@ lets_expect! { #tokio_test
         expect(text) to equal("# Login fix, second take\n\nSteps for Login fix, second take.\n".to_string())
     }
 
-    // requirement: the agent is told where to write the plan, and not to start a worktree before it is approved
+    // requirement: the agent is told where to write the plan only in planning, and not to start a worktree before it is approved
     story the_agent_is_told_where_the_plan_goes {
         let scene = stages_scene("").await;
         let folder = repository();
         let mut client = scene.client().await;
         let thread = thread_in(&mut client, &folder).await;
 
+        say(&mut client, thread, "report stage planning").await;
+        settled(&mut client, thread, 0).await;
         say(&mut client, thread, "hello").await;
         settled(&mut client, thread, 0).await;
 
-        expect(invocations(&folder)[0].contains("plan.md`, not in the project and not in a worktree. Don't create a worktree before the person approves the plan.")) to be_true
-        expect(invocations(&folder)[0].contains(&thread.to_string())) to be_true
+        let runs = invocations(&folder);
+        expect(runs[0].contains("plan.md")) to be_false
+        expect(runs[1].contains("plan.md`, not in the project and not in a worktree. Don't create a worktree before the person approves the plan.")) to be_true
+        expect(runs[1].contains(&thread.to_string())) to be_true
     }
 
     // requirement: a worktree started while planning leaves the thread in planning

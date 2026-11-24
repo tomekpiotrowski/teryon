@@ -62,16 +62,32 @@ pub async fn title_thread(home: Option<&Path>, folders: Folders, title: String) 
     .await
 }
 
-/// Reports that the thread whose agent runs this has moved to another stage.
+/// Reports that the thread whose agent runs this has moved to another stage, and prints what the agent should do next.
 pub async fn report_stage(home: Option<&Path>, folders: Folders, stage: String) -> ExitCode {
-    simple_call(home, folders, "teryon thread stage", |thread_id, turn| {
+    let answer = call_for_thread(home, folders, "teryon thread stage", |thread_id, turn| {
         Request::ReportStage {
             thread_id,
             turn,
             stage,
         }
     })
-    .await
+    .await;
+    match answer {
+        Ok(Answer::Stage { text }) => {
+            if let Some(text) = text {
+                println!("{text}");
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(_) => {
+            eprintln!("Teryon answered with something other than a stage reply.");
+            ExitCode::FAILURE
+        }
+        Err(problem) => {
+            eprintln!("{problem}");
+            ExitCode::FAILURE
+        }
+    }
 }
 
 /// Puts the thread whose agent runs this on another workflow.
