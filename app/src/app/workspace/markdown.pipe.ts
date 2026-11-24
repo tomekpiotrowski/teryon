@@ -9,10 +9,13 @@ import { renderMarkdown } from './markdown';
  *
  * The result goes through Angular's own cleaning of bound HTML as well, which
  * is a second guard behind the rules in `renderMarkdown`.
+ *
+ * `roots` are the project directory and, when the thread has one, its copy.
+ * A citation of a `file://` address is resolved against them.
  */
 @Pipe({ name: 'markdown', standalone: false })
 export class MarkdownPipe implements PipeTransform {
-  transform(text: string): string {
-    return renderMarkdown(text);
+  transform(text: string, roots?: readonly string[] | null): string {
+    return renderMarkdown(text, roots ?? []);
   }
 }

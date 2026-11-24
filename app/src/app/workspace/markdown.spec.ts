@@ -1,8 +1,20 @@
-import { renderMarkdown } from './markdown';
+import { citationFromHref, renderMarkdown } from './markdown';
 
 /** The rendered HTML on one line, which is easier to compare. */
-function html(text: string): string {
-  return renderMarkdown(text).replace(/\n/g, '');
+function html(text: string, roots: readonly string[] = []): string {
+  return renderMarkdown(text, roots).replace(/\n/g, '');
+}
+
+const PROJECT = '/work/app';
+const COPY = '/work/app/.teryon/worktrees/fix-login';
+
+/** The link a citation renders as. `label` keeps the words the agent wrote. */
+function anchor(path: string, options: { start?: number; end?: number; label?: string } = {}): string {
+  const canonical = options.start === undefined ? path : options.end !== undefined && options.end !== options.start ? `${path}:${options.start}-${options.end}` : `${path}:${options.start}`;
+  const text = options.label ?? canonical;
+  const query = options.start === undefined ? `path=${encodeURIComponent(path)}` : `path=${encodeURIComponent(path)}&amp;start=${options.start}&amp;end=${options.end ?? options.start}`;
+  const cls = text === canonical ? 'file-citation path' : 'file-citation';
+  return `<a class="${cls}" href="#open?${query}" title="${canonical}">${text}</a>`;
 }
 
 const NEW_TAB = 'target="_blank" rel="noopener noreferrer"';
@@ -187,8 +199,6 @@ describe('renderMarkdown', () => {
     });
 
     it.each([
-      ['[the store](app/src/store.ts)', '<p><span title="app/src/store.ts">the store</span></p>'],
-      ['[the store](app/src/store.ts#L12)', '<p><span title="app/src/store.ts#L12">the store</span></p>'],
       ['[root](/etc/hosts)', '<p><span title="/etc/hosts">root</span></p>'],
       ['[up](../other)', '<p><span title="../other">up</span></p>'],
       ['[part](#heading)', '<p><span title="#heading">part</span></p>'],
@@ -196,7 +206,9 @@ describe('renderMarkdown', () => {
       ['[files](ftp://example.com/x)', '<p><span title="ftp://example.com/x">files</span></p>'],
       ['[call](tel:+48123456789)', '<p><span title="tel:+48123456789">call</span></p>'],
       ['[nowhere]()', '<p><span title="">nowhere</span></p>'],
-      ['[**the store**](store.ts) next', '<p><span title="store.ts"><strong>the store</strong></span> next</p>'],
+      ['[dot](./README.md)', '<p><span title="./README.md">dot</span></p>'],
+      ['[inside](.git/config)', '<p><span title=".git/config">inside</span></p>'],
+      ['[slashed](src\\a.rs)', '<p><span title="src%5Ca.rs">slashed</span></p>'],
     ])('shows %s as text that names its address', (text, expected) => {
       expect(html(text)).toBe(expected);
     });
@@ -225,9 +237,110 @@ describe('renderMarkdown', () => {
 
     it('settles each link on a line by itself', () => {
       expect(html('[a](a.ts) [b](https://example.com) [c](c.ts)')).toBe(
-        `<p><span title="a.ts">a</span> <a href="https://example.com" ${NEW_TAB}>b</a> <span title="c.ts">c</span></p>`,
+        `<p>${anchor('a.ts', { label: 'a' })} <a href="https://example.com" ${NEW_TAB}>b</a> ${anchor('c.ts', { label: 'c' })}</p>`,
       );
     });
+  });
+
+  describe('citations', () => {
+    const roots = [PROJECT, COPY];
+
+    it.each([
+      ['[core/src/workspace/stages.rs]', anchor('core/src/workspace/stages.rs')],
+      ['[core/src/a.rs:12]', anchor('core/src/a.rs', { start: 12 })],
+      ['[core/src/a.rs:12-40]', anchor('core/src/a.rs', { start: 12, end: 40 })],
+      ['[core/src/a.rs#L12-L40]', anchor('core/src/a.rs', { start: 12, end: 40 })],
+      ['[notes](readme)', anchor('readme', { label: 'notes' })],
+      ['[the parser](src/parser.rs)', anchor('src/parser.rs', { label: 'the parser' })],
+      ['[the store](app/src/store.ts)', anchor('app/src/store.ts', { label: 'the store' })],
+      ['[the store](app/src/store.ts#L12)', anchor('app/src/store.ts', { start: 12, label: 'the store' })],
+      ['[src/a.rs](src/a.rs:12-40)', anchor('src/a.rs', { start: 12, end: 40, label: 'src/a.rs' })],
+      ['[src/a.rs:12](src/a.rs:12)', anchor('src/a.rs', { start: 12 })],
+    ])('shows %s as a citation', (text, link) => {
+      expect(html(text)).toBe(`<p>${link}</p>`);
+    });
+
+    it('keeps the formatting of words the agent wrote', () => {
+      expect(html('[**the store**](store.ts) next')).toBe(`<p>${anchor('store.ts', { label: '<strong>the store</strong>' })} next</p>`);
+    });
+
+    it('keeps a web link whose words happen to look like a path', () => {
+      expect(html('[core/src/a.rs](https://example.com)')).toBe(`<p><a href="https://example.com" ${NEW_TAB}>core/src/a.rs</a></p>`);
+    });
+
+    it.each([
+      [`(file://${PROJECT}/core/src/workspace/mod.rs#L748-L826)`, anchor('core/src/workspace/mod.rs', { start: 748, end: 826 })],
+      [`file://${PROJECT}/src/a.rs#L12`, anchor('src/a.rs', { start: 12 })],
+      [`file://localhost${PROJECT}/src/a.rs#L12`, anchor('src/a.rs', { start: 12 })],
+      [`file://${PROJECT}/src/a.rs, next`, `${anchor('src/a.rs')}, next`],
+      [`(file://${PROJECT}/src/a.rs).`, `${anchor('src/a.rs')}.`],
+      [`See (file://${PROJECT}/src/a.rs#L1-L2) and [src/b.rs:3].`, `See ${anchor('src/a.rs', { start: 1, end: 2 })} and ${anchor('src/b.rs', { start: 3 })}.`],
+    ])('shows %s as a citation of a file in the project', (text, body) => {
+      expect(html(text, roots)).toBe(`<p>${body}</p>`);
+    });
+
+    it('uses the longer root when the file is in the copy', () => {
+      expect(html(`file://${COPY}/src/a.rs`, roots)).toBe(`<p>${anchor('src/a.rs')}</p>`);
+    });
+
+    it('uses the project when the file is not in the copy', () => {
+      expect(html(`file://${PROJECT}/src/b.rs`, roots)).toBe(`<p>${anchor('src/b.rs')}</p>`);
+    });
+
+    it('keeps the words of a file address written as a markdown link', () => {
+      expect(html(`[the parser](file://${PROJECT}/src/parser.rs#L4-L9)`, roots)).toBe(
+        `<p>${anchor('src/parser.rs', { start: 4, end: 9, label: 'the parser' })}</p>`,
+      );
+    });
+
+    it.each([
+      ['file:///etc/passwd'],
+      [`file:///work/application/src/a.rs`],
+      ['[x](file:///etc/passwd)'],
+      ['[x](javascript:alert(1))'],
+      ['[1]'],
+      ['[the parser]'],
+    ])('leaves %s as it was written', (text) => {
+      expect(html(text, roots)).toBe(`<p>${text}</p>`);
+    });
+
+    it('leaves a file address as written when no directories were given', () => {
+      expect(html(`file://${PROJECT}/src/a.rs`)).toBe(`<p>file://${PROJECT}/src/a.rs</p>`);
+    });
+
+    it('leaves a citation inside a code span as text', () => {
+      expect(html('`[core/src/a.rs]` and `file:///etc/passwd`', roots)).toBe(
+        '<p><code>[core/src/a.rs]</code> and <code>file:///etc/passwd</code></p>',
+      );
+    });
+
+    it('leaves a citation inside a code block as text', () => {
+      expect(renderMarkdown('```\nfile:///etc/passwd\n[src/a.rs](src/a.rs)\n```', roots)).toBe(
+        '<pre><code>file:///etc/passwd\n[src/a.rs](src/a.rs)\n</code></pre>\n',
+      );
+    });
+
+    it('round-trips the address a citation renders', () => {
+      const rendered = html('[core/src/a.rs:12-40]');
+      const href = /href="([^"]*)"/.exec(rendered)?.[1]?.replace(/&amp;/g, '&') ?? '';
+      expect(citationFromHref(href)).toEqual({ path: 'core/src/a.rs', start: 12, end: 40 });
+    });
+
+    it.each([
+      '#open?path=src%2Fparser.rs',
+      '#open?path=src%2Fparser.rs&start=748&end=826',
+      'http://localhost/#open?path=src%2Fparser.rs&start=4&end=4',
+    ])('reads %s', (href) => {
+      const citation = citationFromHref(href);
+      expect(citation?.path).toBe('src/parser.rs');
+    });
+
+    it.each(['#open?path=..%2Fsecret', '#open?path=.git%2Fconfig', '#open?path=.GIT%2Fconfig', '#open?path=%2Fetc%2Fpasswd', '#open?path=src%5Ca.rs', '#open?path=.%2FREADME.md', '#open?path=src%2F..%2Fsecret', '#open?path=', '#heading', '#open?path=src%2Fparser.rs&start=0&end=1', '#open?path=src%2Fparser.rs&start=9&end=2'])(
+      'reads nothing from %s',
+      (href) => {
+        expect(citationFromHref(href)).toBeNull();
+      },
+    );
   });
 
   describe('bare addresses', () => {

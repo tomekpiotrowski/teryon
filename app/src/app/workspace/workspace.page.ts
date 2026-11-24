@@ -16,6 +16,7 @@ import {
   of,
   shareReplay,
   skip,
+  pairwise,
   startWith,
   Subject,
   Subscription,
@@ -31,6 +32,7 @@ import type { Opener } from '../service/protocol';
 import { type SeenFinish } from './board.model';
 import { type Command, type CommandGroup, commandList, keyHint, keyOutcome, menuAsked, putAwayScope, SHORTCUTS_KEY } from './commands.model';
 import { askDraft } from './files.model';
+import { citationFromHref, type Citation } from './markdown';
 import { homeList } from './home.model';
 import type { StartRequest } from './home.component';
 import { type Asked, isRecommended } from './questions.model';
@@ -54,6 +56,8 @@ import {
   type ChangeCard,
   changeCard,
   changeBadge,
+  citationPlace,
+  citationRoots,
   codePlace,
   copyPlace,
   discardWarning,
@@ -133,6 +137,8 @@ interface WorkspaceView {
   readonly projectThreads: readonly Thread[];
   /** The part of the selected project's repository the files and the history show. */
   readonly place: Place;
+  /** The project directory and, when the open thread has a copy, that copy. Citations resolve against them. */
+  readonly roots: readonly string[];
   /** Where the open thread's change stands. Nothing when the thread never changed anything. */
   readonly change: ChangeCard | null;
   /** The open thread's stage, as a person reads it, such as `Implementing`. Empty without a thread. */
@@ -217,6 +223,16 @@ export class WorkspacePage implements OnDestroy {
   readonly boardEvery$ = new BehaviorSubject(false);
   /** The branch or commit the files and the history were last asked to show. */
   readonly place$ = new BehaviorSubject<Place>(NO_PLACE);
+  /**
+   * The file citation the code is opening.
+   *
+   * Held here because the code screen is created on the way in and destroyed
+   * on the way out. Leaving the code drops it, so the mark does not stick
+   * while the open file stays remembered.
+   */
+  readonly citation$ = new BehaviorSubject<Citation | null>(null);
+  /** Kept so the markdown pipe sees the same directories until they actually change. */
+  private shownRoots: readonly string[] = [];
   /** A leader key pressed, waiting for the key that picks a command of its family. */
   readonly leader$ = new BehaviorSubject<string | null>(null);
 
@@ -256,6 +272,7 @@ export class WorkspacePage implements OnDestroy {
           needing: homeList(groups).total,
           projectThreads,
           place: project ? placeIn(place, project.id) : NO_PLACE,
+          roots: this.rootsFor(project, thread),
           change: thread ? changeCard(thread, project) : null,
           stage: thread ? stageText(workflows, thread) : '',
         })),
@@ -463,6 +480,11 @@ export class WorkspacePage implements OnDestroy {
     this.store.start();
   }
 
+  /** Drops a citation once the code is left, whichever way the person left it. */
+  private readonly leavingCode: Subscription = this.screen$.pipe(distinctUntilChanged(), pairwise()).subscribe(([before, after]) => {
+    if (before === 'files' && after !== 'files') this.citation$.next(null);
+  });
+
   ngOnDestroy(): void {
     this.following.unsubscribe();
     this.remembering.unsubscribe();
@@ -470,6 +492,7 @@ export class WorkspacePage implements OnDestroy {
     this.typing.unsubscribe();
     this.seeing.unsubscribe();
     this.listed.unsubscribe();
+    this.leavingCode.unsubscribe();
   }
 
   /**
@@ -667,6 +690,39 @@ export class WorkspacePage implements OnDestroy {
   /** Shows a branch of a project in the files and the history. Nothing means the directory as it is. */
   chooseBranch(project: Project, branch: string | null): void {
     this.place$.next({ projectId: project.id, threadId: null, branch, commit: null });
+  }
+
+  /**
+   * Opens a file citation in the code.
+   *
+   * The link is an ordinary anchor, which is what survives Angular's cleaning
+   * of the message HTML. Ctrl, Shift, Meta and the middle button are left to
+   * the browser. This app does not use the fragment to pick a screen, so a
+   * new tab just opens it as usual.
+   */
+  @HostListener('click', ['$event'])
+  openCitation(event: MouseEvent): void {
+    if (event.button !== 0 || event.ctrlKey || event.shiftKey || event.metaKey) return;
+    const start = event.target instanceof Element ? event.target : null;
+    const link = start?.closest('a.file-citation');
+    if (!(link instanceof HTMLAnchorElement)) return;
+    const citation = citationFromHref(link.getAttribute('href') ?? '');
+    if (!citation) return;
+    event.preventDefault();
+    this.selected$.pipe(take(1)).subscribe(({ project, thread }) => {
+      if (!project) return;
+      this.citation$.next(citation);
+      this.place$.next(citationPlace(this.place$.value, project.id, thread));
+      this.screen$.next('files');
+    });
+  }
+
+  /** The directories citations in the open project resolve against, stable until those directories change. */
+  private rootsFor(project: Project | null, thread: Thread | null): readonly string[] {
+    const next = citationRoots(project, thread);
+    if (next.length === this.shownRoots.length && next.every((root, index) => root === this.shownRoots[index])) return this.shownRoots;
+    this.shownRoots = next;
+    return next;
   }
 
   /**

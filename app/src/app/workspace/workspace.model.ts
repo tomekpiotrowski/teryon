@@ -902,6 +902,42 @@ export function codePlace(place: Place, projectId: string, thread: Thread | null
   return copyPlace(thread, change);
 }
 
+/**
+ * The directories a file citation may name.
+ *
+ * An agent writes the path of whichever directory it has open, the project
+ * or the thread's copy. Both are given while the copy is there, so either
+ * form resolves. A copy that is gone is left out.
+ */
+export function citationRoots(project: Project | null, thread: Thread | null): readonly string[] {
+  if (!project) return [];
+  const change = presentCopy(project.id, thread);
+  return change ? [project.directory, change.path] : [project.directory];
+}
+
+/**
+ * What the code screen shows for a file an agent cited.
+ *
+ * The copy is shown while it is still there, because that is the tree the
+ * agent was reading. Once it is gone the project's directory as it is now
+ * is shown: a citation names lines of the file as it is, and a branch or
+ * commit left over from the history would number those lines differently.
+ * The place the code was already showing is not kept.
+ */
+export function citationPlace(_place: Place, projectId: string, thread: Thread | null): Place {
+  const change = presentCopy(projectId, thread);
+  if (!thread || !change) return { projectId, threadId: null, branch: null, commit: null };
+  return copyPlace(thread, change);
+}
+
+/** The thread's copy, when it belongs to this project and is still on disk. Nothing otherwise. */
+function presentCopy(projectId: string, thread: Thread | null): Change | null {
+  if (!thread || thread.project_id !== projectId) return null;
+  const change = thread.change;
+  if (!change || change.state?.copy_present === false) return null;
+  return change;
+}
+
 /** The heading for a project view, or Teryon for a view across projects. */
 export function headerName(projectName: string | null | undefined, projectScoped: boolean): string {
   return projectScoped && projectName ? projectName : 'TERYON';

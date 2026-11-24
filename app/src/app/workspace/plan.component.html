@@ -13,7 +13,7 @@
       } @else if (view.text === null) {
         <p class="files-muted">Reading the plan…</p>
       } @else {
-        <div class="markdown" [innerHTML]="view.text | markdown"></div>
+        <div class="markdown" [innerHTML]="view.text | markdown:roots"></div>
       }
     </main>
     <footer class="board-hints files-muted">

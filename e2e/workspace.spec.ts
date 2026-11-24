@@ -273,7 +273,11 @@ test("an agent's change is discarded once the person confirms", async ({ page })
 });
 
 test("an agent's markdown is rendered, and what it must not act on is shown as text", async ({ page }) => {
-  await addProject(page, "Sample");
+  await addProject(page, "Sample", (folder) => {
+    git(folder, "init", "-q", "-b", "main");
+    put(folder, "src/parser.rs", "fn parse() {}\n");
+    commit(folder);
+  });
 
   await page.getByLabel("New thread").fill("write markdown");
   await page.getByRole("button", { name: "Run ↵" }).click();
@@ -290,13 +294,15 @@ test("an agent's markdown is rendered, and what it must not act on is shown as t
   await expect(thread.getByRole("cell", { name: "120" })).toHaveCSS("text-align", "right");
   await expect(thread.getByRole("cell", { name: "parser.rs" })).toHaveCSS("text-align", "left");
 
-  // A web address can be followed, in a new tab. One inside the project cannot.
+  // A web address can be followed, in a new tab. A file in the project opens in the code.
   const report = thread.getByRole("link", { name: "the report" });
   await expect(report).toHaveAttribute("href", "https://example.com/report");
   await expect(report).toHaveAttribute("target", "_blank");
   await expect(report).toHaveAttribute("rel", "noopener noreferrer");
-  await expect(thread.getByRole("link", { name: "the parser" })).toHaveCount(0);
-  await expect(thread.getByText("the parser", { exact: true })).toHaveAttribute("title", "src/parser.rs");
+  const parser = thread.getByRole("link", { name: "the parser" });
+  await expect(parser).toHaveAttribute("href", "#open?path=src%2Fparser.rs");
+  await expect(parser).toHaveAttribute("title", "src/parser.rs");
+  await expect(parser).toHaveClass(/file-citation/);
 
   // HTML the agent wrote is shown, not run, and a picture is only a link.
   await expect(thread.getByText(/<img src="https:\/\/example\.com\/pixel\.png"/)).toBeVisible();
@@ -308,6 +314,12 @@ test("an agent's markdown is rendered, and what it must not act on is shown as t
   await page.getByLabel("Reply").fill("**keep** the `marks`");
   await page.getByRole("button", { name: "send ↵" }).click();
   await expect(thread.getByText("**keep** the `marks`", { exact: true })).toBeVisible();
+
+  // Clicking the citation opens that file in the code.
+  await parser.click();
+  await expect(page.locator("app-files")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "parser.rs" })).toBeVisible();
+  await expect(page.locator(".files-code")).toContainText("fn parse");
 });
 
 test("Grok's markdown is rendered too", async ({ page }) => {

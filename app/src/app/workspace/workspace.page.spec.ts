@@ -324,6 +324,66 @@ describe('WorkspacePage', () => {
     });
   });
 
+  describe('opening a citation', () => {
+    const first = changed('t1', 'fix-login', 'fix-login');
+
+    beforeEach(() => {
+      store.projects$.next([project]);
+      store.threads$.next([first]);
+      page.selectThread(first);
+      page.place$.next({ projectId: 'p', threadId: null, branch: 'main', commit: 'abc' });
+    });
+
+    /** A click on a citation link, as the page's handler receives it. */
+    function clickCitation(href: string, init: MouseEventInit = {}): MouseEvent {
+      const link = document.createElement('a');
+      link.className = 'file-citation';
+      link.setAttribute('href', href);
+      const event = new MouseEvent('click', { bubbles: true, cancelable: true, ...init });
+      link.dispatchEvent(event);
+      page.openCitation(event);
+      return event;
+    }
+
+    it('opens the cited file in the copy, forgetting a commit the history was showing', () => {
+      const event = clickCitation('#open?path=src%2Fparser.rs&start=748&end=826');
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(page.screen$.value).toBe('files');
+      expect(page.place$.value).toEqual({ projectId: 'p', threadId: 't1', branch: 'fix-login', commit: null });
+      expect(page.citation$.value).toEqual({ path: 'src/parser.rs', start: 748, end: 826 });
+    });
+
+    it.each([
+      ['Ctrl', { ctrlKey: true }],
+      ['Shift', { shiftKey: true }],
+      ['Meta', { metaKey: true }],
+      ['the middle button', { button: 1 }],
+    ] as const)('leaves a click with %s to the browser', (_, init) => {
+      const event = clickCitation('#open?path=src%2Fparser.rs', init);
+
+      expect(event.defaultPrevented).toBe(false);
+      expect(page.screen$.value).toBe('thread');
+      expect(page.citation$.value).toBeNull();
+    });
+
+    it('does nothing with an address the file API would refuse', () => {
+      const event = clickCitation('#open?path=.git%2Fconfig');
+
+      expect(event.defaultPrevented).toBe(false);
+      expect(page.screen$.value).toBe('thread');
+      expect(page.place$.value.commit).toBe('abc');
+    });
+
+    it('drops the citation when the code is left, and keeps the place', () => {
+      clickCitation('#open?path=src%2Fparser.rs');
+      page.screen$.next('thread');
+
+      expect(page.citation$.value).toBeNull();
+      expect(page.place$.value).toEqual({ projectId: 'p', threadId: 't1', branch: 'fix-login', commit: null });
+    });
+  });
+
   describe('starting a thread from Home', () => {
     const created = changed('new', 'new-thread', null);
     const request = { projectId: 'p', workflow: 'small', text: 'Fix the parser', choice: null };

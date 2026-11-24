@@ -54,6 +54,8 @@ import {
   NOTHING_SELECTED,
   type Place,
   placeIn,
+  citationPlace,
+  citationRoots,
   codePlace,
   copyPlace,
   refusalText,
@@ -883,6 +885,62 @@ describe('codePlace', () => {
 
   it('starts from the directory as it is in another project when the thread is of a different one', () => {
     expect(codePlace(chosen, 'b', changed({}))).toEqual({ projectId: 'b', threadId: null, branch: null, commit: null });
+  });
+});
+
+describe('citationPlace', () => {
+  const chosen: Place = { projectId: 'a', threadId: null, branch: 'feature', commit: 'a3f9c21' };
+  const whole: ChangeState = { copy_present: true, base_present: true, files_changed: 2, fit: 'applies', unfinished: false };
+
+  function changed(state: Partial<ChangeState> | null, branch: string | null = 'fix-login'): Thread {
+    const change: Change = { name: 'fix-login', path: '/work/a/.teryon/worktrees/fix-login', base: 'main', start: 'abc', branch, state: state && { ...whole, ...state }, review: null };
+    return { ...thread('t', 'a', '2026-11-02T10:00:00'), change };
+  }
+
+  it('shows the copy of the open thread, by its thread, with its branch for the history', () => {
+    expect(citationPlace(chosen, 'a', changed({}))).toEqual({ projectId: 'a', threadId: 't', branch: 'fix-login', commit: null });
+  });
+
+  it('shows the copy before Teryon has looked at it', () => {
+    expect(citationPlace(chosen, 'a', changed(null))).toEqual({ projectId: 'a', threadId: 't', branch: 'fix-login', commit: null });
+  });
+
+  it.each([
+    ['no thread is open', null],
+    ['the thread never changed anything', thread('t', 'a', '2026-11-02T10:00:00')],
+    ['the copy is gone', changed({ copy_present: false })],
+  ])('shows the project directory as it is when %s, rather than a branch or commit left over', (_, open) => {
+    expect(citationPlace(chosen, 'a', open)).toEqual({ projectId: 'a', threadId: null, branch: null, commit: null });
+  });
+
+  it('shows the project directory as it is when the thread belongs to another project', () => {
+    expect(citationPlace(chosen, 'b', changed({}))).toEqual({ projectId: 'b', threadId: null, branch: null, commit: null });
+  });
+});
+
+describe('citationRoots', () => {
+  const here = project('a', '2026-11-01T10:00:00');
+  const state: ChangeState = { copy_present: false, base_present: false, files_changed: 0, fit: 'unknown', unfinished: false };
+
+  function withChange(copy: ChangeState | null): Thread {
+    const change: Change = { name: 'fix-login', path: '/work/a/.teryon/worktrees/fix-login', base: 'main', start: 'abc', branch: 'fix-login', state: copy, review: null };
+    return { ...thread('t', 'a', '2026-11-02T10:00:00'), change };
+  }
+
+  it('is the project directory when the thread has no copy', () => {
+    expect(citationRoots(here, thread('t', 'a', '2026-11-02T10:00:00'))).toEqual(['/work/a']);
+  });
+
+  it('includes the copy while it is there, and before Teryon has looked', () => {
+    expect(citationRoots(here, withChange(null))).toEqual(['/work/a', '/work/a/.teryon/worktrees/fix-login']);
+  });
+
+  it('leaves the copy out once it is gone', () => {
+    expect(citationRoots(here, withChange(state))).toEqual(['/work/a']);
+  });
+
+  it('is nothing without a project', () => {
+    expect(citationRoots(null, null)).toEqual([]);
   });
 });
 

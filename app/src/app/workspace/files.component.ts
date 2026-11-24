@@ -26,8 +26,10 @@ import {
   type FileChange,
   type FileContent,
   languageOf,
+  lineCited,
   lineCountText,
   type Listing,
+  listingNotice,
   liveText,
   modeAvailable,
   NOTHING_REMEMBERED,
@@ -41,6 +43,7 @@ import {
   treeRows,
   type ViewMode,
 } from './files.model';
+import type { Citation } from './markdown';
 import { FilesMemory } from './files.memory';
 import { type CodeLine, colouredLines } from './highlight';
 import { shortHash } from './history.model';
@@ -87,8 +90,8 @@ interface OpenFile {
   readonly mode: ViewMode;
   readonly fileAvailable: boolean;
   readonly diffAvailable: boolean;
-  /** Nothing unless the file is text that has arrived. */
-  readonly lines: readonly CodeLine[] | null;
+  /** Nothing unless the file is text that has arrived. A cited line is one the open citation asked to mark. */
+  readonly lines: readonly (CodeLine & { readonly cited: boolean })[] | null;
   /** What to say in place of the lines. */
   readonly notice: string;
   readonly language: string;
@@ -169,6 +172,19 @@ export class FilesComponent {
     this.commit$.next(commit);
   }
 
+  /**
+   * The citation the code was opened on.
+   *
+   * The page holds it, because this screen is created on the way in and
+   * destroyed on the way out. Dropped, the mark goes and the open file stays.
+   */
+  @Input() set citation(value: Citation | null) {
+    if (sameCitation(this.opened, value)) return;
+    this.opened = value;
+    this.scrolled = false;
+    this.citation$.next(value);
+  }
+
   /** The person asked to go back to the thread. */
   @Output() readonly closed = new EventEmitter<void>();
   /** Asked for the menu, which belongs to the page. */
@@ -189,6 +205,11 @@ export class FilesComponent {
   private readonly commit$ = new BehaviorSubject<string | null>(null);
   private readonly filter$ = new BehaviorSubject('');
   private readonly mode$ = new BehaviorSubject<ViewMode | null>(null);
+  private readonly citation$ = new BehaviorSubject<Citation | null>(null);
+  /** The citation currently applied. Compared by value so a redraw does not open the file again. */
+  private opened: Citation | null = null;
+  /** Whether the cited line has already been scrolled to. A later refresh must not pull the scroll back. */
+  private scrolled = false;
 
   private readonly source$ = combineLatest([
     this.project$.pipe(distinctUntilChanged((a, b) => a.id === b.id)),
@@ -285,8 +306,9 @@ export class FilesComponent {
     this.filter$,
     this.toggled$,
     this.mode$,
+    this.citation$,
   ]).pipe(
-    map(([project, liveAgents, state, content, chosen, filterText, toggled, mode]) => {
+    map(([project, liveAgents, state, content, chosen, filterText, toggled, mode, citation]) => {
       const files = state.listing?.files ?? [];
       const entry = selectedEntry(files, chosen);
       const rows = treeRows(files, filterText, toggled, entry?.path ?? null);
@@ -300,8 +322,8 @@ export class FilesComponent {
         filter: filterText,
         rows,
         selected: entry?.path ?? null,
-        notice: listingNotice(state, entry !== null),
-        file: entry ? openFile(entry.path, entry.change, state.listing?.base ?? null, content, mode) : null,
+        notice: listingNotice(state.problem, state.listing === null, files.length, entry ? null : chosen, entry !== null),
+        file: entry ? openFile(entry.path, entry.change, state.listing?.base ?? null, content, mode, citation) : null,
       };
     }),
     shareReplay({ bufferSize: 1, refCount: true }),
@@ -322,6 +344,40 @@ export class FilesComponent {
           this.host.nativeElement.querySelector('.files-row.selected')?.scrollIntoView({ block: 'nearest' }),
         ),
       );
+
+    // The first listing for a citation selects that file, as the file rather
+    // than its diff, with the filter cleared so the tree can show it.
+    // Choosing another file afterwards is left alone: the same citation does
+    // not select again.
+    combineLatest([this.place$, this.citation$])
+      .pipe(
+        filter((pair): pair is [string, Citation] => pair[0] !== null && pair[1] !== null),
+        distinctUntilChanged(([beforePlace, before], [afterPlace, after]) => beforePlace === afterPlace && sameCitation(before, after)),
+        takeUntilDestroyed(),
+      )
+      .subscribe(([place, citation]) => {
+        this.filter$.next('');
+        this.mode$.next('file');
+        this.memory.choose(place, citation.path);
+      });
+
+    this.view$.pipe(takeUntilDestroyed()).subscribe((view) => this.scrollToCited(view.file));
+  }
+
+  /**
+   * Scrolls the first cited line into the middle of the code, once.
+   *
+   * A later refresh of the file, and choosing another file, must not pull
+   * the scroll back. No range leaves the file at the top.
+   */
+  private scrollToCited(file: OpenFile | null): void {
+    const citation = this.opened;
+    if (this.scrolled || !citation || !file || file.path !== citation.path) return;
+    if (!file.lines?.some((line) => line.cited)) return;
+    this.scrolled = true;
+    requestAnimationFrame(() => {
+      this.host.nativeElement.querySelector('.files-line.cited')?.scrollIntoView({ block: 'center' });
+    });
   }
 
   updateFilter(event: Event): void {
@@ -360,14 +416,6 @@ export class FilesComponent {
   }
 }
 
-/** What to say when there is no file to show. Nothing when there is one. */
-function listingNotice(state: ListingState, hasFile: boolean): string {
-  if (state.problem) return state.problem;
-  if (!state.listing) return 'Reading the files…';
-  if (hasFile) return '';
-  return state.listing.files.length ? 'Choose a file to read it.' : 'There are no files here yet.';
-}
-
 /** Works out the colouring of an answer's lines, by the language its file's name tells. */
 function coloured(state: ContentState): ColouredContent {
   const lines =
@@ -383,9 +431,10 @@ function openFile(
   base: string | null,
   state: ColouredContent,
   chosenMode: ViewMode | null,
+  citation: Citation | null,
 ): OpenFile {
   const mode = effectiveMode(chosenMode, change);
-  const lines = state.lines;
+  const lines = state.lines && shownLines(state.lines, mode);
   return {
     path,
     ...splitPath(path),
@@ -393,11 +442,16 @@ function openFile(
     mode,
     fileAvailable: modeAvailable('file', change),
     diffAvailable: modeAvailable('diff', change),
-    lines: lines && shownLines(lines, mode),
+    lines: lines && lines.map((line) => ({ ...line, cited: lineCited(line.number, path, citation) })),
     notice: contentNotice(state),
     language: languageOf(path),
-    lineCount: lines ? lineCountText(lines) : '',
+    lineCount: state.lines ? lineCountText(state.lines) : '',
   };
+}
+
+/** Whether two citations name the same file and lines. */
+function sameCitation(before: Citation | null, after: Citation | null): boolean {
+  return before?.path === after?.path && before?.start === after?.start && before?.end === after?.end;
 }
 
 /** What to say in place of a file's lines. Nothing when there are lines to show. */

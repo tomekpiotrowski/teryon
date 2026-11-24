@@ -25,6 +25,13 @@ interface PlanView {
 })
 export class PlanComponent {
   @Input({ required: true }) projectName!: string;
+  /**
+   * The project directory and, when the thread has a copy, that copy.
+   *
+   * Passed to the markdown so a citation in the plan opens the same way as
+   * one in a message.
+   */
+  @Input() roots: readonly string[] = [];
   @Output() readonly menuOpened = new EventEmitter<void>();
   @Output() readonly shortcutsOpened = new EventEmitter<void>();
 

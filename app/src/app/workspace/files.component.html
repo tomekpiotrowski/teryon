@@ -63,7 +63,7 @@
             <div class="files-code" role="region" tabindex="0" [attr.aria-label]="'Content of ' + file.path">
               <div class="files-lines">
                 @for (line of file.lines; track $index) {
-                  <div class="files-line" [class.added]="line.change === 'added'" [class.removed]="line.change === 'removed'">
+                  <div class="files-line" [class.added]="line.change === 'added'" [class.removed]="line.change === 'removed'" [class.cited]="line.cited">
                     <span class="files-number">{{ line.number ?? '−' }}</span><span class="files-text">@for (token of line.tokens; track $index) {<span [class]="token.kind && 'code-' + token.kind">{{ token.text }}</span>}</span>
                   </div>
                 }

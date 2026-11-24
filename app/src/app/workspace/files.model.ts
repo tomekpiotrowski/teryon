@@ -1,3 +1,5 @@
+import type { Citation } from './markdown';
+
 /**
  * The shapes the file browser works with, and the plain logic around them.
  *
@@ -208,6 +210,34 @@ export function rowIndent(row: TreeRow): number {
  */
 export function selectedEntry(files: readonly FileEntry[], chosen: string | null): FileEntry | null {
   return files.find((entry) => entry.path === chosen) ?? null;
+}
+
+/**
+ * What to say when there is no file to show. Nothing when there is one.
+ *
+ * A chosen path that the listing does not contain is named. A citation can
+ * ask for a file this tree does not have, and the person should see which
+ * one rather than be asked to choose a different file.
+ */
+export function listingNotice(problem: string | null, waiting: boolean, fileCount: number, chosen: string | null, shown: boolean): string {
+  if (problem) return problem;
+  if (waiting) return 'Reading the files…';
+  if (shown) return '';
+  if (chosen) return `${chosen} is not in this tree.`;
+  return fileCount ? 'Choose a file to read it.' : 'There are no files here yet.';
+}
+
+/**
+ * Whether a line is one the open citation asked to mark.
+ *
+ * The number is the line's place in the file as it is now, which is what a
+ * citation counts. A removed line has no such place, so it is never marked.
+ * The mark stays only while this file is the one the citation named.
+ */
+export function lineCited(number: number | null, path: string, citation: Citation | null): boolean {
+  if (!citation || citation.path !== path || citation.start === null || number === null) return false;
+  const end = citation.end ?? citation.start;
+  return number >= citation.start && number <= end;
 }
 
 /**

@@ -926,6 +926,12 @@ a:hover {
 
 .markdown a { text-decoration: underline; text-underline-offset: 2px; }
 
+/* A citation whose words are the path itself, so it reads as a path and not as prose. */
+.markdown a.file-citation.path {
+  font-family: var(--font-code);
+  font-size: 12.5px;
+}
+
 /* A link that cannot be followed from here, such as one to a file in the project. */
 .markdown span[title] { text-decoration: underline dotted; text-underline-offset: 2px; }
 
@@ -1640,7 +1646,8 @@ app-repository-bar {
   user-select: none;
 }
 
-.files-line.added { background: color-mix(in srgb, var(--color-accent) 14%, transparent); }
+.files-line.added,
+.files-line.cited { background: color-mix(in srgb, var(--color-accent) 14%, transparent); }
 
 .files-line.removed {
   background: color-mix(in srgb, var(--color-text) 8%, transparent);
