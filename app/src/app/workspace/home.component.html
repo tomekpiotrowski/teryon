@@ -1,12 +1,9 @@
 @if (view$ | async; as view) {
   <div class="home" [class.home-empty]="empty$ | async">
     <div class="home-column">
-      <div class="home-prompt" [class.home-prompt-open]="view.searching">
+      <div class="home-prompt">
         <label for="home-prompt" class="home-hidden">New thread</label>
         <div class="home-field">
-          @if (view.continuing; as chip) {
-            <button type="button" class="home-chip" aria-label="Stop continuing this thread" (click)="dropChip()">&#64; {{ chip.title || 'New thread' }}</button>
-          }
           <input
             #prompt
             id="home-prompt"
@@ -16,25 +13,11 @@
             spellcheck="false"
             [placeholder]="view.placeholder"
             [value]="view.text"
-            [attr.aria-expanded]="view.searching"
             (input)="updateText($event)"
             (keydown)="handlePromptKey($event, view)"
           />
         </div>
 
-        @if (view.searching) {
-          <div class="home-matches" role="listbox" aria-label="Threads to continue">
-            @for (row of view.matches; track row.thread.id; let m = $index) {
-              <button type="button" role="option" class="home-match" [class.home-marked]="m === view.match" [attr.aria-selected]="m === view.match" (click)="chooseMatch(row)">
-                <span class="home-title">{{ row.thread.title || 'New thread' }}</span>
-                @if (row.change) { <span class="home-dim home-mono">branch {{ row.change }}</span> }
-                <span class="home-dim">{{ row.project }}</span>
-              </button>
-            } @empty {
-              <p class="home-dim home-none">No thread matches.</p>
-            }
-          </div>
-        } @else {
           <div class="home-options">
             <div class="home-chooser">
               <button type="button" class="home-option" aria-haspopup="listbox" [attr.aria-expanded]="view.chooser === 'project'" (click)="toggleChooser('project')">
@@ -79,7 +62,6 @@
             <span class="home-spacer"></span>
             <button type="button" class="home-run" [disabled]="!view.text.trim()" (click)="send()">Run <kbd>↵</kbd></button>
           </div>
-        }
       </div>
 
       @if (view.list.total === 0) {

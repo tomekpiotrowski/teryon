@@ -43,7 +43,7 @@ test("with nothing waiting Home says so and offers only the prompt", async ({ pa
   await expect(waiting(page)).toHaveCount(0);
   await expect(page.locator(".top-bar")).toContainText("all projects");
   await expect(page.getByRole("button", { name: /need you$/ })).toHaveCount(0);
-  await expect(page.getByLabel("New thread")).toHaveAttribute("placeholder", "Start a thread — or type @ to continue one");
+  await expect(page.getByLabel("New thread")).toHaveAttribute("placeholder", "Start a thread");
 });
 
 test("Home opens searchable shortcuts from the keyboard, the bottom bar and the menu", async ({ page }) => {
@@ -244,54 +244,11 @@ test("Tab and Escape in the list go back to the prompt", async ({ page }) => {
   await expect(page.getByLabel("New thread")).toBeFocused();
 });
 
-test("@ continues a thread: it picks one by what was typed and sends the rest to it", async ({ page }) => {
+test("@ starts a new thread as ordinary text", async ({ page }) => {
   await addProject(page, "Sample");
-  await startAndReturn(page, "please fail");
-
-  await page.getByLabel("New thread").fill("@fail");
-  const matches = home(page).getByRole("listbox", { name: "Threads to continue" });
-  await expect(matches.getByRole("option")).toHaveCount(1);
+  await page.getByLabel("New thread").fill("@hello");
   await page.getByLabel("New thread").press("Enter");
-
-  await expect(home(page).getByRole("button", { name: /Stop continuing this thread/ })).toContainText("please fail");
-  await page.getByLabel("New thread").fill("try again");
-  await page.getByLabel("New thread").press("Enter");
-
-  await expect(page.getByLabel("Thread", { exact: true }).getByText("try again", { exact: true })).toBeVisible();
-});
-
-test("@ pressed outside the prompt starts the search, and Escape drops it", async ({ page }) => {
-  await addProject(page, "Sample");
-  await startAndReturn(page, "please fail");
-  await page.getByLabel("New thread").blur();
-
-  await page.keyboard.press("@");
-  await expect(page.getByLabel("New thread")).toBeFocused();
-  await expect(page.getByLabel("New thread")).toHaveValue("@");
-  await expect(home(page).getByRole("listbox", { name: "Threads to continue" })).toBeVisible();
-
-  await page.keyboard.press("Escape");
-  await expect(page.getByLabel("New thread")).toHaveValue("");
-  await expect(home(page).getByRole("listbox", { name: "Threads to continue" })).toHaveCount(0);
-});
-
-test("a search that matches nothing says so, and Enter starts nothing", async ({ page }) => {
-  await addProject(page, "Sample");
-  await page.getByLabel("New thread").fill("@zzzz");
-  await expect(home(page).getByText("No thread matches.")).toBeVisible();
-  await page.getByLabel("New thread").press("Enter");
-  await expect(page.getByLabel("Thread", { exact: true })).toHaveCount(0);
-});
-
-test("Backspace on an empty prompt drops the chosen thread", async ({ page }) => {
-  await addProject(page, "Sample");
-  await startAndReturn(page, "please fail");
-  await page.getByLabel("New thread").fill("@");
-  await page.getByLabel("New thread").press("Enter");
-  await expect(home(page).getByRole("button", { name: /Stop continuing this thread/ })).toBeVisible();
-
-  await page.getByLabel("New thread").press("Backspace");
-  await expect(home(page).getByRole("button", { name: /Stop continuing this thread/ })).toHaveCount(0);
+  await expect(page.getByLabel("Thread", { exact: true }).getByText("@hello", { exact: true })).toBeVisible();
 });
 
 test("the agent chosen on Home is there the next time", async ({ page }) => {
@@ -324,25 +281,6 @@ test("Escape from a thread goes to Home", async ({ page }) => {
   await page.getByLabel("Reply").press("Escape");
   await page.keyboard.press("Escape");
   await expect(home(page)).toBeVisible();
-});
-
-test("a refused message keeps the text and the chosen thread on Home", async ({ page }) => {
-  await addProject(page, "Sample");
-  await page.getByLabel("New thread").fill("be slow");
-  await page.getByRole("button", { name: "Run ↵" }).click();
-  await expect(page.getByText(/is working…/)).toBeVisible();
-  await goHome(page);
-
-  await page.getByLabel("New thread").fill("@slow");
-  await page.getByLabel("New thread").press("Enter");
-  await page.getByLabel("New thread").fill("one more thing");
-  await page.getByLabel("New thread").press("Enter");
-
-  // The agent is still working, so the message is refused; nothing is lost.
-  await expect(page.locator("ion-toast, .erno-alert, [role=alert]").first()).toBeVisible();
-  await expect(home(page)).toBeVisible();
-  await expect(page.getByLabel("New thread")).toHaveValue("one more thing");
-  await expect(home(page).getByRole("button", { name: /Stop continuing this thread/ })).toContainText("be slow");
 });
 
 test("Home and the menu share the agent for new threads", async ({ page }) => {

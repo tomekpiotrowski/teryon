@@ -1,7 +1,7 @@
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { vi } from 'vitest';
 
-import { HomeComponent, type ContinueRequest, type StartRequest } from './home.component';
+import { HomeComponent, type StartRequest } from './home.component';
 import { type AgentName, groupThreads, NO_WORKFLOWS, type Project, type Starting, type Thread, type Workflows } from './workspace.model';
 
 const project = (id: string): Project => ({ id, name: `Project ${id}`, directory: `/work/${id}`, created_at: '2026-11-01T10:00:00' });
@@ -36,7 +36,6 @@ interface Scene {
   readonly fixture: ComponentFixture<HomeComponent>;
   readonly element: HTMLElement;
   readonly started: StartRequest[];
-  readonly continued: ContinueRequest[];
   readonly opened: Thread[];
   readonly texts: string[];
   readonly chosen: AgentName[];
@@ -47,13 +46,11 @@ function scene(threads: Thread[] = [], inputs: { installed?: string[]; text?: st
   const fixture = TestBed.createComponent(HomeComponent);
   const home = fixture.componentInstance;
   const started: StartRequest[] = [];
-  const continued: ContinueRequest[] = [];
   const opened: Thread[] = [];
   const texts: string[] = [];
   const chosen: AgentName[] = [];
   home.agentChosen.subscribe((agent) => chosen.push(agent));
   home.started.subscribe((request) => started.push(request));
-  home.continued.subscribe((request) => continued.push(request));
   home.opened.subscribe((item) => opened.push(item));
   home.textChanged.subscribe((text) => texts.push(text));
   home.groups = groupThreads([project('a'), project('b')], threads);
@@ -63,7 +60,7 @@ function scene(threads: Thread[] = [], inputs: { installed?: string[]; text?: st
   home.project = project('a');
   if (inputs.text !== undefined) home.text = inputs.text;
   fixture.detectChanges();
-  return { fixture, element: fixture.nativeElement as HTMLElement, started, continued, opened, texts, chosen };
+  return { fixture, element: fixture.nativeElement as HTMLElement, started, opened, texts, chosen };
 }
 
 function prompt(of: Scene): HTMLInputElement {
@@ -384,107 +381,12 @@ describe('HomeComponent', () => {
     });
   });
 
-  describe('continuing a thread with @', () => {
-    const threads = [
-      thread({ id: 'p', title: 'Fix the parser', created_at: '2026-11-01T10:00:00' }),
-      thread({ id: 's', title: 'Add sensor node', created_at: '2026-11-02T10:00:00' }),
-    ];
-
-    it('searches threads after an @, and says when none matches', () => {
-      const home = scene(threads);
-      type(home, '@sen');
-      expect(Array.from(home.element.querySelectorAll('.home-match .home-title')).map((title) => title.textContent)).toEqual(['Add sensor node']);
-      type(home, '@zzz');
-      expect(home.element.textContent).toContain('No thread matches.');
-      key(home, prompt(home), 'Enter');
-      expect(home.started).toEqual([]);
-      expect(home.continued).toEqual([]);
-    });
-
-    it('moves through the matches with the arrows, going round', () => {
-      const home = scene(threads);
-      type(home, '@');
-      const marked = () => Array.from(home.element.querySelectorAll('.home-match')).findIndex((match) => match.classList.contains('home-marked'));
-      expect(marked()).toBe(0);
-      key(home, prompt(home), 'ArrowDown');
-      expect(marked()).toBe(1);
-      key(home, prompt(home), 'ArrowDown');
-      expect(marked()).toBe(0);
-      key(home, prompt(home), 'ArrowUp');
-      expect(marked()).toBe(1);
-    });
-
-    it('chooses a match with Enter, then sends the rest to that thread', () => {
-      const home = scene(threads);
-      type(home, '@pars');
-      key(home, prompt(home), 'Enter');
-      expect(home.element.querySelector('.home-chip')?.textContent).toContain('Fix the parser');
-      expect(prompt(home).value).toBe('');
-      type(home, 'try again');
-      key(home, prompt(home), 'Enter');
-      expect(home.continued).toEqual([{ thread: threads[0], text: 'try again' }]);
-      expect(home.started).toEqual([]);
-    });
-
-    it('keeps the chosen thread and the text, so a refused request loses nothing', () => {
-      const home = scene(threads);
-      type(home, '@pars');
-      key(home, prompt(home), 'Enter');
-      type(home, 'try again');
-      key(home, prompt(home), 'Enter');
-      expect(home.element.querySelector('.home-chip')?.textContent).toContain('Fix the parser');
-      expect(prompt(home).value).toBe('try again');
-      key(home, prompt(home), 'Enter');
-      expect(home.continued).toHaveLength(2);
-    });
-
-    it('chooses a match with a click', () => {
-      const home = scene(threads);
-      type(home, '@');
-      (home.element.querySelectorAll('.home-match')[1] as HTMLElement).click();
-      home.fixture.detectChanges();
-      expect(home.element.querySelector('.home-chip')?.textContent).toContain('Fix the parser');
-    });
-
-    it('drops the chip with Backspace on an empty prompt, but not with text', () => {
-      const home = scene(threads);
-      type(home, '@pars');
-      key(home, prompt(home), 'Enter');
-      type(home, 'x');
-      key(home, prompt(home), 'Backspace');
-      expect(home.element.querySelector('.home-chip')).not.toBeNull();
-      type(home, '');
-      key(home, prompt(home), 'Backspace');
-      expect(home.element.querySelector('.home-chip')).toBeNull();
-    });
-
-    it('drops the search on Escape, and the chip too', () => {
-      const home = scene(threads);
-      type(home, '@pars');
-      key(home, prompt(home), 'Escape');
-      expect(home.texts.at(-1)).toBe('');
-      expect(home.element.querySelector('.home-matches')).toBeNull();
-    });
-
-    it('takes an @ pressed outside the prompt as the start of a search', () => {
-      const home = scene(threads);
-      document.body.appendChild(home.element);
-      const event = new KeyboardEvent('keydown', { key: '@', bubbles: true, cancelable: true });
-      document.body.dispatchEvent(event);
-      home.fixture.detectChanges();
-      expect(event.defaultPrevented).toBe(true);
-      expect(home.texts.at(-1)).toBe('@');
-      home.element.remove();
-    });
-
-    it('leaves an @ typed in a text field alone', () => {
-      const home = scene(threads);
-      document.body.appendChild(home.element);
-      const event = new KeyboardEvent('keydown', { key: '@', bubbles: true, cancelable: true });
-      prompt(home).dispatchEvent(event);
-      expect(event.defaultPrevented).toBe(false);
-      home.element.remove();
-    });
+  it('starts a new thread with text beginning with @', () => {
+    const home = scene([thread({ title: 'Existing thread' })]);
+    type(home, '@existing');
+    key(home, prompt(home), 'Enter');
+    expect(home.started).toEqual([{ projectId: 'a', workflow: 'default', text: '@existing' }]);
+    expect(home.element.querySelector('[aria-label="Threads to continue"]')).toBeNull();
   });
 
   describe('the project and workflow lists', () => {

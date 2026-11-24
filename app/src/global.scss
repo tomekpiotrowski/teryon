@@ -2661,19 +2661,6 @@ app-home {
 
 .home-input::placeholder { color: var(--t-dim); opacity: 1; }
 
-.home-chip {
-  flex: none;
-  max-width: 50%;
-  overflow: hidden;
-  border-radius: 6px;
-  padding: 4px 8px !important;
-  background: color-mix(in srgb, var(--t-blue) 14%, transparent) !important;
-  color: var(--t-blue) !important;
-  font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .home-options {
   display: flex;
   align-items: center;
@@ -2723,10 +2710,6 @@ app-home {
 .home-option:disabled,
 .home-run:disabled { cursor: default; opacity: 0.45; }
 
-.home-matches { display: flex; flex-direction: column; border-top: 1px solid var(--t-line); padding: 6px; }
-.home-none { margin: 0; padding: 8px 10px; font-size: 13px; }
-
-.home-match,
 .home-row {
   display: flex;
   min-width: 0;
@@ -2737,15 +2720,13 @@ app-home {
   padding: 10px 14px !important;
 }
 
-.home-match { padding: 7px 10px !important; }
 .home-marked { border-color: var(--t-line-strong) !important; background: var(--t-raised) !important; }
 
 .home-title { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .home-list { display: flex; flex-direction: column; gap: 2px; outline: none; }
 .home-row { font-size: 14px; }
-.home-row .home-dim,
-.home-match .home-dim { flex: none; font-size: 12px; }
+.home-row .home-dim { flex: none; font-size: 12px; }
 
 .home-dot { width: 6px; height: 6px; flex: none; border-radius: 50%; box-sizing: border-box; }
 .home-dot[data-word='apply'],

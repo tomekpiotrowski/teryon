@@ -50,7 +50,7 @@ function keys(section: ShortcutSection): string[] {
 
 describe('shortcutSections', () => {
   it.each([
-    ['home', 'Home', ['↵', '@']],
+    ['home', 'Home', ['↵']],
     ['thread', 'Thread', ['esc']],
     ['board', 'Board', ['h j k l', '↵', 'a', 'esc']],
     ['history', 'History', ['j k', 'esc']],
@@ -69,7 +69,7 @@ describe('shortcutSections', () => {
     const [empty] = shortcutSections(commands(), 'home', '');
     const [waiting] = shortcutSections(commands(), 'home', '', { waitingThreads: true });
     expect(empty.rows[0].text).toBe('Run');
-    expect(keys(waiting)).toEqual(['tab', 'j k', '↵', '@']);
+    expect(keys(waiting)).toEqual(['tab', 'j k', '↵']);
     expect(waiting.rows[2].text).toBe('Open or run');
   });
 

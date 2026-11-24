@@ -32,7 +32,7 @@ import { type SeenFinish } from './board.model';
 import { type Command, type CommandGroup, commandList, keyHint, keyOutcome, menuAsked, putAwayScope, SHORTCUTS_KEY } from './commands.model';
 import { askDraft } from './files.model';
 import { homeList } from './home.model';
-import type { ContinueRequest, StartRequest } from './home.component';
+import type { StartRequest } from './home.component';
 import { type Asked, isRecommended } from './questions.model';
 import { type Commit, revertDraft } from './history.model';
 import { shortcutSections } from './shortcuts.model';
@@ -840,23 +840,6 @@ export class WorkspacePage implements OnDestroy {
           this.alerts.error(refusalText(failure, 'The thread could not be started.'));
         },
       });
-  }
-
-  /** Sends Home's text to a thread chosen with `@`, and opens it. A refusal leaves the text and the chosen thread on Home. */
-  continueThread({ thread, text }: ContinueRequest): void {
-    if (this.sending$.value) return;
-    this.sending$.next(true);
-    this.api.sendMessage(thread.id, text, 'author').subscribe({
-      next: () => {
-        this.draft$.next('');
-        this.sending$.next(false);
-        this.openThread(thread);
-      },
-      error: (failure: unknown) => {
-        this.sending$.next(false);
-        this.alerts.error(refusalText(failure, 'The message could not be sent.'));
-      },
-    });
   }
 
   /** Uses the agent chosen on Home for new threads. */

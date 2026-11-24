@@ -2,14 +2,11 @@ import { ChangeDetectionStrategy, Component, ElementRef, EventEmitter, HostListe
 import { BehaviorSubject, combineLatest, distinctUntilChanged, map, type Observable, shareReplay } from 'rxjs';
 import {
   agentOptions,
-  continueMatches,
-  type ContinueRow,
   type HomeChoice,
   type HomeRow,
   homeList,
   type HomeList,
   NO_HOME_CHOICE,
-  promptOf,
   readHomeChoice,
   runningLines,
   type RunningLines,
@@ -17,7 +14,6 @@ import {
   startProject,
   startWorkflow,
 } from './home.model';
-import { stepped } from './commands.model';
 import { agentLabel, type AgentName, type Project, type ProjectGroup, type Starting, type Thread, type Workflows, NO_WORKFLOWS } from './workspace.model';
 
 /** Where the browser remembers the project and workflow last chosen on Home. */
@@ -31,12 +27,6 @@ export interface StartRequest {
   readonly text: string;
 }
 
-/** What the person asked Home to say to an existing thread. */
-export interface ContinueRequest {
-  readonly thread: Thread;
-  readonly text: string;
-}
-
 /** Which small list under the prompt's buttons is open. */
 type Chooser = 'project' | 'agent' | 'workflow' | null;
 
@@ -45,11 +35,6 @@ interface HomeView {
   readonly list: HomeList;
   readonly running: RunningLines;
   readonly text: string;
-  readonly searching: boolean;
-  readonly matches: readonly ContinueRow[];
-  /** Which match `Enter` picks. */
-  readonly match: number;
-  readonly continuing: Thread | null;
   readonly projects: readonly Project[];
   readonly project: Project | null;
   readonly agents: readonly AgentName[];
@@ -64,15 +49,14 @@ interface HomeView {
 }
 
 /**
- * Home: the prompt to start or continue a thread, and the threads that need the person.
+ * Home: the prompt to start a thread, and the threads that need the person.
  *
  * Home answers two questions: do I start something, and which thread do I
  * go to next. Acting happens in the thread, so every item on the list is one
  * line and its only action is to open it, see `home.model.ts`.
  *
  * The prompt holds the keys until `Tab` hands them to the list, where `j`
- * and `k` move and `Enter` opens. Starting with `@` it searches threads to
- * continue instead; choosing one makes it a chip the prompt's text is sent to.
+ * and `k` move and `Enter` opens.
  */
 @Component({
   selector: 'app-home',
@@ -82,7 +66,6 @@ interface HomeView {
 })
 export class HomeComponent {
   @Output() readonly started = new EventEmitter<StartRequest>();
-  @Output() readonly continued = new EventEmitter<ContinueRequest>();
   @Output() readonly opened = new EventEmitter<Thread>();
   @Output() readonly boardOpened = new EventEmitter<void>();
   @Output() readonly historyOpened = new EventEmitter<void>();
@@ -102,8 +85,6 @@ export class HomeComponent {
   private readonly open$ = new BehaviorSubject<Project | null>(null);
   private readonly sending$ = new BehaviorSubject(false);
   private readonly text$ = new BehaviorSubject('');
-  private readonly chip$ = new BehaviorSubject<Thread | null>(null);
-  private readonly match$ = new BehaviorSubject(0);
   private readonly choice$ = new BehaviorSubject<HomeChoice>(this.remembered());
   private readonly chooser$ = new BehaviorSubject<Chooser>(null);
   private readonly cursor$ = new BehaviorSubject<number | null>(null);
@@ -182,26 +163,17 @@ export class HomeComponent {
 
   readonly view$: Observable<HomeView> = combineLatest([
     this.rest$,
-    this.groups$,
     this.text$,
-    this.chip$,
-    this.match$,
     this.chooser$,
     this.cursor$,
   ]).pipe(
-    map(([rest, groups, text, chip, match, chooser, cursor]) => {
-      const prompt = promptOf(text, chip);
-      const matches = prompt.kind === 'searching' ? continueMatches(groups, prompt.query) : [];
+    map(([rest, text, chooser, cursor]) => {
       return {
         ...rest,
         text,
-        searching: prompt.kind === 'searching',
-        matches,
-        match: Math.min(match, Math.max(0, matches.length - 1)),
-        continuing: chip,
         chooser,
         cursor: cursor === null ? null : Math.min(cursor, Math.max(0, rest.list.rows.length - 1)),
-        placeholder: chip ? 'Message to this thread' : 'Start a thread — or type @ to continue one',
+        placeholder: 'Start a thread',
       };
     }),
     shareReplay({ bufferSize: 1, refCount: true }),
@@ -217,32 +189,18 @@ export class HomeComponent {
 
   updateText(event: Event): void {
     this.setText((event.target as HTMLInputElement).value);
-    this.match$.next(0);
     this.chooser$.next(null);
   }
 
-  /** Answers the keys of the prompt: Enter sends or picks, Tab goes to the list, Escape and Backspace step back. */
+  /** Answers the keys of the prompt: Enter sends, Tab goes to the list, and Escape clears. */
   handlePromptKey(event: KeyboardEvent, view: HomeView): void {
     if (event.isComposing) return;
-    // Keys can arrive faster than the screen is drawn, so what they act on is read from the latest state, not from `view`.
-    const searching = this.text$.value.startsWith('@') && !this.chip$.value;
-    const matches = searching ? continueMatches(this.groups$.value, this.text$.value.slice(1)) : [];
-    const match = Math.min(this.match$.value, Math.max(0, matches.length - 1));
     switch (event.key) {
       case 'Enter':
         event.preventDefault();
-        if (searching) return this.chooseMatch(matches[match]);
         return this.send();
-      case 'ArrowDown':
-        if (!searching) return;
-        event.preventDefault();
-        return this.match$.next(stepped(match, 1, matches.length));
-      case 'ArrowUp':
-        if (!searching) return;
-        event.preventDefault();
-        return this.match$.next(stepped(match, -1, matches.length));
       case 'Tab':
-        if (event.shiftKey || searching) return;
+        if (event.shiftKey) return;
         if (!view.list.rows.length) return;
         event.preventDefault();
         return this.focusList();
@@ -251,18 +209,11 @@ export class HomeComponent {
           event.preventDefault();
           return this.chooser$.next(null);
         }
-        if (searching || this.chip$.value || this.text$.value) {
+        if (this.text$.value) {
           event.preventDefault();
-          this.chip$.next(null);
           return this.setText('');
         }
         return (event.target as HTMLElement).blur();
-      case 'Backspace':
-        if (this.chip$.value && !this.text$.value) {
-          event.preventDefault();
-          this.chip$.next(null);
-        }
-        return;
     }
   }
 
@@ -294,7 +245,7 @@ export class HomeComponent {
   /**
    * Handles Home keys outside the prompt.
    *
-   * Escape dismisses the open chooser, `j` and `k` move through the list, and `@` starts a search.
+   * Escape dismisses the open chooser, and `j` and `k` move through the list.
    *
    * Left alone while another screen covers Home, and while the person types.
    */
@@ -312,12 +263,6 @@ export class HomeComponent {
     }
     if (target && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable)) return;
     if (target?.closest('[data-home-list]')) return;
-    if (event.key === '@') {
-      event.preventDefault();
-      this.setText('@');
-      this.match$.next(0);
-      return this.focusPrompt();
-    }
     if (event.key === 'j' || event.key === 'k') {
       if (!this.list) return;
       event.preventDefault();
@@ -330,31 +275,10 @@ export class HomeComponent {
     if (row) this.opened.emit(row.thread);
   }
 
-  chooseMatch(row: ContinueRow | undefined): void {
-    if (!row) return;
-    this.chip$.next(row.thread);
-    this.setText('');
-    this.focusPrompt();
-  }
-
-  dropChip(): void {
-    this.chip$.next(null);
-    this.focusPrompt();
-  }
-
-  /**
-   * Asks for the prompt to be sent: to the chosen thread, or as the first message of a new one.
-   *
-   * Does nothing with nothing typed. The text and the chosen thread stay as
-   * they are: the request can be refused, and then they are still there to
-   * send again. Once it succeeds the workspace opens the thread, which
-   * replaces Home, and clears the text.
-   */
+  /** Starts a thread with the prompt's text when a project is selected. */
   send(): void {
     const text = this.text$.value.trim();
     if (!text || this.sending$.value) return;
-    const chip = this.chip$.value;
-    if (chip) return this.continued.emit({ thread: chip, text });
     const { project, workflow } = this.resolved();
     if (project) this.started.emit({ projectId: project.id, workflow, text });
   }

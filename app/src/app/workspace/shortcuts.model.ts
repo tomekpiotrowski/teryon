@@ -105,7 +105,6 @@ function hereRows(commands: readonly Command[], place: ShortcutPlace, screenKeys
       return [
         ...(screenKeys.waitingThreads ? HOME_LIST : []),
         { keys: ['↵'], text: screenKeys.waitingThreads ? 'Open or run' : 'Run' },
-        { keys: ['@'], text: 'Continue a thread' },
       ];
     }
     case 'board':

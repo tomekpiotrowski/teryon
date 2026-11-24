@@ -1,12 +1,9 @@
 import {
   agentOptions,
-  CONTINUE_LIMIT,
-  continueMatches,
   HOME_LIMIT,
   homeList,
   homeWord,
   NO_HOME_CHOICE,
-  promptOf,
   readHomeChoice,
   runningLines,
   startAgent,
@@ -213,69 +210,6 @@ describe('runningLines', () => {
     const lines = runningLines(groupThreads(projects, threads));
     expect(lines.lines).toHaveLength(3);
     expect(lines.more).toBe(2);
-  });
-});
-
-describe('continueMatches', () => {
-  const projects = [project('a'), project('b')];
-  const groups = groupThreads(projects, [
-    thread({ id: '1', title: 'Fix the parser', created_at: '2026-11-01T10:00:00' }),
-    thread({ id: '2', title: 'Add sensor node', change: changed({}, 'parents-bedroom-sensor'), created_at: '2026-11-02T10:00:00' }),
-    thread({ id: '3', title: 'Water label', project_id: 'b', created_at: '2026-11-03T10:00:00' }),
-  ]);
-
-  it('offers the newest threads for nothing typed', () => {
-    expect(continueMatches(groups, '').map((row) => row.thread.id)).toEqual(['3', '2', '1']);
-    expect(continueMatches(groups, '   ').map((row) => row.thread.id)).toEqual(['3', '2', '1']);
-  });
-
-  it('matches titles, whatever the case', () => {
-    expect(continueMatches(groups, 'PARSER').map((row) => row.thread.id)).toEqual(['1']);
-  });
-
-  it('matches a change name, and says it', () => {
-    const found = continueMatches(groups, 'bedroom');
-    expect(found.map((row) => [row.thread.id, row.change])).toEqual([['2', 'parents-bedroom-sensor']]);
-  });
-
-  it('names the project of each match', () => {
-    expect(continueMatches(groups, 'water')[0].project).toBe('Project b');
-  });
-
-  it('finds nothing for a text no thread has', () => {
-    expect(continueMatches(groups, 'zzz')).toEqual([]);
-  });
-
-  it('still offers a thread that was put away', () => {
-    const away = groupThreads(projects, [thread({ id: 'away', title: 'Old chat', put_away: true })]);
-    expect(continueMatches(away, 'old').map((row) => row.thread.id)).toEqual(['away']);
-  });
-
-  it('offers a handful at most', () => {
-    const many = groupThreads(projects, Array.from({ length: 10 }, (_, index) => thread({ id: `m${index}`, created_at: `2026-11-0${index % 9 + 1}T10:00:00` })));
-    expect(continueMatches(many, '')).toHaveLength(CONTINUE_LIMIT);
-  });
-});
-
-describe('promptOf', () => {
-  const chosen = thread({ id: 'c' });
-
-  it('starts a thread with plain text', () => {
-    expect(promptOf('Fix it', null)).toEqual({ kind: 'new', text: 'Fix it' });
-    expect(promptOf('', null)).toEqual({ kind: 'new', text: '' });
-  });
-
-  it('searches threads after an @ at the start', () => {
-    expect(promptOf('@', null)).toEqual({ kind: 'searching', query: '' });
-    expect(promptOf('@sen', null)).toEqual({ kind: 'searching', query: 'sen' });
-  });
-
-  it('takes an @ later in the text as plain text', () => {
-    expect(promptOf('mail me @ noon', null)).toEqual({ kind: 'new', text: 'mail me @ noon' });
-  });
-
-  it('continues a chosen thread, and then an @ is only text', () => {
-    expect(promptOf('@home', chosen)).toEqual({ kind: 'continuing', thread: chosen, text: '@home' });
   });
 });
 

@@ -20,9 +20,6 @@ export const HOME_LIMIT = 7;
 /** How many running threads Home names before counting the rest. */
 export const RUNNING_LIMIT = 3;
 
-/** How many threads the `@` list offers at once. */
-export const CONTINUE_LIMIT = 6;
-
 /** The changes whose card asks for a decision Teryon cannot make, so the thread counts as failed. */
 const BLOCKED = ['Needs catching up', 'Unfinished', 'Nowhere to apply'];
 
@@ -128,48 +125,6 @@ export function runningLines(groups: readonly ProjectGroup[], limit = RUNNING_LI
     )
     .sort((a, b) => moved(b.thread).localeCompare(moved(a.thread)));
   return { lines: running.slice(0, limit), more: Math.max(0, running.length - limit) };
-}
-
-/** A thread the `@` list offers. */
-export interface ContinueRow {
-  readonly thread: Thread;
-  readonly project: string;
-  /** What the thread's change is called, to tell threads with the same title apart. Empty without a change. */
-  readonly change: string;
-}
-
-/**
- * The threads whose title or change name contains what was typed after `@`, newest first.
- *
- * Case does not matter. Nothing typed yet offers the newest threads.
- */
-export function continueMatches(groups: readonly ProjectGroup[], query: string, limit = CONTINUE_LIMIT): ContinueRow[] {
-  const wanted = query.trim().toLowerCase();
-  return groups
-    .flatMap((group) =>
-      group.threads.map((thread) => ({ thread, project: group.project.name, change: thread.change?.name ?? '' })),
-    )
-    .filter(({ thread, change }) => !wanted || thread.title.toLowerCase().includes(wanted) || change.toLowerCase().includes(wanted))
-    .sort((a, b) => b.thread.created_at.localeCompare(a.thread.created_at))
-    .slice(0, limit);
-}
-
-/** What the prompt box holds: text to start a thread with, or a thread to continue with text for it. */
-export type Prompt =
-  | { readonly kind: 'new'; readonly text: string }
-  | { readonly kind: 'searching'; readonly query: string }
-  | { readonly kind: 'continuing'; readonly thread: Thread; readonly text: string };
-
-/**
- * Reads the prompt's text: starting with `@` it searches the threads to continue.
- *
- * Once a thread is chosen it shows as a chip beside the text, so `continuing`
- * is not produced here; it is what choosing makes of the prompt.
- */
-export function promptOf(text: string, chosen: Thread | null): Prompt {
-  if (chosen) return { kind: 'continuing', thread: chosen, text };
-  if (text.startsWith('@')) return { kind: 'searching', query: text.slice(1) };
-  return { kind: 'new', text };
 }
 
 /** What a person has chosen on Home for the next thread, remembered between visits. The agent is the workspace's, see `NewThreads`. */

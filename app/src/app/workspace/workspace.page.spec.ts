@@ -326,37 +326,6 @@ describe('WorkspacePage', () => {
     });
   });
 
-  describe('continuing a thread from Home', () => {
-    const waiting = changed('t1', 'fix-login', null);
-
-    beforeEach(() => {
-      store.projects$.next([project]);
-      store.threads$.next([waiting]);
-      page.draft$.next('try again');
-    });
-
-    it('sends the message, clears the draft and opens the thread', () => {
-      api.sendMessage.mockReturnValue(of({}));
-
-      page.continueThread({ thread: waiting, text: 'try again' });
-
-      expect(api.sendMessage).toHaveBeenCalledWith('t1', 'try again', 'author');
-      expect(page.draft$.value).toBe('');
-      expect(page.selection$.value.threadId).toBe('t1');
-    });
-
-    it('keeps the text, stays on Home and says so when the message is refused', () => {
-      api.sendMessage.mockReturnValue(throwError(() => new Error('The agent is still working.')));
-
-      page.continueThread({ thread: waiting, text: 'try again' });
-
-      expect(page.draft$.value).toBe('try again');
-      expect(page.selection$.value.threadId).toBeNull();
-      expect(page.sending$.value).toBe(false);
-      expect(alerts.error).toHaveBeenCalledTimes(1);
-    });
-  });
-
   describe('the agent for new threads', () => {
     it('is shared by Home\'s dropdown and the menu\'s commands', () => {
       const picked = () => {
