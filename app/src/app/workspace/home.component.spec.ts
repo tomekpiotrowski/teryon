@@ -35,6 +35,12 @@ const TEST_WORKFLOWS: Workflows = {
   ],
 };
 
+/** The test workflows with the first stage choosing the agent of new threads. */
+const RULED_WORKFLOWS: Workflows = {
+  ...TEST_WORKFLOWS,
+  labels: TEST_WORKFLOWS.labels.map((label) => (label.stage === 'talking' ? { ...label, chooses: 'Any · medium' } : label)),
+};
+
 interface Scene {
   readonly fixture: ComponentFixture<HomeComponent>;
   readonly element: HTMLElement;
@@ -42,6 +48,8 @@ interface Scene {
   readonly opened: Thread[];
   readonly texts: string[];
   readonly chosen: Choice[];
+  /** How many times Automatic was chosen. */
+  readonly automatic: () => number;
 }
 
 interface SceneInputs {
@@ -62,6 +70,8 @@ function scene(threads: Thread[] = [], inputs: SceneInputs = {}): Scene {
   const texts: string[] = [];
   const chosen: Choice[] = [];
   home.choiceChosen.subscribe((choice) => chosen.push(choice));
+  let automatic = 0;
+  home.automaticChosen.subscribe(() => automatic++);
   home.started.subscribe((request) => started.push(request));
   home.opened.subscribe((item) => opened.push(item));
   home.textChanged.subscribe((text) => texts.push(text));
@@ -74,7 +84,7 @@ function scene(threads: Thread[] = [], inputs: SceneInputs = {}): Scene {
   home.project = project('a');
   if (inputs.text !== undefined) home.text = inputs.text;
   fixture.detectChanges();
-  return { fixture, element: fixture.nativeElement as HTMLElement, started, opened, texts, chosen };
+  return { fixture, element: fixture.nativeElement as HTMLElement, started, opened, texts, chosen, automatic: () => automatic };
 }
 
 function prompt(of: Scene): HTMLTextAreaElement {
@@ -280,8 +290,8 @@ describe('HomeComponent', () => {
     });
 
     it('shows the default workflow stage model', () => {
-      const home = scene([], { starting: { type: 'provider', agent: 'grok', model: 'grok-4.6', effort: null } });
-      expect(agentChooser(home).textContent?.trim()).toBe('Grok · Grok 4.6');
+      const home = scene([], { workflows: RULED_WORKFLOWS, starting: { type: 'provider', agent: 'grok', model: 'grok-4.6', effort: null } });
+      expect(agentChooser(home).textContent?.trim()).toBe('Auto · Grok · Grok 4.6');
       expect(home.element.querySelector('[aria-label="Workflow"]')).toBeNull();
     });
 
@@ -399,6 +409,59 @@ describe('HomeComponent', () => {
       expect(agentChooser(home).textContent?.trim()).toBe('Codex · GPT-6 Astra · Low');
       button(home, 'Run').click();
       expect(home.started[0].choice).toEqual({ agent: 'codex', model: 'gpt-6-astra', effort: 'low' });
+    });
+
+    describe('while the first stage chooses', () => {
+      const grok: Starting = { type: 'provider', agent: 'grok', model: 'grok-4.6', effort: 'medium' };
+
+      it('shows the first stage\'s pick behind Auto and lets the service start the thread on it', () => {
+        const home = scene([], { workflows: RULED_WORKFLOWS, starting: grok, text: 'hello' });
+        expect(agentChooser(home).textContent?.trim()).toBe('Auto · Grok · Grok 4.6 · Medium');
+        button(home, 'Run').click();
+        expect(home.started[0].choice).toBeNull();
+      });
+
+      it('shows and sends a manual pick without Auto', () => {
+        const picked: Choice = { agent: 'codex', model: 'gpt-6-astra', effort: 'high' };
+        const home = scene([], { workflows: RULED_WORKFLOWS, starting: grok, models, pickedChoice: picked, text: 'hello' });
+        expect(agentChooser(home).textContent?.trim()).toBe('Codex · GPT-6 Astra · High');
+        button(home, 'Run').click();
+        expect(home.started[0].choice).toEqual(picked);
+      });
+
+      it('says why no agent can work, still letting the person pick one', () => {
+        const home = scene([], { workflows: RULED_WORKFLOWS, starting: { type: 'unavailable', problem: 'All agents are at their limits.' }, text: 'hello' });
+        expect(agentChooser(home).textContent?.trim()).toBe('Auto · Unavailable');
+        expect(agentChooser(home).title).toBe('All agents are at their limits.');
+        expect(agentChooser(home).disabled).toBe(false);
+        button(home, 'Run').click();
+        expect(home.started[0].choice).toBeNull();
+      });
+
+      it('reports Automatic chosen from the chooser', () => {
+        const home = scene([], { workflows: RULED_WORKFLOWS, starting: grok, pickedChoice: { agent: 'codex', model: null, effort: null } });
+        agentChooser(home).click();
+        home.fixture.detectChanges();
+        clickButton(home, 'Automatic');
+        expect(home.automatic()).toBe(1);
+        expect(home.chosen).toEqual([]);
+      });
+
+      it('follows Settings adding and removing the first stage\'s rule', () => {
+        const home = scene([], { starting: grok, text: 'hello' });
+        expect(agentChooser(home).textContent?.trim()).toBe('Claude');
+        home.fixture.componentInstance.workflows = RULED_WORKFLOWS;
+        home.fixture.detectChanges();
+        expect(agentChooser(home).textContent?.trim()).toBe('Auto · Grok · Grok 4.6 · Medium');
+        button(home, 'Run').click();
+        home.fixture.componentInstance.workflows = TEST_WORKFLOWS;
+        home.fixture.detectChanges();
+        expect(agentChooser(home).textContent?.trim()).toBe('Claude');
+        home.fixture.componentInstance.sending = false;
+        type(home, 'again');
+        button(home, 'Run').click();
+        expect(home.started.map((request) => request.choice)).toEqual([null, { agent: 'claude', model: null, effort: null }]);
+      });
     });
 
     it('disables the chooser when no agent is installed', () => {

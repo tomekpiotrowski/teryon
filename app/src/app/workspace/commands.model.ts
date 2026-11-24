@@ -9,8 +9,10 @@
  */
 
 import type { Opener } from '../service/protocol';
+import { homeAgentState } from './home.model';
 import {
   type AgentName,
+  AGENTS,
   agentLabel,
   allowedThreadAgents,
   allChoices,
@@ -25,6 +27,7 @@ import {
   resolveChoice,
   type Starting,
   firstStageChooses,
+  firstStageRule,
   isBareLetter,
   isQuiet,
   type KeyPress,
@@ -37,6 +40,7 @@ import {
   type Screen,
   reviewersFor,
   sameChoice,
+  startingChoice,
   type Thread,
   threadChoice,
   threadLabel,
@@ -62,6 +66,8 @@ export type CommandAction =
   | { readonly kind: 'newProject' }
   | { readonly kind: 'removeProject'; readonly project: Project }
   | { readonly kind: 'useChoice'; readonly choice: Choice }
+  /** Lets the first stage choose new threads' agent again, after a manual pick. */
+  | { readonly kind: 'useAutomatic' }
   | { readonly kind: 'useChoiceInThread'; readonly thread: Thread; readonly to: Voice; readonly choice: Choice }
   | { readonly kind: 'toggleTheme' }
   | { readonly kind: 'stopAgent'; readonly thread: Thread }
@@ -249,6 +255,10 @@ export function commandList(situation: Situation): Command[] {
   const current = situation.newThreads.picked || !firstStageChooses(situation.workflows)
     ? resolveChoice(chosen(situation.newThreads), situation.models) : null;
   const active = current ?? resolveChoice(pendingChoice(situation.newThreads, situation.starting ?? null), situation.models);
+  const rule = firstStageRule(situation.workflows);
+  if (rule && situation.newThreads.picked) {
+    actions.push(command('action:use:automatic', 'Use automatic selection for new threads', 'action', { kind: 'useAutomatic' }, { detail: rule }));
+  }
   actions.push(
     ...availableChoices(situation)
       .filter((choice) => current === null || !sameChoice(choice, current))
@@ -445,11 +455,18 @@ function changeCommands(situation: Situation): Command[] {
  * A command is not sent at once, because many take something after their
  * name. The list is the one the agent program gave for the open thread.
  * A thread that is yet to start has none, so it borrows the list of the
- * newest thread with the same agent: from the same project if there is
+ * newest thread with the agent Home shows: from the same project if there is
  * one, because a project can bring commands of its own, else from any.
  */
 function agentCommands(situation: Situation): Command[] {
-  const agent = situation.thread?.agent ?? situation.newThreads.agent;
+  const agent = situation.thread?.agent ?? homeAgentState(
+    situation.installed ?? AGENTS,
+    situation.models,
+    situation.workflows,
+    startingChoice(situation.newThreads),
+    situation.starting ?? null,
+  ).choice?.agent;
+  if (!agent) return [];
   return offeredNames(situation, agent).map((name) =>
     command(`agent:${name}`, `/${name}`, 'agent', { kind: 'draft', text: `/${name} ` }, { detail: `${agentLabel(agent)} command` }),
   );

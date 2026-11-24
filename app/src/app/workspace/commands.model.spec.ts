@@ -38,16 +38,16 @@ function press(overrides: Partial<KeyPress> = {}): KeyPress {
   return { key: '/', ctrlKey: false, metaKey: false, altKey: false, element: 'BODY', editable: false, ...overrides };
 }
 
-/** What a spec changes about the situation; `agent` stands for the agent of new threads. */
+/** What a spec changes about the situation; `agent` is a manual pick for new threads. */
 type Changes = Partial<Situation> & { readonly agent?: AgentName };
 
 function situation(overrides: Changes = {}): Situation {
-  const { agent = 'claude', ...rest } = overrides;
+  const { agent, ...rest } = overrides;
   return {
     groups: [],
     project: null,
     thread: null,
-    newThreads: { ...FIRST_NEW_THREADS, agent },
+    newThreads: agent ? { ...FIRST_NEW_THREADS, agent, picked: true } : FIRST_NEW_THREADS,
     models: NO_MODELS,
     to: 'author',
     theme: 'light',
@@ -69,6 +69,10 @@ const older = thread('t1', 'a', '2026-11-03T10:00:00');
 const newest = thread('t2', 'bb', '2026-11-05T10:00:00', { status: 'running' });
 const untitled = thread('t3', 'a', '2026-11-04T10:00:00', { title: '' });
 const groups = groupThreads([first, second], [older, newest, untitled]);
+const ruled: Workflows = {
+  ...NO_WORKFLOWS,
+  labels: NO_WORKFLOWS.labels.map((label) => (label.stage === 'talking' ? { ...label, chooses: 'Any · medium' } : label)),
+};
 
 /** The titles of the commands that pick an agent and model for new threads. */
 function choiceTitles(given: Situation): string[] {
@@ -261,7 +265,9 @@ describe('commandList', () => {
     const compacting = { ...older, commands: ['compact', 'user:plan'] };
     const reviewing = { ...newest, commands: ['review'] };
     const grokking = thread('t5', 'a', '2026-11-01T10:00:00', { agent: 'grok', commands: ['goal'] });
-    const known = groupThreads([first, second], [compacting, reviewing, untitled, grokking]);
+    const resuming = thread('t8', 'a', '2026-11-01T10:00:00', { agent: 'codex', commands: ['resume'] });
+    const known = groupThreads([first, second], [compacting, reviewing, untitled, grokking, resuming]);
+    const starting = { type: 'provider', agent: 'grok', model: null, effort: null } as const;
 
     function agentRows(overrides: Changes): [string, string, string][] {
       return commandList(situation({ groups: known, ...overrides }))
@@ -301,6 +307,33 @@ describe('commandList', () => {
       expect(agentRows({ groups: [], project: null })).toEqual([]);
     });
 
+    it('are borrowed for the agent the first stage picked while it chooses', () => {
+      expect(agentRows({ project: first, workflows: ruled, starting }).map(([id]) => id)).toEqual(['agent:goal']);
+      expect(agentRows({ project: first, workflows: ruled, starting, agent: 'codex' }).map(([id]) => id)).toEqual(['agent:resume']);
+    });
+
+    it('follow the automatic pick when the saved manual agent is no longer installed', () => {
+      const rows = agentRows({ project: first, workflows: ruled, starting, agent: 'codex', installed: ['claude', 'grok'] });
+      expect(rows).toEqual([['agent:goal', '/goal', 'Grok command']]);
+    });
+
+    it('follow the Home default when automatic mode has no rule, even with a remembered agent', () => {
+      const newThreads: NewThreads = { ...FIRST_NEW_THREADS, agent: 'codex' };
+      expect(agentRows({ project: first, newThreads }).map(([id]) => id)).toEqual(['agent:compact', 'agent:user:plan']);
+      expect(agentRows({ project: first, newThreads, starting, installed: ['grok', 'codex'] }).map(([id]) => id)).toEqual(['agent:resume']);
+    });
+
+    it.each([null, { type: 'unavailable', problem: 'No provider can work.' }] as const)(
+      'are absent while the automatic agent is unknown or unavailable (%j)',
+      (starting) => {
+        expect(agentRows({ project: first, workflows: ruled, starting })).toEqual([]);
+      },
+    );
+
+    it('are absent when no agent is installed and there is no rule', () => {
+      expect(agentRows({ project: first, installed: [] })).toEqual([]);
+    });
+
     it('are found by their name with or without the slash', () => {
       const commands = commandList(situation({ groups: known, project: first, thread: compacting }));
       expect(matching(commands, '/comp')[0].id).toBe('agent:compact');
@@ -316,6 +349,25 @@ describe('commandList', () => {
     ['gemini', ['Use Claude for new threads', 'Use Codex for new threads', 'Use Grok for new threads']],
   ] as const)('with %s chosen offers each other agent on its default', (agent, titles) => {
     expect(choiceTitles(situation({ agent }))).toEqual(titles);
+  });
+
+  describe('going back to automatic selection', () => {
+    const automatic = (given: Situation) => commandList(given).filter((candidate) => candidate.action.kind === 'useAutomatic');
+    const picked = { ...FIRST_NEW_THREADS, agent: 'codex' as const, picked: true };
+
+    it('is offered after a manual pick while the first stage chooses, with the stage\'s rule', () => {
+      expect(automatic(situation({ workflows: ruled, newThreads: picked }))).toEqual([
+        expect.objectContaining({ id: 'action:use:automatic', title: 'Use automatic selection for new threads', detail: 'Any · medium', action: { kind: 'useAutomatic' } }),
+      ]);
+    });
+
+    it('is not offered while the first stage already chooses', () => {
+      expect(automatic(situation({ workflows: ruled }))).toEqual([]);
+    });
+
+    it.each([FIRST_NEW_THREADS, picked])('is not offered when the first stage keeps the thread\'s agent (%j)', (newThreads) => {
+      expect(automatic(situation({ newThreads }))).toEqual([]);
+    });
   });
 
   it('switches to the agent and model a command names', () => {

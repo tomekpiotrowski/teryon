@@ -14,7 +14,7 @@ use std::sync::MutexGuard;
 
 use chrono::Utc;
 use serde_json::json;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use super::{Inner, Workspace, WorkspaceError};
@@ -281,6 +281,9 @@ impl Inner {
                 .map(|pick| pick.agent),
         };
         **held = self.stage_pick_after(earlier, first, None, None);
+        if let (true, Some(Ok(pick))) = (fresh, held.as_ref()) {
+            debug!(agent = pick.agent.name(), reason = %pick.why, "Selected the next automatic starting agent");
+        }
         let now = starting_of(held.as_ref());
         if now != shown {
             self.announce(Event::StartingChanged { starting: now });

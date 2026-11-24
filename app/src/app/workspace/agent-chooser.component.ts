@@ -14,10 +14,21 @@ interface Option {
   readonly label: string;
   readonly next: boolean;
   readonly selected: boolean;
+  /** Whether a line sets it apart from the options after it. */
+  readonly separated: boolean;
   readonly choose: () => void;
 }
 
-/** Chooses an installed provider, its versioned model, and an effort in one menu. */
+/** The identifier of the Automatic option, which no agent shares. */
+const AUTOMATIC = 'automatic';
+
+/**
+ * Chooses an installed provider, its versioned model, and an effort in one menu.
+ *
+ * On Home it also offers Automatic, which lets the default workflow's first
+ * stage choose new threads' agent. While Automatic is on, the button reads
+ * `Auto · ` and the pick the next thread starts with.
+ */
 @Component({
   selector: 'app-agent-chooser',
   templateUrl: './agent-chooser.component.html',
@@ -33,7 +44,15 @@ export class AgentChooserComponent implements OnChanges {
   @Input() allowedAgents: readonly AgentName[] = AGENTS;
   @Input() placement: 'down' | 'up' = 'down';
   @Input() disabled = false;
+  /** Whether Automatic is offered above the agents. */
+  @Input() allowAutomatic = false;
+  /** Whether Automatic is on, so `choice` is the first stage's pick rather than the person's. */
+  @Input() automatic = false;
+  /** Why the first stage can pick no agent, shown on hover while Automatic is on. */
+  @Input() unavailableReason: string | null = null;
   @Output() readonly chosen = new EventEmitter<Choice>();
+  /** The person chose Automatic. */
+  @Output() readonly automaticChosen = new EventEmitter<void>();
 
   @ViewChild('trigger') private trigger?: ElementRef<HTMLButtonElement>;
   @ViewChild('list') private list?: ElementRef<HTMLElement>;
@@ -47,10 +66,12 @@ export class AgentChooserComponent implements OnChanges {
     const active = this.choice && resolveChoice(this.choice, this.models);
     const level = step?.level ?? 'agent';
     const model = step?.level === 'effort' ? this.models[step.agent].find((model) => model.id === step.model) : undefined;
+    const label = this.label();
     return {
       open: step !== null,
       disabled: this.disabled || !agents.length,
-      label: this.choice ? choiceLabel(this.choice, this.models) : 'No agent',
+      label,
+      title: this.automatic && this.unavailableReason ? this.unavailableReason : label,
       listLabel: level === 'effort' ? 'Effort' : level === 'model' ? 'Model' : 'Agent',
       back: step?.level === 'model' ? 'Agents' : model?.label,
       options: this.options(step, agents, active, model),
@@ -132,18 +153,36 @@ export class AgentChooserComponent implements OnChanges {
     }
   }
 
+  /** The button's words: the choice, with `Auto · ` in front while the first stage chooses. */
+  private label(): string {
+    const choice = this.choice ? choiceLabel(this.choice, this.models) : null;
+    if (!this.allowAutomatic || !this.automatic) return choice ?? 'No agent';
+    if (choice) return `Auto · ${choice}`;
+    return this.unavailableReason ? 'Auto · Unavailable' : 'Auto';
+  }
+
   /** Projects only the active list, including the current choice or catalog default. */
   private options(step: Step | null, agents: readonly AgentName[], active: Choice | null, model?: ModelOption): Option[] {
     if (!step || step.level === 'agent') {
-      return agents.map((agent) => ({
+      const automatic = this.allowAutomatic && this.automatic;
+      const first: Option[] = this.allowAutomatic ? [{
+        id: AUTOMATIC,
+        label: 'Automatic',
+        next: false,
+        selected: automatic,
+        separated: true,
+        choose: () => this.chooseAutomatic(),
+      }] : [];
+      return [...first, ...agents.map((agent) => ({
         id: agent,
         label: agentLabel(agent),
         next: this.models[agent].length > 0,
-        selected: agent === active?.agent,
+        selected: !automatic && agent === active?.agent,
+        separated: false,
         choose: () => this.models[agent].length
           ? this.show({ level: 'model', agent })
           : this.pick({ agent, model: null, effort: null }),
-      }));
+      }))];
     }
     const agent = step.agent;
     if (step.level === 'model') {
@@ -155,6 +194,7 @@ export class AgentChooserComponent implements OnChanges {
         label: option.label,
         next: option.efforts.length > 0,
         selected: option.id === preferred,
+        separated: false,
         choose: () => option.efforts.length
           ? this.show({ level: 'effort', agent, model: option.id })
           : this.pick({ agent, model: option.id, effort: null }),
@@ -169,6 +209,7 @@ export class AgentChooserComponent implements OnChanges {
       label: effortLabel(effort),
       next: false,
       selected: effort === preferred,
+      separated: false,
       choose: () => this.pick({ agent, model: model.id, effort }),
     }));
   }
@@ -189,6 +230,12 @@ export class AgentChooserComponent implements OnChanges {
   private pick(choice: Choice): void {
     this.close(true);
     this.chosen.emit(choice);
+  }
+
+  /** Goes back to letting the first stage choose, and returns keyboard focus to the trigger. */
+  private chooseAutomatic(): void {
+    this.close(true);
+    this.automaticChosen.emit();
   }
 
   /** Dismisses the menu and optionally returns focus to the trigger. */

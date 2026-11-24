@@ -15,6 +15,8 @@ function create() {
   const host: HTMLElement = fixture.nativeElement;
   const emitted: Choice[] = [];
   fixture.componentInstance.chosen.subscribe((choice) => emitted.push(choice));
+  let automaticChosen = 0;
+  fixture.componentInstance.automaticChosen.subscribe(() => automaticChosen++);
   const input = (name: string, value: unknown) => {
     fixture.componentRef.setInput(name, value);
     fixture.detectChanges();
@@ -34,7 +36,8 @@ function create() {
     document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true }));
     fixture.detectChanges();
   };
-  return { fixture, input, host, emitted, trigger, options, option, level, click, key };
+  const labels = () => options().map((row) => row.firstElementChild?.textContent);
+  return { fixture, input, host, emitted, automaticChosen: () => automaticChosen, trigger, options, option, level, labels, click, key };
 }
 
 describe('AgentChooserComponent', () => {
@@ -128,5 +131,92 @@ describe('AgentChooserComponent', () => {
     expect(chooser.level()).toBe('Model');
     expect(chooser.option('Sonnet 5.5')).toBeDefined();
     expect(chooser.emitted).toEqual([]);
+  });
+
+  describe('Automatic', () => {
+    it('is not offered unless allowed, and the button never reads Auto', () => {
+      const chooser = create();
+      chooser.input('automatic', true);
+      expect(chooser.trigger.textContent?.trim()).toBe('Claude · Opus 5.5 · Medium');
+      chooser.click(chooser.trigger);
+      expect(chooser.labels()).toEqual(['Claude', 'Codex', 'Gemini']);
+      expect(chooser.option('Claude').getAttribute('aria-selected')).toBe('true');
+    });
+
+    it('is offered first and selected while on, with the first stage\'s pick behind Auto', async () => {
+      const chooser = create();
+      chooser.input('allowAutomatic', true);
+      chooser.input('automatic', true);
+      expect(chooser.trigger.textContent?.trim()).toBe('Auto · Claude · Opus 5.5 · Medium');
+      expect(chooser.trigger.title).toBe('Auto · Claude · Opus 5.5 · Medium');
+      chooser.click(chooser.trigger);
+      await chooser.fixture.whenStable();
+      expect(chooser.labels()).toEqual(['Automatic', 'Claude', 'Codex', 'Gemini']);
+      expect(chooser.options().filter((row) => row.getAttribute('aria-selected') === 'true')).toEqual([chooser.option('Automatic')]);
+      expect(chooser.option('Automatic').classList).toContain('agent-separated');
+      expect(document.activeElement).toBe(chooser.option('Automatic'));
+    });
+
+    it('is offered unselected while a manual pick is on', () => {
+      const chooser = create();
+      chooser.input('allowAutomatic', true);
+      expect(chooser.trigger.textContent?.trim()).toBe('Claude · Opus 5.5 · Medium');
+      chooser.click(chooser.trigger);
+      expect(chooser.option('Automatic').getAttribute('aria-selected')).toBe('false');
+      expect(chooser.option('Claude').getAttribute('aria-selected')).toBe('true');
+    });
+
+    it.each<{ reason: string | null; label: string; title: string }>([
+      { reason: 'All agents are at their limits.', label: 'Auto · Unavailable', title: 'All agents are at their limits.' },
+      { reason: null, label: 'Auto', title: 'Auto' },
+    ])('reads $label without a pick, with the reason on hover', ({ reason, label, title }) => {
+      const chooser = create();
+      chooser.input('allowAutomatic', true);
+      chooser.input('automatic', true);
+      chooser.input('choice', null);
+      chooser.input('unavailableReason', reason);
+      expect(chooser.trigger.textContent?.trim()).toBe(label);
+      expect(chooser.trigger.title).toBe(title);
+      expect(chooser.trigger.disabled).toBe(false);
+    });
+
+    it('reports Automatic on click and returns focus to the button', () => {
+      const chooser = create();
+      chooser.input('allowAutomatic', true);
+      chooser.click(chooser.trigger);
+      chooser.click(chooser.option('Automatic'));
+      expect(chooser.automaticChosen()).toBe(1);
+      expect(chooser.emitted).toEqual([]);
+      expect(chooser.level()).toBeUndefined();
+      expect(document.activeElement).toBe(chooser.trigger);
+    });
+
+    it('is chosen with the keyboard, and ignores the right arrow', async () => {
+      const chooser = create();
+      chooser.input('allowAutomatic', true);
+      chooser.input('automatic', true);
+      chooser.trigger.focus();
+      chooser.key('ArrowDown');
+      await chooser.fixture.whenStable();
+      expect(document.activeElement).toBe(chooser.option('Automatic'));
+      chooser.key('ArrowRight');
+      expect(chooser.level()).toBe('Agent');
+      expect(chooser.automaticChosen()).toBe(0);
+      (document.activeElement as HTMLButtonElement).click();
+      chooser.fixture.detectChanges();
+      expect(chooser.automaticChosen()).toBe(1);
+    });
+
+    it('lets a manual model be picked while on', () => {
+      const chooser = create();
+      chooser.input('allowAutomatic', true);
+      chooser.input('automatic', true);
+      chooser.click(chooser.trigger);
+      chooser.click(chooser.option('Claude'));
+      chooser.click(chooser.option('Sonnet 5.5'));
+      chooser.click(chooser.option('High'));
+      expect(chooser.emitted).toEqual([{ agent: 'claude', model: SONNET.id, effort: 'high' }]);
+      expect(chooser.automaticChosen()).toBe(0);
+    });
   });
 });

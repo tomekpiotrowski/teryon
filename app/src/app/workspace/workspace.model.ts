@@ -255,10 +255,19 @@ export function pendingChoice(newThreads: NewThreads, starting: Starting | null)
   return chosen(newThreads);
 }
 
+/**
+ * The rule the default workflow's first stage chooses new threads' agent by, such as `Any · medium`.
+ *
+ * Nothing when the first stage keeps the thread's agent.
+ */
+export function firstStageRule(workflows: Workflows): string | null {
+  const first = defaultWorkflow(workflows).stages[0] ?? 'talking';
+  return workflows.labels.find((label) => label.stage === first)?.chooses ?? null;
+}
+
 /** Whether the workflow's first stage chooses the agent of new threads. */
 export function firstStageChooses(workflows: Workflows): boolean {
-  const first = defaultWorkflow(workflows).stages[0] ?? 'talking';
-  return Boolean(workflows.labels.find((label) => label.stage === first)?.chooses);
+  return Boolean(firstStageRule(workflows));
 }
 
 /** The agent and model a new thread starts with. */
@@ -309,6 +318,17 @@ export function choosing(newThreads: NewThreads, choice: Choice): NewThreads {
     else delete efforts[key];
   }
   return { agent: choice.agent, models: { ...newThreads.models, [choice.agent]: choice.model }, efforts, picked: true };
+}
+
+/**
+ * Lets the first stage choose new threads' agent again.
+ *
+ * A manual pick lasts until the person goes back to automatic selection. The
+ * models and efforts remembered for each agent stay, for reviews and for the
+ * next manual pick.
+ */
+export function choosingAutomatic(newThreads: NewThreads): NewThreads {
+  return { ...newThreads, picked: false };
 }
 
 /** Reads the stored choice, dropping malformed values and the old storage shape. */

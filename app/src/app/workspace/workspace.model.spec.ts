@@ -10,10 +10,13 @@ import {
   choicesOf,
   chosen,
   choosing,
+  choosingAutomatic,
   FIRST_NEW_THREADS,
   firstStageChooses,
+  firstStageRule,
   pendingChoice,
   readNewThreads,
+  rememberedChoice,
   startingChoice,
   modelLabel,
   sameChoice,
@@ -491,6 +494,51 @@ describe('choices', () => {
     expect(pendingChoice(FIRST_NEW_THREADS, { type: 'unavailable', problem: 'x' })).toEqual({ agent: 'claude', model: null, effort: null });
     expect(firstStageChooses(choosingTalk)).toBe(true);
     expect(firstStageChooses(STAGE_DEFAULTS)).toBe(false);
+  });
+
+  describe('firstStageRule', () => {
+    const talkChooses: Workflows = {
+      ...STAGE_DEFAULTS,
+      labels: STAGE_DEFAULTS.labels.map((label) => (label.stage === 'talking' ? { ...label, chooses: 'Any · medium' } : label)),
+    };
+
+    it('gives the rule of the default workflow\'s first stage', () => {
+      expect(firstStageRule(talkChooses)).toBe('Any · medium');
+    });
+
+    it('gives nothing when the first stage keeps the thread\'s agent', () => {
+      expect(firstStageRule(STAGE_DEFAULTS)).toBeNull();
+    });
+
+    it('follows a custom default workflow whose first stage is another', () => {
+      const planFirst: Workflows = {
+        ...talkChooses,
+        default: 'quick',
+        workflows: [...talkChooses.workflows, { name: 'quick', description: '', stages: ['planning', 'implementing', 'ready', 'done'] }],
+      };
+      expect(firstStageRule(planFirst)).toBeNull();
+      expect(firstStageChooses(planFirst)).toBe(false);
+      const planChooses: Workflows = {
+        ...planFirst,
+        labels: planFirst.labels.map((label) => (label.stage === 'planning' ? { ...label, chooses: 'Only Codex' } : label)),
+      };
+      expect(firstStageRule(planChooses)).toBe('Only Codex');
+      expect(firstStageChooses(planChooses)).toBe(true);
+    });
+  });
+
+  describe('choosingAutomatic', () => {
+    it('lets the first stage choose again after a pick, keeping remembered models and efforts', () => {
+      const picked = choosing(FIRST_NEW_THREADS, { agent: 'codex', model: 'gpt-6-astra', effort: 'high' });
+      const automatic = choosingAutomatic(picked);
+      expect(automatic).toEqual({ ...picked, picked: false });
+      expect(startingChoice(automatic)).toBeNull();
+      expect(rememberedChoice(automatic, 'codex')).toEqual({ agent: 'codex', model: 'gpt-6-astra', effort: 'high' });
+    });
+
+    it('changes nothing while the first stage already chooses', () => {
+      expect(choosingAutomatic(FIRST_NEW_THREADS)).toEqual(FIRST_NEW_THREADS);
+    });
   });
 
   it('updates the selected agent’s model and keeps the previous agent’s model', () => {

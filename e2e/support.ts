@@ -35,7 +35,7 @@ interface Service {
 }
 
 /** Starts a service in a fresh home folder, with `more` added to its settings, and waits for the address it prints. */
-async function startService(origin: string, more: string): Promise<Service> {
+async function startService(origin: string, more: string, serviceLog: string | undefined): Promise<Service> {
   const home = mkdtempSync(join(tmpdir(), "teryon-e2e-"));
   mkdirSync(join(home, "config"), { recursive: true });
   const catalog = join(home, "claude", "cache", "model-catalog");
@@ -70,6 +70,7 @@ async function startService(origin: string, more: string): Promise<Service> {
     ].join("\n"),
   );
   const child = spawn(program, ["--home", home, "service", "--print-address", `${origin}/`], {
+    env: { ...process.env, TERYON_LOG: serviceLog ?? process.env.TERYON_LOG },
     stdio: ["ignore", "pipe", "inherit"],
   });
   const lines = createInterface({ input: child.stdout! });
@@ -93,11 +94,13 @@ async function stopService(service: Service): Promise<void> {
  *
  * `settings` is added to the service's `config.toml`, for a test that needs
  * more than the fake agents: `test.use({ settings: "[stages.review]\n…" })`.
+ * `serviceLog` sets the log filter when a test needs to observe service decisions.
  */
-export const test = base.extend<{ service: Service; settings: string }>({
+export const test = base.extend<{ service: Service; settings: string; serviceLog: string | undefined }>({
   settings: ["", { option: true }],
-  service: async ({ baseURL, settings }, use) => {
-    const service = await startService(appOrigin(baseURL), settings);
+  serviceLog: [undefined, { option: true }],
+  service: async ({ baseURL, settings, serviceLog }, use) => {
+    const service = await startService(appOrigin(baseURL), settings, serviceLog);
     await use(service);
     await stopService(service);
   },

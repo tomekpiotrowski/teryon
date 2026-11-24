@@ -3,14 +3,14 @@ import { BehaviorSubject, combineLatest, distinctUntilChanged, map, type Observa
 import {
   type HomeChoice,
   type HomeRow,
-  homeChoices,
   homeList,
   type HomeList,
   NO_HOME_CHOICE,
   readHomeChoice,
   runningLines,
   type RunningLines,
-  startChoice,
+  homeAgentState,
+  type HomeAgentState,
   startProject,
 } from './home.model';
 import { stepped } from './commands.model';
@@ -18,7 +18,6 @@ import {
   type Choice,
   composerAction,
   FIRST_NEW_THREADS,
-  firstStageChooses,
   insertNewline,
   type ModelLists,
   type NewThreads,
@@ -56,8 +55,8 @@ interface HomeView {
   readonly installed: readonly string[];
   readonly models: ModelLists;
   readonly remembered: NewThreads;
-  /** The choice displayed on the button. */
-  readonly choice: Choice | null;
+  /** What the agent chooser shows and a new thread asks for. */
+  readonly agent: HomeAgentState;
   readonly chooser: Chooser;
   /** Which row of the list is marked. Nothing while the prompt has the keys. */
   readonly cursor: number | null;
@@ -89,6 +88,8 @@ export class HomeComponent {
   @Output() readonly shortcutsOpened = new EventEmitter<void>();
   /** An agent and model were chosen for new threads. */
   @Output() readonly choiceChosen = new EventEmitter<Choice>();
+  /** The person went back to letting the first stage choose new threads' agent. */
+  @Output() readonly automaticChosen = new EventEmitter<void>();
   /** The prompt's text changed by typing, or by Home itself when it sends or clears it. */
   @Output() readonly textChanged = new EventEmitter<string>();
 
@@ -164,18 +165,18 @@ export class HomeComponent {
     this.sending$.next(sending);
   }
 
-  private readonly rest$: Observable<Pick<HomeView, 'list' | 'running' | 'projects' | 'project' | 'installed' | 'models' | 'choice'>> = combineLatest([
+  private readonly rest$: Observable<Pick<HomeView, 'list' | 'running' | 'projects' | 'project' | 'installed' | 'models' | 'agent'>> = combineLatest([
     this.groups$,
     this.installed$,
     this.models$,
+    this.workflows$,
     this.starting$,
     this.picked$,
     this.open$,
     this.choice$,
   ]).pipe(
-    map(([groups, installed, models, starting, picked, open, choice]) => {
+    map(([groups, installed, models, workflows, starting, picked, open, choice]) => {
       const projects = groups.map((group) => group.project);
-      const choices = homeChoices(installed, models);
       return {
         list: homeList(groups),
         running: runningLines(groups),
@@ -183,7 +184,7 @@ export class HomeComponent {
         project: startProject(projects, choice, open),
         installed,
         models,
-        choice: startChoice(choices, picked, starting, models),
+        agent: homeAgentState(installed, models, workflows, picked, starting),
       };
     }),
   );
@@ -314,11 +315,8 @@ export class HomeComponent {
     const project = startProject(projects, this.choice$.value, this.open$.value);
     if (!project) return;
     const workflows = this.workflows$.value;
-    const models = this.models$.value;
-    const picked = this.picked$.value;
-    const useFirstStage = !picked && firstStageChooses(workflows);
-    const choice = useFirstStage ? null : startChoice(homeChoices(this.installed$.value, models), picked, this.starting$.value, models);
-    this.started.emit({ projectId: project.id, workflow: workflows.default, text, choice });
+    const { sendChoice } = homeAgentState(this.installed$.value, this.models$.value, workflows, this.picked$.value, this.starting$.value);
+    this.started.emit({ projectId: project.id, workflow: workflows.default, text, choice: sendChoice });
   }
 
   chooseProject(project: Project): void {

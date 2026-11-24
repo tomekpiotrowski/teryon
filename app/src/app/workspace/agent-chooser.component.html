@@ -1,7 +1,7 @@
 @if (view$ | async; as view) {
   <div class="agent-chooser" [class.up]="placement === 'up'" (keydown)="key($event)">
     <button #trigger type="button" class="agent-trigger" aria-haspopup="listbox"
-      [attr.aria-expanded]="view.open" [disabled]="view.disabled" [title]="view.label" (click)="toggle()">
+      [attr.aria-expanded]="view.open" [disabled]="view.disabled" [title]="view.title" (click)="toggle()">
       <span>{{ view.label }}</span>
       <svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 4l2.5 2.5L7.5 4"></path></svg>
     </button>
@@ -13,7 +13,7 @@
         <div #list class="agent-options" role="listbox" [attr.aria-label]="view.listLabel">
           @for (option of view.options; track option.id) {
             <button type="button" role="option" tabindex="-1" [attr.aria-selected]="option.selected"
-              [attr.data-id]="option.id" [attr.data-next]="option.next" (click)="option.choose()">
+              [attr.data-id]="option.id" [attr.data-next]="option.next" [class.agent-separated]="option.separated" (click)="option.choose()">
               <span>{{ option.label }}</span>
               @if (option.next) { <span aria-hidden="true">›</span> }
             </button>

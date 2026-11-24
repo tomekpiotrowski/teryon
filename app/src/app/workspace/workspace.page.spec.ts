@@ -411,6 +411,22 @@ describe('WorkspacePage', () => {
       expect(JSON.parse(localStorage.getItem('teryon.newThreads')!)).toEqual(page.newThreads$.value);
       subscription.unsubscribe();
     });
+
+    it.each(['Home', 'menu'])('goes back to automatic selection from the %s, keeping remembered models and efforts', (from) => {
+      const picked = vi.fn();
+      const subscription = page.pickedChoice$.subscribe(picked);
+      const codex: Choice = { agent: 'codex', model: 'gpt-6-astra', effort: 'high' };
+      page.chooseForNewThreads(codex);
+      const manual = page.newThreads$.value;
+
+      if (from === 'Home') page.chooseAutomaticForNewThreads();
+      else page.run({ id: 'action:use:automatic', title: 'x', detail: '', group: 'action', key: null, leader: null, live: false, asking: false, badge: '', action: { kind: 'useAutomatic' } });
+
+      expect(picked).toHaveBeenLastCalledWith(null);
+      expect(page.newThreads$.value).toEqual({ ...manual, picked: false });
+      expect(JSON.parse(localStorage.getItem('teryon.newThreads')!)).toEqual({ ...manual, picked: false });
+      subscription.unsubscribe();
+    });
   });
 
   describe('Home', () => {

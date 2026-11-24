@@ -5,6 +5,8 @@
 // so. Nothing here reaches a model provider.
 
 import type { Page } from "@playwright/test";
+import { readFile, readdir } from "node:fs/promises";
+import { join } from "node:path";
 
 import { addProject, agentChooser, choose, chooseAgent, commit, expect, git, menu, openWorkspace, put, test } from "./support";
 
@@ -130,22 +132,23 @@ test("a thread starts with the agent chosen on Home", async ({ page }) => {
 test.describe("with Grok configured for the first stage", () => {
   test.use({ settings: '[stages.talking]\nprovider = "only grok"\n' });
 
-  test("Home shows the first stage's agent and plain chooser labels", async ({ page }) => {
+  test("Home shows the first stage's agent behind Auto and plain chooser labels", async ({ page }) => {
     await addProject(page, "Sample");
 
     const project = home(page).getByRole("button", { name: "Sample", exact: true });
     const agent = agentChooser(page);
     const prompt = page.getByLabel("New thread");
     await expect(project).toBeVisible();
-    await expect(agent).toHaveAccessibleName("Grok · Grok 4.7 · Medium");
+    await expect(agent).toHaveAccessibleName("Auto · Grok · Grok 4.7 · Medium");
 
     await prompt.fill("use tools");
     await agent.click();
     const choices = home(page).getByRole("listbox", { name: "Agent", exact: true });
-    await expect(choices.getByRole("option").locator("span:first-child")).toHaveText(["Claude", "Codex", "Grok", "Gemini"]);
-    const grok = choices.getByRole("option", { name: "Grok", exact: true });
-    await expect(grok).toHaveAttribute("aria-selected", "true");
-    await grok.focus();
+    await expect(choices.getByRole("option").locator("span:first-child")).toHaveText(["Automatic", "Claude", "Codex", "Grok", "Gemini"]);
+    const automatic = choices.getByRole("option", { name: "Automatic", exact: true });
+    await expect(automatic).toHaveAttribute("aria-selected", "true");
+    await expect(choices.getByRole("option", { name: "Grok", exact: true })).toHaveAttribute("aria-selected", "false");
+    await expect(automatic).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(choices).toBeHidden();
     await expect(agent).toBeFocused();
@@ -158,6 +161,91 @@ test.describe("with Grok configured for the first stage", () => {
     await prompt.press("Enter");
     await expect(agentChooser(page, true)).toHaveAccessibleName("Grok · Grok 4.7 · Medium");
     await expect(page.getByText("run_terminal_command  Count bytes in note.txt")).toBeVisible();
+  });
+});
+
+test.describe("with a rule for the first stage", () => {
+  test.use({ settings: '[stages.talking]\nprovider = "only grok"\n' });
+
+  test("a manual pick lasts until Automatic is chosen again", async ({ page }) => {
+    await addProject(page, "Sample");
+    const agent = agentChooser(page);
+    await expect(agent).toHaveAccessibleName("Auto · Grok · Grok 4.7 · Medium");
+    await page.keyboard.press("Control+k");
+    await expect(menu(page).getByRole("option", { name: /^Use automatic selection/ })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+
+    // A manual pick drops Auto, and stays through a thread, Home and a reload.
+    await chooseAgent(page, "Codex");
+    await expect(agent).toHaveAccessibleName(/^Codex/);
+    await startAndReturn(page, "first manual");
+    await expect(agent).toHaveAccessibleName(/^Codex/);
+    await page.reload();
+    await expect(agent).toHaveAccessibleName(/^Codex/);
+
+    // Automatic from the dropdown brings the first stage's pick back.
+    await agent.click();
+    await home(page).getByRole("option", { name: "Automatic", exact: true }).click();
+    await expect(agent).toHaveAccessibleName("Auto · Grok · Grok 4.7 · Medium");
+    await expect(agent).toBeFocused();
+    await page.getByLabel("New thread").fill("use tools");
+    await page.getByLabel("New thread").press("Enter");
+    await expect(agentChooser(page, true)).toHaveAccessibleName("Grok · Grok 4.7 · Medium");
+    await expect(page.getByText("run_terminal_command  Count bytes in note.txt")).toBeVisible();
+    await expect(page.getByText(/is working…/)).toHaveCount(0);
+    await goHome(page);
+    await expect(agent).toHaveAccessibleName("Auto · Grok · Grok 4.7 · Medium");
+
+    // So does the command, offered with the stage's rule only while a manual pick is on.
+    await chooseAgent(page, "Claude");
+    await expect(agent).toHaveAccessibleName(/^Claude/);
+    await page.keyboard.press("Control+k");
+    await expect(menu(page).getByRole("option", { name: /^Use automatic selection for new threads/ })).toContainText("Only Grok");
+    await page.keyboard.press("Escape");
+    await choose(page, "Use automatic selection for new threads");
+    await expect(agent).toHaveAccessibleName("Auto · Grok · Grok 4.7 · Medium");
+  });
+});
+
+test.describe("with any agent for the first stage", () => {
+  test.use({
+    settings: '[stages.talking]\nprovider = "any"\namong = ["claude", "grok"]\n',
+    serviceLog: "teryon_core::workspace::stages=debug",
+  });
+
+  test("Home shows the next automatic pick after each thread", async ({ page, service }) => {
+    await addProject(page, "Sample");
+    const agent = agentChooser(page);
+    const labels = new Map([
+      ["claude", "Claude · Sonnet 5.5 · Medium"],
+      ["grok", "Grok · Grok 4.7 · Medium"],
+    ]);
+    await expect(agent).toHaveAccessibleName(/^Auto · (Claude|Grok)/);
+
+    // A fresh draw can repeat, in which case the service has no change to announce.
+    // Read its decision for each start and check that Home shows that result.
+    const logs = join(service.home, "logs");
+    const picks = async () => {
+      const files = (await readdir(logs)).sort();
+      const contents = await Promise.all(files.map((file) => readFile(join(logs, file), "utf8")));
+      return contents.flatMap((log) =>
+        Array.from(log.matchAll(/Selected the next automatic starting agent agent="(claude|grok)" reason=[^\n]*picked at random/g), ([, provider]) => provider),
+      );
+    };
+    const messages = ["first automatic", "second automatic"];
+    for (const [index, message] of messages.entries()) {
+      const shown = (await agent.getAttribute("title"))!.replace(/^Auto · /, "");
+      await page.getByLabel("New thread").fill(message);
+      await page.getByRole("button", { name: "Run ↵" }).click();
+      await expect(agentChooser(page, true)).toHaveAccessibleName(shown);
+      await expect(page.getByLabel("Thread", { exact: true }).getByText(message, { exact: true })).toBeVisible();
+      await expect(page.getByText(/is working…/)).toHaveCount(0);
+      await goHome(page);
+
+      await expect.poll(picks).toHaveLength(index + 1);
+      const provider = (await picks())[index];
+      await expect(agent).toHaveAccessibleName(`Auto · ${labels.get(provider)}`);
+    }
   });
 });
 

@@ -6,7 +6,10 @@
  * thread. Free of Angular so it can be tested on its own.
  */
 
-import { AGENTS, changeCard, type Choice, type ModelLists, resolveChoice, type Project, type ProjectGroup, type Starting, type Thread } from './workspace.model';
+import {
+  AGENTS, type AgentName, changeCard, type Choice, firstStageChooses, type ModelLists, resolveChoice, type Project, type ProjectGroup, type Starting, type Thread,
+  type Workflows,
+} from './workspace.model';
 
 /** The word at the right of a thread on Home, which is also the order of the list. */
 export type HomeWord = 'apply' | 'failed' | 'reply' | 'new';
@@ -150,31 +153,52 @@ export function homeChoices(installed: readonly string[], models: ModelLists): C
   }, models));
 }
 
+/** How Home's agent chooser looks, and what a new thread started from Home asks for. */
+export interface HomeAgentState {
+  /** Whether the chooser offers Automatic: the default workflow's first stage has a rule. */
+  readonly allowAutomatic: boolean;
+  /** Whether the first stage chooses the next thread's agent, rather than the person. */
+  readonly automatic: boolean;
+  /** The agent and model the next thread starts with, when known. */
+  readonly choice: Choice | null;
+  /** Why no agent can work under the first stage's rule. Nothing while one can. */
+  readonly unavailableReason: string | null;
+  /** What a thread started now sends: nothing lets the service use its held automatic pick. */
+  readonly sendChoice: Choice | null;
+}
+
 /**
- * The agent and model displayed on Home for the next thread.
+ * The agent Home displays and starts the next thread with.
  *
- * The person's pick takes precedence, even when its model is missing from discovery.
- * Otherwise Home shows the service's choice for the default workflow's first
- * stage. A fallback label leaves the actual choice to the service.
+ * The button and the request are worked out together, so Home never shows
+ * one mode while sending the other.
+ *
+ * A pick of an installed agent lasts until the person chooses Automatic.
+ * While the first stage has a rule and nobody picked, or the picked agent is
+ * no longer installed, the service's held pick is shown and nothing is sent,
+ * so the service starts the thread on that pick and chooses afresh for the
+ * next one. Without a rule, the pick, else Claude, else the first installed
+ * agent, is both shown and sent.
  */
-export function startChoice(
-  choices: readonly Choice[],
+export function homeAgentState(
+  installed: readonly string[],
+  models: ModelLists,
+  workflows: Workflows,
   picked: Choice | null,
   starting: Starting | null,
-  models?: ModelLists,
-): Choice | null {
-  if (!choices.length) return null;
-  if (picked && choices.some((choice) => choice.agent === picked.agent)) return models ? resolveChoice(picked, models) : picked;
-
-  if (starting?.type === 'provider') {
-    const provider = choices.find((choice) => choice.agent === starting.agent);
-    if (provider) {
-      const choice = { agent: provider.agent, model: starting.model, effort: starting.effort };
-      return models ? resolveChoice(choice, models) : choice;
-    }
+): HomeAgentState {
+  const choices = homeChoices(installed, models);
+  const allowAutomatic = firstStageChooses(workflows);
+  const manual = picked && choices.some((choice) => choice.agent === picked.agent) ? resolveChoice(picked, models) : null;
+  if (allowAutomatic && !manual) {
+    const choice = starting?.type === 'provider'
+      ? resolveChoice({ agent: starting.agent as AgentName, model: starting.model, effort: starting.effort }, models)
+      : null;
+    const unavailableReason = starting?.type === 'unavailable' ? starting.problem : null;
+    return { allowAutomatic, automatic: true, choice, unavailableReason, sendChoice: null };
   }
-
-  return choices.find((choice) => choice.agent === 'claude') ?? choices[0];
+  const choice = manual ?? choices.find((choice) => choice.agent === 'claude') ?? choices[0] ?? null;
+  return { allowAutomatic, automatic: false, choice, unavailableReason: null, sendChoice: choice };
 }
 
 /** Reads what was remembered, ignoring anything that is not what this version writes. */

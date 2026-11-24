@@ -34,7 +34,9 @@
             </div>
             <span class="home-separator"></span>
             <app-agent-chooser placement="down" [installed]="view.installed" [models]="view.models"
-              [choice]="view.choice" [remembered]="view.remembered" (chosen)="choiceChosen.emit($event)"></app-agent-chooser>
+              [choice]="view.agent.choice" [remembered]="view.remembered" [allowAutomatic]="view.agent.allowAutomatic"
+              [automatic]="view.agent.automatic" [unavailableReason]="view.agent.unavailableReason"
+              (chosen)="choiceChosen.emit($event)" (automaticChosen)="automaticChosen.emit()"></app-agent-chooser>
             <span class="home-spacer"></span>
             <button type="button" class="home-run" [disabled]="!view.text.trim()" (click)="send()">Run <kbd>↵</kbd></button>
           </div>

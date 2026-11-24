@@ -47,6 +47,7 @@ import {
   allowedThreadAgents,
   FIRST_NEW_THREADS,
   choosing,
+  choosingAutomatic,
   type NewThreads,
   threadChoice,
   CATCH_UP_REQUEST,
@@ -607,6 +608,8 @@ export class WorkspacePage implements OnDestroy {
         return void this.confirmRemoveProject(action.project);
       case 'useChoice':
         return this.chooseForNewThreads(action.choice);
+      case 'useAutomatic':
+        return this.chooseAutomaticForNewThreads();
       case 'useChoiceInThread':
         return this.changeAgent(action.thread, action.to, action.choice);
       case 'toggleTheme':
@@ -857,6 +860,11 @@ export class WorkspacePage implements OnDestroy {
   /** Uses the agent and model chosen on Home or in the command menu for new threads. */
   chooseForNewThreads(choice: Choice): void {
     this.newThreads$.next(choosing(this.newThreads$.value, choice));
+  }
+
+  /** Lets the default workflow's first stage choose the agent of new threads again. */
+  chooseAutomaticForNewThreads(): void {
+    this.newThreads$.next(choosingAutomatic(this.newThreads$.value));
   }
 
   /** Goes to Home: no thread open, every project's waiting threads and the prompt. */

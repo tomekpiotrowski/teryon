@@ -1,5 +1,6 @@
 import { modelOptionForTest as model } from './model.testing';
 import {
+  homeAgentState,
   homeChoices,
   HOME_LIMIT,
   homeList,
@@ -7,10 +8,11 @@ import {
   NO_HOME_CHOICE,
   readHomeChoice,
   runningLines,
-  startChoice,
   startProject,
 } from './home.model';
-import { type Change, type ChangeState, groupThreads, NO_MODELS, type Project, type Starting, type Thread } from './workspace.model';
+import {
+  type Change, type ChangeState, type Choice, groupThreads, NO_MODELS, NO_WORKFLOWS, type Project, type Starting, type Thread, type Workflows,
+} from './workspace.model';
 
 function project(id: string): Project {
   return { id, name: `Project ${id}`, directory: `/work/${id}`, created_at: '2026-11-01T10:00:00' };
@@ -252,38 +254,87 @@ describe('homeChoices', () => {
   });
 });
 
-describe('startChoice', () => {
-  const choices = [
-    { agent: 'codex', model: null, effort: null },
-    { agent: 'claude', model: null, effort: null },
-    { agent: 'grok', model: null, effort: null },
-  ] as const;
-  const grok: Starting = { type: 'provider', agent: 'grok', model: 'grok-4.6', effort: null };
-  it.each(['gpt-6-astra', null])('keeps a picked model (%s) even if it is absent from discovery', (model) => {
-    const picked = { agent: 'codex' as const, model, effort: null };
-    expect(startChoice(choices, picked, grok)).toEqual(picked);
+describe('homeAgentState', () => {
+  const installed = ['codex', 'claude', 'grok'];
+  const ruled: Workflows = {
+    ...NO_WORKFLOWS,
+    labels: NO_WORKFLOWS.labels.map((label) => (label.stage === 'talking' ? { ...label, chooses: 'Any · medium' } : label)),
+  };
+  const grok: Starting = { type: 'provider', agent: 'grok', model: 'grok-4.6', effort: 'medium' };
+  const gemini: Starting = { type: 'provider', agent: 'gemini', model: 'gemini-pro', effort: null };
+  const unavailable: Starting = { type: 'unavailable', problem: 'All agents are at their limits.' };
+  const codex: Choice = { agent: 'codex', model: 'gpt-6-astra', effort: 'high' };
+  const absent: Choice = { agent: 'gemini', model: null, effort: null };
+  const claude: Choice = { agent: 'claude', model: null, effort: null };
+
+  describe('while the first stage has a rule', () => {
+    it.each<{ name: string; starting: Starting | null; choice: Choice | null; reason: string | null }>([
+      { name: 'an installed pick', starting: grok, choice: { agent: 'grok', model: 'grok-4.6', effort: 'medium' }, reason: null },
+      { name: 'a pick of an agent not installed here', starting: gemini, choice: { agent: 'gemini', model: 'gemini-pro', effort: null }, reason: null },
+      { name: 'no possible pick', starting: unavailable, choice: null, reason: 'All agents are at their limits.' },
+      { name: 'no pick yet', starting: null, choice: null, reason: null },
+    ])('shows the service\'s pick and sends nothing without a manual pick, with $name', ({ starting, choice, reason }) => {
+      for (const picked of [null, absent]) {
+        expect(homeAgentState(installed, NO_MODELS, ruled, picked, starting)).toEqual({
+          allowAutomatic: true, automatic: true, choice, unavailableReason: reason, sendChoice: null,
+        });
+      }
+    });
+
+    it.each<Starting | null>([grok, gemini, unavailable, null])('shows and sends a manual pick of an installed agent over %j', (starting) => {
+      expect(homeAgentState(installed, NO_MODELS, ruled, codex, starting)).toEqual({
+        allowAutomatic: true, automatic: false, choice: codex, unavailableReason: null, sendChoice: codex,
+      });
+    });
+
+    it('stays automatic with nothing installed, even with a manual pick', () => {
+      expect(homeAgentState([], NO_MODELS, ruled, codex, grok)).toMatchObject({ automatic: true, sendChoice: null });
+    });
+
+    it('fills the shown pick\'s default model from discovery', () => {
+      const models = { ...NO_MODELS, grok: [model('grok-4.7', undefined, [], null, true)] };
+      const state = homeAgentState(installed, models, ruled, null, { type: 'provider', agent: 'grok', model: null, effort: null });
+      expect(state.choice?.model).toBe('grok-4.7');
+      expect(state.sendChoice).toBeNull();
+    });
   });
 
-  it.each(['grok-4.6', null])('shows the default workflow model (%s) even if it is absent from discovery', (model) => {
-    expect(startChoice(choices, null, { ...grok, model })).toEqual({ agent: 'grok', model, effort: null });
+  describe('while the first stage keeps the thread\'s agent', () => {
+    it.each<Starting | null>([grok, unavailable, null])('shows and sends a manual pick of an installed agent, ignoring %j', (starting) => {
+      expect(homeAgentState(installed, NO_MODELS, NO_WORKFLOWS, codex, starting)).toEqual({
+        allowAutomatic: false, automatic: false, choice: codex, unavailableReason: null, sendChoice: codex,
+      });
+    });
+
+    it.each<Choice | null>([null, absent])('shows and sends Claude without a usable pick (%j)', (picked) => {
+      expect(homeAgentState(installed, NO_MODELS, NO_WORKFLOWS, picked, grok)).toEqual({
+        allowAutomatic: false, automatic: false, choice: claude, unavailableReason: null, sendChoice: claude,
+      });
+    });
+
+    it('shows and sends the first installed agent when Claude is missing', () => {
+      const first: Choice = { agent: 'codex', model: null, effort: null };
+      expect(homeAgentState(['grok', 'codex'], NO_MODELS, NO_WORKFLOWS, null, null)).toMatchObject({ choice: first, sendChoice: first });
+    });
+
+    it('shows and sends no agent with nothing installed', () => {
+      expect(homeAgentState([], NO_MODELS, NO_WORKFLOWS, codex, grok)).toEqual({
+        allowAutomatic: false, automatic: false, choice: null, unavailableReason: null, sendChoice: null,
+      });
+    });
+
+    it.each(['gpt-6-astra', null])('keeps a picked model (%s) even when discovery lacks it', (pickedModel) => {
+      const picked: Choice = { agent: 'codex', model: pickedModel, effort: null };
+      expect(homeAgentState(installed, NO_MODELS, NO_WORKFLOWS, picked, null).choice).toEqual(picked);
+    });
   });
 
-  it.each<{ starting: Starting | null }>([
-    { starting: null },
-    { starting: { type: 'unavailable', problem: 'All agents are at their limits.' } },
-    { starting: { type: 'provider', agent: 'gemini', model: 'gemini-4-neon-high', effort: null } },
-  ])('falls back to Claude without an installed provider from the service (%j)', ({ starting }) => {
-    expect(startChoice(choices, null, starting)).toEqual({ agent: 'claude', model: null, effort: null });
-  });
-
-  it('falls back to the first installed agent when Claude is missing', () => {
-    expect(startChoice(choices.slice(0, 1), null, null)).toEqual({ agent: 'codex', model: null, effort: null });
-    expect(startChoice(choices.slice(0, 1), null, grok)).toEqual({ agent: 'codex', model: null, effort: null });
-  });
-
-  it('shows no agent with nothing installed, even with a remembered choice', () => {
-    expect(startChoice([], null, grok)).toBeNull();
-    expect(startChoice([], { agent: 'grok', model: null, effort: null }, grok)).toBeNull();
+  it.each<[Workflows, Choice | null, Starting | null]>([
+    [ruled, null, grok], [ruled, codex, grok], [ruled, absent, unavailable], [NO_WORKFLOWS, null, null], [NO_WORKFLOWS, codex, grok],
+  ])('never shows one mode while sending another (%#)', (workflows, picked, starting) => {
+    const state = homeAgentState(installed, NO_MODELS, workflows, picked, starting);
+    expect(state.sendChoice).toEqual(state.automatic ? null : state.choice);
+    expect(state.automatic && !state.allowAutomatic).toBe(false);
   });
 });
 
