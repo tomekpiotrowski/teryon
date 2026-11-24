@@ -2649,15 +2649,24 @@ app-home {
   background: var(--t-surface);
 }
 
-.home-field { display: flex; height: 60px; align-items: center; gap: 10px; padding: 0 18px; }
+/* Padding is on the box, so a click anywhere in the prompt focuses it. */
+.home-field { display: flex; }
 
 .home-input {
   min-width: 0;
-  height: 100%;
+  min-height: 60px;
+  /* 180px of text, plus the 17px of padding above and below. */
+  max-height: calc(180px + 34px);
   flex: 1;
+  overflow-y: auto;
   border: 0;
+  padding: 17px 18px;
   outline: none;
+  resize: none;
   background: none;
+  line-height: 1.5;
+  field-sizing: content;
+  scrollbar-width: none;
   caret-color: var(--t-blue);
   color: var(--t-text);
   font-size: 17px;

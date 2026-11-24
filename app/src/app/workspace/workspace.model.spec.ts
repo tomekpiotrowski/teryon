@@ -1,3 +1,4 @@
+import { vi } from 'vitest';
 import { modelOptionForTest as model } from './model.testing';
 import {
   AGENTS,
@@ -39,6 +40,7 @@ import {
   RESTARTING,
   unreachable,
   composerAction,
+  insertNewline,
   type ComposerPress,
   durationText,
   entryLine,
@@ -586,7 +588,7 @@ describe('refusalText', () => {
 
 describe('composerAction', () => {
   function composerPress(overrides: Partial<ComposerPress> = {}): ComposerPress {
-    return { key: 'Enter', shiftKey: false, isComposing: false, ...overrides };
+    return { key: 'Enter', shiftKey: false, ctrlKey: false, isComposing: false, ...overrides };
   }
 
   it('sends on Enter', () => {
@@ -597,17 +599,98 @@ describe('composerAction', () => {
     expect(composerAction(composerPress({ shiftKey: true }))).toBeNull();
   });
 
-  it('leaves the box on Escape, with or without Shift', () => {
-    expect(composerAction(composerPress({ key: 'Escape' }))).toBe('leave');
-    expect(composerAction(composerPress({ key: 'Escape', shiftKey: true }))).toBe('leave');
+  it.each([{ ctrlKey: true }, { ctrlKey: true, shiftKey: true }])('asks for a new line on Enter with %j, which the box does not do itself', (modifiers) => {
+    expect(composerAction(composerPress(modifiers))).toBe('newline');
   });
 
-  it.each(['Enter', 'Escape'])('leaves %s to the input method while a character is composed', (key) => {
-    expect(composerAction(composerPress({ key, isComposing: true }))).toBeNull();
+  it.each([{}, { shiftKey: true }, { ctrlKey: true }, { ctrlKey: true, shiftKey: true }])('leaves the box on Escape with %j', (modifiers) => {
+    expect(composerAction(composerPress({ key: 'Escape', ...modifiers }))).toBe('leave');
+  });
+
+  it.each([
+    { key: 'Enter' },
+    { key: 'Enter', shiftKey: true },
+    { key: 'Enter', ctrlKey: true },
+    { key: 'Enter', ctrlKey: true, shiftKey: true },
+    { key: 'Escape' },
+  ])('leaves %j to the input method while a character is composed', (press) => {
+    expect(composerAction(composerPress({ ...press, isComposing: true }))).toBeNull();
+  });
+
+  it.each(['h', 'c', 'n', '/', 'Tab', 'ArrowUp'])('types Control+%s as usual', (key) => {
+    expect(composerAction(composerPress({ key, ctrlKey: true }))).toBeNull();
   });
 
   it.each(['h', 'c', 'n', '/', 'Tab', 'ArrowUp'])('types %s as usual', (key) => {
     expect(composerAction(composerPress({ key }))).toBeNull();
+  });
+});
+
+describe('insertNewline', () => {
+  function box(value: string, start?: number, end?: number): HTMLTextAreaElement {
+    const area = document.createElement('textarea');
+    area.value = value;
+    if (start !== undefined) area.setSelectionRange(start, end ?? start);
+    return area;
+  }
+
+  it('puts a line in an empty box', () => {
+    const area = box('');
+    expect(insertNewline(area)).toBe('\n');
+    expect(area.selectionStart).toBe(1);
+  });
+
+  it('adds a line at the end, where the caret is', () => {
+    const area = box('hello', 5);
+    expect(insertNewline(area)).toBe('hello\n');
+    expect(area.selectionStart).toBe(6);
+  });
+
+  it('splits the text at the caret and leaves the caret after the line', () => {
+    const area = box('hello world', 5);
+    expect(insertNewline(area)).toBe('hello\n world');
+    expect([area.selectionStart, area.selectionEnd]).toEqual([6, 6]);
+  });
+
+  it('replaces the selected text with the line', () => {
+    const area = box('hello big world', 5, 9);
+    expect(insertNewline(area)).toBe('hello\n world');
+    expect([area.selectionStart, area.selectionEnd]).toEqual([6, 6]);
+  });
+
+  it('types the line in a focused box, so it can be undone and the box hears it', () => {
+    const area = box('ab', 1);
+    document.body.appendChild(area);
+    area.focus();
+    const heard: string[] = [];
+    area.addEventListener('input', () => heard.push(area.value));
+    const execCommand = vi.fn((_command: string, _ui: boolean, text: string) => {
+      area.setRangeText(text, area.selectionStart, area.selectionEnd, 'end');
+      area.dispatchEvent(new Event('input'));
+      return true;
+    });
+    Object.defineProperty(document, 'execCommand', { value: execCommand, configurable: true });
+    try {
+      expect(insertNewline(area)).toBe('a\nb');
+      expect(execCommand).toHaveBeenCalledWith('insertText', false, '\n');
+      expect(heard).toEqual(['a\nb']);
+    } finally {
+      delete (document as { execCommand?: unknown }).execCommand;
+      area.remove();
+    }
+  });
+
+  it('changes the text itself when the focused box refuses to type it', () => {
+    const area = box('ab', 1);
+    document.body.appendChild(area);
+    area.focus();
+    Object.defineProperty(document, 'execCommand', { value: () => false, configurable: true });
+    try {
+      expect(insertNewline(area)).toBe('a\nb');
+    } finally {
+      delete (document as { execCommand?: unknown }).execCommand;
+      area.remove();
+    }
   });
 });
 

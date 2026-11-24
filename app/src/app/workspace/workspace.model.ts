@@ -660,24 +660,52 @@ export function isBareLetter(press: KeyPress, letter: string): boolean {
 export interface ComposerPress {
   readonly key: string;
   readonly shiftKey: boolean;
+  /** Whether Control is held, which turns Enter into a new line. */
+  readonly ctrlKey: boolean;
   /** Whether the key is part of a character still being composed, as with an input method for Japanese. */
   readonly isComposing: boolean;
 }
 
 /**
- * What a key pressed in the message box does: send the message, leave the box, or type as usual.
+ * What a key pressed in a message box does: send the message, start a new line, leave the box, or type as usual.
  *
  * Every letter typed in the box is text, so the keys bound to letters only
  * work outside it. Escape leaves the box, as it leaves typing in vim, so
- * the keyboard alone can get from writing a message to those keys. Enter
- * sends and Shift+Enter starts a new line. While a character is still
- * being composed both keys belong to the input method.
+ * the keyboard alone can get from writing a message to those keys.
+ *
+ * Enter sends. Shift+Enter and Control+Enter both start a new line, as
+ * people coming from different chat programs expect one or the other. The
+ * box adds the line itself on Shift+Enter, so that press is left to it;
+ * browsers add nothing on Control+Enter, so `newline` asks the caller to
+ * add it with `insertNewline`. While a character is still being composed
+ * every key belongs to the input method.
  */
-export function composerAction(press: ComposerPress): 'send' | 'leave' | null {
+export function composerAction(press: ComposerPress): 'send' | 'newline' | 'leave' | null {
   if (press.isComposing) return null;
   if (press.key === 'Escape') return 'leave';
-  if (press.key === 'Enter' && !press.shiftKey) return 'send';
-  return null;
+  if (press.key !== 'Enter') return null;
+  if (press.ctrlKey) return 'newline';
+  if (press.shiftKey) return null;
+  return 'send';
+}
+
+/**
+ * Puts a new line where the caret is in a message box, replacing any selected text, and returns the box's new text.
+ *
+ * Browsers type nothing on Control+Enter, so the line has to be added by hand.
+ *
+ * A focused box takes the line through `insertText`, as if it were typed:
+ * it can be undone, the caret stays in view, and the box hears an `input`
+ * event. When that is not possible the text is changed directly.
+ */
+export function insertNewline(box: HTMLTextAreaElement): string {
+  const typed = box.ownerDocument.activeElement === box && typeof box.ownerDocument.execCommand === 'function' && box.ownerDocument.execCommand('insertText', false, '\n');
+  if (!typed) {
+    const end = box.selectionEnd ?? box.value.length;
+    const start = Math.min(box.selectionStart ?? end, end);
+    box.setRangeText('\n', start, end, 'end');
+  }
+  return box.value;
 }
 
 /**

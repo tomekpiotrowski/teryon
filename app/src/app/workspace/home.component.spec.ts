@@ -77,8 +77,8 @@ function scene(threads: Thread[] = [], inputs: SceneInputs = {}): Scene {
   return { fixture, element: fixture.nativeElement as HTMLElement, started, opened, texts, chosen };
 }
 
-function prompt(of: Scene): HTMLInputElement {
-  return of.element.querySelector('input.home-input') as HTMLInputElement;
+function prompt(of: Scene): HTMLTextAreaElement {
+  return of.element.querySelector('textarea.home-input') as HTMLTextAreaElement;
 }
 
 function type(of: Scene, text: string): void {
@@ -307,6 +307,54 @@ describe('HomeComponent', () => {
       key(home, prompt(home), 'Escape');
       expect(expanded()).toBe('false');
       expect(prompt(home).value).toBe('keep this');
+    });
+
+    it('leaves Shift+Enter to the box, which starts a new line itself', () => {
+      const home = scene();
+      type(home, 'hello');
+      expect(key(home, prompt(home), 'Enter', { shiftKey: true }).defaultPrevented).toBe(false);
+      expect(home.started).toEqual([]);
+    });
+
+    it.each([{ ctrlKey: true }, { ctrlKey: true, shiftKey: true }])('starts a new line at the caret on Enter with %j', (modifiers) => {
+      const home = scene();
+      type(home, 'hello world');
+      prompt(home).setSelectionRange(5, 5);
+      expect(key(home, prompt(home), 'Enter', modifiers).defaultPrevented).toBe(true);
+      expect(prompt(home).value).toBe('hello\n world');
+      expect(home.texts.at(-1)).toBe('hello\n world');
+      expect(home.started).toEqual([]);
+    });
+
+    it('replaces the selected text with a new line on Control+Enter', () => {
+      const home = scene();
+      type(home, 'hello big world');
+      prompt(home).setSelectionRange(5, 9);
+      key(home, prompt(home), 'Enter', { ctrlKey: true });
+      expect(prompt(home).value).toBe('hello\n world');
+    });
+
+    it('closes the project chooser when a new line is started', () => {
+      const home = scene();
+      const trigger = button(home, 'Project a');
+      clickButton(home, 'Project a');
+      expect(trigger.getAttribute('aria-expanded')).toBe('true');
+      key(home, prompt(home), 'Enter', { ctrlKey: true });
+      expect(trigger.getAttribute('aria-expanded')).toBe('false');
+    });
+
+    it('sends text of several lines whole', () => {
+      const home = scene();
+      type(home, 'Fix the parser\nand its tests');
+      key(home, prompt(home), 'Enter');
+      expect(home.started.map((started) => started.text)).toEqual(['Fix the parser\nand its tests']);
+    });
+
+    it('leaves Enter to the input method while a character is composed', () => {
+      const home = scene();
+      type(home, 'hello');
+      expect(key(home, prompt(home), 'Enter', { isComposing: true }).defaultPrevented).toBe(false);
+      expect(home.started).toEqual([]);
     });
 
     it('is not sent twice while a request is on its way', () => {

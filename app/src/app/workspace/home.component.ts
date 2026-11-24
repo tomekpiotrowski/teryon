@@ -16,8 +16,10 @@ import {
 import { stepped } from './commands.model';
 import {
   type Choice,
+  composerAction,
   FIRST_NEW_THREADS,
   firstStageChooses,
+  insertNewline,
   type ModelLists,
   type NewThreads,
   NO_MODELS,
@@ -105,7 +107,7 @@ export class HomeComponent {
   private readonly chooser$ = new BehaviorSubject<Chooser>(null);
   private readonly cursor$ = new BehaviorSubject<number | null>(null);
 
-  @ViewChild('prompt') private prompt?: ElementRef<HTMLInputElement>;
+  @ViewChild('prompt') private prompt?: ElementRef<HTMLTextAreaElement>;
   @ViewChild('list') private list?: ElementRef<HTMLElement>;
 
   /** Every project with its threads. */
@@ -211,17 +213,23 @@ export class HomeComponent {
   );
 
   updateText(event: Event): void {
-    this.setText((event.target as HTMLInputElement).value);
+    this.setText((event.target as HTMLTextAreaElement).value);
     this.chooser$.next(null);
   }
 
-  /** Answers the keys of the prompt: Enter sends, Tab goes to the list, and Escape clears. */
+  /** Answers the keys of the prompt: Enter sends, Shift+Enter and Control+Enter start a new line, Tab goes to the list, and Escape clears. */
   handlePromptKey(event: KeyboardEvent, view: HomeView): void {
     if (event.isComposing) return;
     switch (event.key) {
-      case 'Enter':
+      case 'Enter': {
+        const action = composerAction(event);
+        if (!action) return;
         event.preventDefault();
-        return this.send();
+        if (action === 'send') return this.send();
+        const text = insertNewline(event.target as HTMLTextAreaElement);
+        if (text !== this.text$.value) this.setText(text);
+        return this.chooser$.next(null);
+      }
       case 'Tab':
         if (event.shiftKey) return;
         if (!view.list.rows.length) return;

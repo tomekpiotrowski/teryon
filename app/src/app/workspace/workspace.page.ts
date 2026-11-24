@@ -57,6 +57,7 @@ import {
   copyPlace,
   discardWarning,
   composerAction,
+  insertNewline,
   type EntryLine,
   pendingQuestions,
   threadLines,
@@ -418,7 +419,7 @@ export class WorkspacePage implements OnDestroy {
     )
     .subscribe(() =>
       requestAnimationFrame(() => {
-        const boxes = Array.from(this.host.nativeElement.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('textarea, input.home-input'));
+        const boxes = Array.from(this.host.nativeElement.querySelectorAll<HTMLTextAreaElement>('textarea'));
         const box = boxes.find((candidate) => !candidate.closest('[inert]'));
         box?.focus();
         box?.setSelectionRange(box.value.length, box.value.length);
@@ -493,7 +494,7 @@ export class WorkspacePage implements OnDestroy {
       altKey: event.altKey,
       element: target?.tagName ?? '',
       editable: target?.isContentEditable ?? false,
-      messageBox: target?.matches('textarea, input.home-input') ?? false,
+      messageBox: target?.matches('textarea') ?? false,
     };
 
     if (this.shortcutsOpen$.value) {
@@ -765,12 +766,17 @@ export class WorkspacePage implements OnDestroy {
     this.draft$.next((event.target as HTMLTextAreaElement).value);
   }
 
-  /** Sends the message on Enter and leaves the message box on Escape, so that the keys bound to letters work. */
+  /** Sends the message on Enter, starts a new line on Shift+Enter or Control+Enter, and leaves the message box on Escape, so that the keys bound to letters work. */
   handleComposerKeydown(event: KeyboardEvent, view: WorkspaceView): void {
     const action = composerAction(event);
     if (!action) return;
     event.preventDefault();
     if (action === 'leave') return (event.target as HTMLElement).blur();
+    if (action === 'newline') {
+      const text = insertNewline(event.target as HTMLTextAreaElement);
+      if (text !== this.draft$.value) this.draft$.next(text);
+      return;
+    }
     this.send(view);
   }
 

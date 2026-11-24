@@ -120,10 +120,9 @@ describe('WorkspacePage', () => {
       expect(page.screen$.value).toBe('board');
     });
 
-    it.each(['textarea', 'input'])('leaves ? to the %s used for typing', (tag) => {
+    it('leaves ? to the box used for typing', () => {
       TestBed.tick();
-      const target = document.createElement(tag);
-      if (tag === 'input') target.className = 'home-input';
+      const target = document.createElement('textarea');
       const event = new KeyboardEvent('keydown', { key: '?', cancelable: true });
       target.addEventListener('keydown', () => page.handleShortcut(event));
       target.dispatchEvent(event);
@@ -137,6 +136,63 @@ describe('WorkspacePage', () => {
       page.handleShortcut(new KeyboardEvent('keydown', press));
       expect(page.shortcutsOpen$.value).toBe(false);
       expect(page.menuOpen$.value).toBe(true);
+    });
+  });
+
+  describe('keys in the message box', () => {
+    const view = {} as Parameters<WorkspacePage['send']>[0];
+    let send: ReturnType<typeof vi.spyOn>;
+    let box: HTMLTextAreaElement;
+
+    beforeEach(() => {
+      send = vi.spyOn(page, 'send').mockImplementation(() => undefined);
+      box = document.createElement('textarea');
+      box.value = 'hello world';
+      box.setSelectionRange(5, 5);
+      page.draft$.next(box.value);
+    });
+
+    function press(init: KeyboardEventInit): KeyboardEvent {
+      const event = new KeyboardEvent('keydown', { cancelable: true, ...init });
+      box.addEventListener('keydown', () => page.handleComposerKeydown(event, view), { once: true });
+      box.dispatchEvent(event);
+      return event;
+    }
+
+    it('sends on Enter', () => {
+      expect(press({ key: 'Enter' }).defaultPrevented).toBe(true);
+      expect(send).toHaveBeenCalledWith(view);
+    });
+
+    it('leaves Shift+Enter to the box, which starts a new line itself', () => {
+      expect(press({ key: 'Enter', shiftKey: true }).defaultPrevented).toBe(false);
+      expect(send).not.toHaveBeenCalled();
+      expect(page.draft$.value).toBe('hello world');
+    });
+
+    it.each([{ ctrlKey: true }, { ctrlKey: true, shiftKey: true }])('starts a new line at the caret on Enter with %j', (modifiers) => {
+      expect(press({ key: 'Enter', ...modifiers }).defaultPrevented).toBe(true);
+      expect(send).not.toHaveBeenCalled();
+      expect(box.value).toBe('hello\n world');
+      expect(page.draft$.value).toBe('hello\n world');
+    });
+
+    it('replaces the selected text with a new line on Control+Enter', () => {
+      box.setSelectionRange(0, 6);
+      press({ key: 'Enter', ctrlKey: true });
+      expect(page.draft$.value).toBe('\nworld');
+    });
+
+    it('leaves the box on Escape', () => {
+      document.body.appendChild(box);
+      box.focus();
+      try {
+        expect(press({ key: 'Escape' }).defaultPrevented).toBe(true);
+        expect(document.activeElement).not.toBe(box);
+        expect(send).not.toHaveBeenCalled();
+      } finally {
+        box.remove();
+      }
     });
   });
 
