@@ -218,6 +218,27 @@ lets_expect! { #tokio_test
         ])
     }
 
+    // requirement: a Gemini quota failure marks Gemini used up, and a later successful turn clears it
+    story gemini_quota_failure_marks_used_up_until_it_succeeds {
+        let scene = Scene::new();
+        let folder = project_folder();
+        let project = scene.project(&folder);
+        let thread = scene.thread(&project, "gemini");
+
+        scene.say(&thread, "hit quota").unwrap();
+        scene.wait_until_idle(&thread).await;
+        let exhausted = limits_of(&scene, "gemini").await;
+        expect(exhausted.windows.len()) to equal(1)
+        expect(exhausted.windows[0].reached) to be_true
+        expect(exhausted.windows[0].resets_at.is_some()) to be_true
+
+        scene.say(&thread, "hello").unwrap();
+        scene.wait_until_idle(&thread).await;
+        let cleared = limits_of(&scene, "gemini").await;
+        expect(cleared.windows.len()) to equal(0)
+        expect(cleared.failed) to be_false
+    }
+
     // requirement: limits and the log are kept in the data folder, so they survive a restart
     story usage_is_kept_across_restarts {
         let scene = Scene::new();

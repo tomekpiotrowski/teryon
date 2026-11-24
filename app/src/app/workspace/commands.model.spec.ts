@@ -105,6 +105,7 @@ describe('commandList', () => {
       'action:settings',
       'action:use:codex:default',
       'action:use:grok:default',
+      'action:use:gemini:default',
       'action:newProject',
       'action:toggleTheme',
     ]);
@@ -126,6 +127,7 @@ describe('commandList', () => {
       'action:settings',
       'action:use:codex:default',
       'action:use:grok:default',
+      'action:use:gemini:default',
       'action:newProject',
       'action:removeProject',
       'action:toggleTheme',
@@ -291,9 +293,10 @@ describe('commandList', () => {
   });
 
   it.each([
-    ['claude', ['Use Codex · default for new threads', 'Use Grok · default for new threads']],
-    ['codex', ['Use Claude · default for new threads', 'Use Grok · default for new threads']],
-    ['grok', ['Use Claude · default for new threads', 'Use Codex · default for new threads']],
+    ['claude', ['Use Codex · default for new threads', 'Use Grok · default for new threads', 'Use Gemini · default for new threads']],
+    ['codex', ['Use Claude · default for new threads', 'Use Grok · default for new threads', 'Use Gemini · default for new threads']],
+    ['grok', ['Use Claude · default for new threads', 'Use Codex · default for new threads', 'Use Gemini · default for new threads']],
+    ['gemini', ['Use Claude · default for new threads', 'Use Codex · default for new threads', 'Use Grok · default for new threads']],
   ] as const)('with %s chosen offers each other agent on its default', (agent, titles) => {
     expect(choiceTitles(situation({ agent }))).toEqual(titles);
   });
@@ -304,16 +307,18 @@ describe('commandList', () => {
   });
 
   describe('choosing models', () => {
-    const models = { claude: ['opus', 'sonnet'], codex: [], grok: ['grok-4.6'] };
+    const models = { claude: ['opus', 'sonnet'], codex: [], grok: ['grok-4.6'], gemini: ['gemini-4-neon-high'] };
 
     it('offers every agent on every model, its default first, except the current choice', () => {
-      const newThreads = { agent: 'claude' as const, models: { claude: 'opus', codex: null, grok: null }, picked: true };
+      const newThreads = { agent: 'claude' as const, models: { claude: 'opus', codex: null, grok: null, gemini: null }, picked: true };
       expect(choiceTitles(situation({ models, newThreads }))).toEqual([
         'Use Claude · default for new threads',
         'Use Claude · Sonnet for new threads',
         'Use Codex · default for new threads',
         'Use Grok · default for new threads',
         'Use Grok · Grok 4.6 for new threads',
+        'Use Gemini · default for new threads',
+        'Use Gemini · Gemini 4 neon high for new threads',
       ]);
     });
 
@@ -323,15 +328,19 @@ describe('commandList', () => {
     });
 
     it('asks reviewers on the model remembered for them', () => {
-      const newThreads = { agent: 'claude' as const, models: { claude: null, codex: 'gpt-6-astra', grok: 'grok-4.6' }, picked: true };
+      const newThreads = { agent: 'claude' as const, models: { claude: null, codex: 'gpt-6-astra', grok: 'grok-4.6', gemini: 'gemini-4-neon-high' }, picked: true };
       const inProject = { models, newThreads, project: first, thread: changedThread, groups: groupThreads([first], [changedThread]) };
-      expect(changeTitles(situation(inProject))).toEqual(['Ask Codex · GPT 6 astra to review', 'Ask Grok · Grok 4.6 to review']);
+      expect(changeTitles(situation(inProject))).toEqual([
+        'Ask Codex · GPT 6 astra to review',
+        'Ask Grok · Grok 4.6 to review',
+        'Ask Gemini · Gemini 4 neon high to review',
+      ]);
       const ask = commandList(situation(inProject)).find((candidate) => candidate.id === 'change:askReview');
       expect(ask?.action).toEqual({ kind: 'reviewChange', thread: changedThread, choice: { agent: 'codex', model: 'gpt-6-astra' } });
     });
 
     it('asks the thread\'s reviewer again on its own model, whatever is remembered for new threads', () => {
-      const newThreads: NewThreads = { agent: 'claude', models: { claude: null, codex: 'gpt-6-astra', grok: 'grok-4.6' }, picked: true };
+      const newThreads: NewThreads = { agent: 'claude', models: { claude: null, codex: 'gpt-6-astra', grok: 'grok-4.6', gemini: null }, picked: true };
       const reviewedOn = (model: string | null): Thread => ({
         ...changedThread,
         reviewer: { agent: 'grok', model, reviewing: false, verdict: { findings: 2, answered: true, cut: false } },
@@ -344,6 +353,7 @@ describe('commandList', () => {
       expect(ask(switched).map((candidate) => [candidate.title, candidate.action])).toEqual([
         ['Ask Grok · Grok 4.5 to review again', { kind: 'reviewChange', thread: switched, choice: { agent: 'grok', model: 'grok-4.5' } }],
         ['Ask Codex · GPT 6 astra to review', { kind: 'reviewChange', thread: switched, choice: { agent: 'codex', model: 'gpt-6-astra' } }],
+        ['Ask Gemini · default to review', { kind: 'reviewChange', thread: switched, choice: { agent: 'gemini', model: null } }],
       ]);
       // After reopening the app, nothing is remembered for new threads; the thread still knows its reviewer's model.
       expect(ask(switched, FIRST_NEW_THREADS)[0].action).toEqual({ kind: 'reviewChange', thread: switched, choice: { agent: 'grok', model: 'grok-4.5' } });
@@ -368,6 +378,8 @@ describe('commandList', () => {
           ['Use Codex · default in this thread', 'Thread t7'],
           ['Use Grok · default in this thread', 'Thread t7'],
           ['Use Grok · Grok 4.6 in this thread', 'Thread t7'],
+          ['Use Gemini · default in this thread', 'Thread t7'],
+          ['Use Gemini · Gemini 4 neon high in this thread', 'Thread t7'],
         ]);
         expect(inThread({ thread: onOpus })[2].action).toEqual({
           kind: 'useChoiceInThread',
@@ -395,6 +407,8 @@ describe('commandList', () => {
           'Use Claude · Opus in this thread',
           'Use Claude · Sonnet in this thread',
           'Use Codex · default in this thread',
+          'Use Gemini · default in this thread',
+          'Use Gemini · Gemini 4 neon high in this thread',
         ]);
       });
 
@@ -403,6 +417,8 @@ describe('commandList', () => {
         expect(offeredHere.map((candidate) => candidate.title)).toEqual([
           'Use Codex · default in this thread to review',
           'Use Grok · Grok 4.6 in this thread to review',
+          'Use Gemini · default in this thread to review',
+          'Use Gemini · Gemini 4 neon high in this thread to review',
         ]);
         expect(offeredHere[0].action).toEqual({ kind: 'useChoiceInThread', thread: reviewed, to: 'reviewer', choice: { agent: 'codex', model: null } });
       });
@@ -714,7 +730,7 @@ describe('the commands for a thread\'s change', () => {
 
   const changed = thread('t9', 'a', '2026-11-06T10:00:00', { change: change() });
   /** What is offered for a change whose copy is there, whatever is set up. */
-  const ALWAYS = ['change:explore', 'change:apply', 'change:catchUp', 'change:askReview', 'change:askReview:grok', 'change:discard', 'change:copyLocation', 'change:openFolder'];
+  const ALWAYS = ['change:explore', 'change:apply', 'change:catchUp', 'change:askReview', 'change:askReview:grok', 'change:askReview:gemini', 'change:discard', 'change:copyLocation', 'change:openFolder'];
 
   it('offers nothing without an open thread, or for a thread with no change', () => {
     expect(offered(null)).toEqual([]);
@@ -731,6 +747,7 @@ describe('the commands for a thread\'s change', () => {
       'change:catchUp',
       'change:askReview',
       'change:askReview:grok',
+      'change:askReview:gemini',
       'change:discard',
       'change:copyLocation',
       'change:openFolder',
@@ -743,8 +760,10 @@ describe('the commands for a thread\'s change', () => {
       'action:settings',
       'action:useInThread:codex:default',
       'action:useInThread:grok:default',
+      'action:useInThread:gemini:default',
       'action:use:codex:default',
       'action:use:grok:default',
+      'action:use:gemini:default',
       'action:newProject',
       'action:removeProject',
       'action:toggleTheme',
@@ -758,6 +777,7 @@ describe('the commands for a thread\'s change', () => {
       ['Catch up with the project', 'Thread t9', 'W U'],
       ['Ask Codex · default to review', 'Thread t9', 'W C'],
       ['Ask Grok · default to review', 'Thread t9', null],
+      ['Ask Gemini · default to review', 'Thread t9', null],
       ['Discard changes', 'Thread t9', 'W D'],
       ['Copy location', 'Thread t9', 'W Y'],
       ['Open folder', 'Thread t9', 'W F'],
@@ -765,9 +785,10 @@ describe('the commands for a thread\'s change', () => {
   });
 
   it('shows, applies, catches up and discards the open thread\'s change', () => {
-    const [explore, apply, catchUp, askReview, askAnother, discard] = offered(changed);
+    const [explore, apply, catchUp, askReview, askAnother, askThird, discard] = offered(changed);
     expect(askReview.action).toEqual({ kind: 'reviewChange', thread: changed, choice: { agent: 'codex', model: null } });
     expect(askAnother.action).toEqual({ kind: 'reviewChange', thread: changed, choice: { agent: 'grok', model: null } });
+    expect(askThird.action).toEqual({ kind: 'reviewChange', thread: changed, choice: { agent: 'gemini', model: null } });
     expect(explore.action).toEqual({ kind: 'exploreChange', thread: changed });
     expect(apply.action).toEqual({ kind: 'applyChange', thread: changed });
     expect(catchUp.action).toEqual({ kind: 'catchUp', thread: changed });
@@ -775,7 +796,7 @@ describe('the commands for a thread\'s change', () => {
   });
 
   it('copies the copy\'s full location and opens the open thread\'s copy', () => {
-    const [, , , , , , copy, folder] = offered(changed);
+    const [, , , , , , , copy, folder] = offered(changed);
     expect(copy.action).toEqual({ kind: 'copyLocation', path: '/work/a/.teryon/worktrees/fix-login' });
     expect(folder.action).toEqual({ kind: 'openCopy', thread: changed, opener: 'folder' });
   });
@@ -789,7 +810,7 @@ describe('the commands for a thread\'s change', () => {
   });
 
   it('offers the editor and the terminal on W E and W T', () => {
-    const [, , , , , , , , editor, terminal] = offered(changed, { editor: true, terminal: true });
+    const [, , , , , , , , , editor, terminal] = offered(changed, { editor: true, terminal: true });
     expect([keyHint(editor), keyHint(terminal)]).toEqual(['W E', 'W T']);
     expect(editor.action).toEqual({ kind: 'openCopy', thread: changed, opener: 'editor' });
   });
@@ -834,8 +855,8 @@ describe('the commands for a thread\'s change', () => {
     }
 
     it('offers sending for review on W R, after catching up', () => {
-      expect(ids(onGitHub(changed))).toEqual(['change:explore', 'change:apply', 'change:catchUp', 'change:askReview', 'change:askReview:grok', 'change:sendForReview', 'change:discard', 'change:copyLocation', 'change:openFolder']);
-      const send = onGitHub(changed)[5];
+      expect(ids(onGitHub(changed))).toEqual(['change:explore', 'change:apply', 'change:catchUp', 'change:askReview', 'change:askReview:grok', 'change:askReview:gemini', 'change:sendForReview', 'change:discard', 'change:copyLocation', 'change:openFolder']);
+      const send = onGitHub(changed)[6];
       expect([send.title, keyHint(send)]).toEqual(['Send for review on GitHub', 'W R']);
       expect(send.action).toEqual({ kind: 'sendForReview', thread: changed });
     });
@@ -843,13 +864,13 @@ describe('the commands for a thread\'s change', () => {
     it('offers opening the review in place of sending it, once in review', () => {
       const reviewed = { ...changed, change: change({ review: review('in_review') }) };
       const commands = onGitHub(reviewed);
-      expect(ids(commands)).toEqual(['change:explore', 'change:apply', 'change:catchUp', 'change:askReview', 'change:askReview:grok', 'change:openReview', 'change:discard', 'change:copyLocation', 'change:openFolder']);
-      expect(keyHint(commands[5])).toBe('W O');
+      expect(ids(commands)).toEqual(['change:explore', 'change:apply', 'change:catchUp', 'change:askReview', 'change:askReview:grok', 'change:askReview:gemini', 'change:openReview', 'change:discard', 'change:copyLocation', 'change:openFolder']);
+      expect(keyHint(commands[6])).toBe('W O');
     });
 
     it('offers sending it again, and opening the old review, once declined', () => {
       const declined = { ...changed, change: change({ review: review('declined') }) };
-      expect(ids(onGitHub(declined)).slice(5, 7)).toEqual(['change:sendForReview', 'change:openReview']);
+      expect(ids(onGitHub(declined)).slice(6, 8)).toEqual(['change:sendForReview', 'change:openReview']);
     });
 
     it('offers nothing about reviews in a project that is not on GitHub', () => {
@@ -878,15 +899,20 @@ describe('the commands for a thread\'s change', () => {
     }
 
     it.each([
-      ['claude', [['Ask Codex · default to review', 'W C'], ['Ask Grok · default to review', null]]],
-      ['codex', [['Ask Claude · default to review', 'W C'], ['Ask Grok · default to review', null]]],
-      ['grok', [['Ask Claude · default to review', 'W C'], ['Ask Codex · default to review', null]]],
+      ['claude', [['Ask Codex · default to review', 'W C'], ['Ask Grok · default to review', null], ['Ask Gemini · default to review', null]]],
+      ['codex', [['Ask Claude · default to review', 'W C'], ['Ask Grok · default to review', null], ['Ask Gemini · default to review', null]]],
+      ['grok', [['Ask Claude · default to review', 'W C'], ['Ask Codex · default to review', null], ['Ask Gemini · default to review', null]]],
+      ['gemini', [['Ask Claude · default to review', 'W C'], ['Ask Codex · default to review', null], ['Ask Grok · default to review', null]]],
     ] as const)('offers every agent but %s, the first one on the key', (agent, titles) => {
       expect(reviewTitles({ ...changed, agent })).toEqual(titles);
     });
 
     it('puts the agent that reviewed first, asking it again, and offers the rest afresh', () => {
-      expect(reviewTitles(reviewed(2))).toEqual([['Ask Grok · default to review again', 'W C'], ['Ask Codex · default to review', null]]);
+      expect(reviewTitles(reviewed(2))).toEqual([
+        ['Ask Grok · default to review again', 'W C'],
+        ['Ask Codex · default to review', null],
+        ['Ask Gemini · default to review', null],
+      ]);
     });
 
     it('names the agent to ask, and its model, in the action', () => {
@@ -894,6 +920,7 @@ describe('the commands for a thread\'s change', () => {
       expect(actions).toEqual([
         ['change:askReview', { kind: 'reviewChange', thread: reviewed(2), choice: { agent: 'grok', model: null } }],
         ['change:askReview:codex', { kind: 'reviewChange', thread: reviewed(2), choice: { agent: 'codex', model: null } }],
+        ['change:askReview:gemini', { kind: 'reviewChange', thread: reviewed(2), choice: { agent: 'gemini', model: null } }],
       ]);
     });
 

@@ -52,7 +52,7 @@ function line(overrides: Partial<UsageLine> = {}): UsageLine {
 
 describe('limitBlocks', () => {
   it('gives one block per agent, in the menu order, whatever order the readings come in', () => {
-    expect(limitBlocks([limits('grok'), limits('claude')], NOW).map((block) => block.agent)).toEqual(['claude', 'codex', 'grok']);
+    expect(limitBlocks([limits('grok'), limits('claude')], NOW).map((block) => block.agent)).toEqual(['claude', 'codex', 'grok', 'gemini']);
   });
 
   it('names the plan beside the agent when known', () => {
@@ -79,6 +79,10 @@ describe('limitBlocks', () => {
 
   it('says Grok’s limits appear after its next turn, like any agent’s', () => {
     expect(limitBlocks([], NOW)[2].note).toBe('No limits seen yet. They appear after the agent’s next turn.');
+  });
+
+  it('says Gemini does not report its usage limits', () => {
+    expect(limitBlocks([], NOW)[3].note).toBe('Gemini does not report its usage limits.');
   });
 
   it('shows Grok’s windows once it reports some', () => {
@@ -183,7 +187,7 @@ describe('agentsWithTurns', () => {
   it('names one agent', () => expect(agentsWithTurns([line(), line()])).toEqual(['claude']));
   it('names several in the menu order', () =>
     expect(agentsWithTurns([line({ agent: 'grok' }), line({ agent: 'claude' })])).toEqual(['claude', 'grok']));
-  it('leaves out agents Teryon does not know', () => expect(agentsWithTurns([line({ agent: 'gemini' })])).toEqual([]));
+  it('leaves out agents Teryon does not know', () => expect(agentsWithTurns([line({ agent: 'mistral' })])).toEqual([]));
 });
 
 describe('chosenAgent', () => {

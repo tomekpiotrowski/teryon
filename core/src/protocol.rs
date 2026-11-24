@@ -233,8 +233,10 @@ pub enum Request {
     /// The choices the settings screen shows. Only from this machine.
     Configuration,
     /// Replaces those choices. Only from this machine. A running agent is left as it is.
+    ///
+    /// Boxed, because configuration is several times larger than any other request.
     SaveConfiguration {
-        configuration: Configuration,
+        configuration: Box<Configuration>,
     },
     /// Stops the service, after stopping every agent. Only from this machine.
     Shutdown,
@@ -322,8 +324,10 @@ pub enum Answer {
         text: String,
     },
     /// The choices the settings screen shows, after reading or saving them.
+    ///
+    /// Boxed, because configuration is several times larger than any other answer.
     Configuration {
-        configuration: Configuration,
+        configuration: Box<Configuration>,
     },
 }
 

@@ -365,8 +365,28 @@ lets_expect! { #tokio_test
         let project = project();
         let (thread, _) = project.changed("claude").await;
         expect(project.review_by(&thread, "claude").await) to equal(Err("Claude wrote this change, so another agent has to review it.".to_string()))
-        expect(project.review_by(&thread, "gemini").await) to equal(Err("Choose Claude, Codex or Grok as the reviewer.".to_string()))
+        expect(project.review_by(&thread, "mistral").await) to equal(Err("Choose Claude, Codex, Grok or Gemini as the reviewer.".to_string()))
         expect(project.scene.thread_now(&thread).reviewer) to equal(None)
+    }
+
+    // requirement: a Gemini reviewer runs in a read-only sandbox with reads allowed and writes denied
+    story claudes_change_is_reviewed_by_gemini {
+        let project = project();
+        let (thread, _) = project.changed("claude").await;
+
+        expect(project.review_by(&thread, "gemini").await) to equal(Ok(()))
+        let started = project.invocations().last().cloned().unwrap_or_default();
+        expect(started.contains("--sandbox")) to be_true
+        expect(started.contains("--settings")) to be_true
+        expect(started.contains("proceed-in-sandbox")) to be_true
+        expect(started.contains("read_file(*)")) to be_true
+        expect(started.contains("write_file(*)")) to be_true
+        expect(started.contains("command(*)")) to be_false
+        expect(started.contains("--dangerously-skip-permissions")) to be_false
+        expect(started.contains("Review the change.")) to be_true
+        let reviewer = project.scene.thread_now(&thread).reviewer.expect("a reviewer");
+        expect(reviewer.agent.as_str()) to equal("gemini")
+        expect(reviewer.verdict) to equal(Some(Verdict { findings: Some(2), answered: false, cut: false }))
     }
 
     // requirement: a Codex reviewer runs read-only, in a sandbox nobody can approve more for

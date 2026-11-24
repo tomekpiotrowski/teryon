@@ -13,7 +13,7 @@ Each release on GitHub has the Linux packages, and `SHA256SUMS` to check them:
 - **.rpm** for Fedora: `sudo dnf install ./Teryon-*.x86_64.rpm`
 - **Arch and Omarchy**: `makepkg -si` in `arch/`, which downloads the .deb from the release.
 
-Teryon runs the agents you already have installed (`claude`, `codex`, `grok`)
+Teryon runs the agents you already have installed (`claude`, `codex`, `grok`, `agy`)
 and needs `git`.
 
 There are no automatic updates yet: install a newer package over the old one.

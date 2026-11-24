@@ -14,7 +14,7 @@ use std::ffi::OsString;
 use std::fs::{read_dir, read_to_string};
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeDelta, Utc};
 use directories::BaseDirs;
 use serde_json::{from_str, Value};
 use tracing::warn;
@@ -293,6 +293,32 @@ pub fn codex_reading(
             );
             Reading::Failed { advice: None }
         }
+    }
+}
+
+/// How long Gemini stays marked as used up after a quota or rate-limit failure.
+///
+/// Antigravity does not report when quota resets, so a cooldown keeps random
+/// picks from hitting the same exhausted provider on every turn while still
+/// letting it back in later, or sooner once a manual turn succeeds.
+const GEMINI_COOLDOWN_MINUTES: i64 = 60;
+
+/// Marks Gemini as used up after a quota or rate-limit failure.
+pub fn gemini_used_up(now: DateTime<Utc>) -> Limits {
+    Limits {
+        agent: Agent::Gemini.name().to_string(),
+        plan: None,
+        windows: vec![Window {
+            name: "quota".to_string(),
+            label: "quota".to_string(),
+            minutes: None,
+            used: 100.0,
+            resets_at: Some(now + TimeDelta::minutes(GEMINI_COOLDOWN_MINUTES)),
+            reached: true,
+        }],
+        taken_at: now,
+        failed: false,
+        advice: None,
     }
 }
 
@@ -587,6 +613,17 @@ mod tests {
             when(conversation = None) as before_codex_named_the_conversation to be_nothing { equal(Reading::Nothing) }
             when(conversation = Some("another")) as without_its_file to fail { equal(failed(None)) }
             when(home = false) as without_a_home_folder to fail { equal(failed(None)) }
+        }
+
+        // requirement: a Gemini quota failure marks Gemini used up for a cooldown window
+        expect(gemini_used_up(now())) as geminis_exhausted_limits {
+            to mark_a_reached_quota_window {
+                have(agent.as_str()) equal("gemini"),
+                have(failed) equal(false),
+                have(windows.len()) equal(1),
+                have(windows[0].reached) equal(true),
+                have(windows[0].resets_at) equal(Some(now() + TimeDelta::minutes(GEMINI_COOLDOWN_MINUTES)))
+            }
         }
     }
 }

@@ -165,6 +165,14 @@ case "$*" in
   *"Review it again"*)
     review review-again "$*"
     ;;
+  *"hit quota"*)
+    if [ "$agent" = "gemini" ]; then
+      echo '{"event":"result","result":{"conversation_id":"9ec969d6-54b7-4375-9a8c-f907be2e11d0","status":"ERROR","error":{"type":"RESOURCE_EXHAUSTED","message":"Quota exceeded for model gemini-4-neon-high"},"usage":{"input_tokens":0,"output_tokens":0,"cache_read_tokens":0}}}'
+    else
+      echo "usage limit reached" >&2
+      exit 1
+    fi
+    ;;
   *"please fail"*)
     echo "the fake agent was told to fail" >&2
     exit 3

@@ -167,8 +167,8 @@ lets_expect! { #tokio_test
         let folder = project_folder();
         let project = scene.project(&folder);
 
-        let thread = scene.workspace.start_thread(project.id, Some("gemini"), None, "").map_err(|problem| problem.to_string());
-        expect(thread.err()) to equal(Some("Choose Claude, Codex or Grok as the agent.".to_string()))
+        let thread = scene.workspace.start_thread(project.id, Some("mistral"), None, "").map_err(|problem| problem.to_string());
+        expect(thread.err()) to equal(Some("Choose Claude, Codex, Grok or Gemini as the agent.".to_string()))
         let elsewhere = scene.workspace.start_thread(unknown(), Some("claude"), None, "").map_err(|problem| problem.to_string());
         expect(elsewhere.err()) to equal(Some("There is no such project.".to_string()))
     }
@@ -306,6 +306,29 @@ lets_expect! { #tokio_test
         expect(runs[1].contains("approvals_reviewer=\"auto_review\"")) to be_true
         expect(runs[1].contains(&format!("-- {CODEX_CONVERSATION} <teryon-instruction>"))) to be_true
         expect(runs[1].ends_with("</teryon-instruction>  and again")) to be_true
+    }
+
+    // requirement: Gemini runs through Antigravity, reports what it did, and resumes the conversation it named
+    story gemini_runs_and_continues_its_conversation {
+        let scene = Scene::new();
+        let folder = project_folder();
+        let project = scene.project(&folder);
+        let thread = scene.thread(&project, "gemini");
+
+        scene.say(&thread, "use tools").unwrap();
+        scene.wait_until_idle(&thread).await;
+        expect(scene.kinds(&thread)) to equal(kinds(&[
+            "user_message", "activity", "activity", "agent_message", "turn_summary",
+        ]))
+        expect(scene.entries(&thread)[1].body.clone()) to equal(json!({ "tool": "write_file", "summary": "/work/sample-project/note.txt" }))
+        expect(scene.entries(&thread)[2].body.clone()) to equal(json!({ "tool": "run_command", "summary": "wc -c note.txt" }))
+        let conversation = scene.thread_now(&thread).conversation.expect("Gemini's conversation is kept");
+
+        scene.say(&thread, "and again").unwrap();
+        scene.wait_until_idle(&thread).await;
+        let runs = invocations(&folder);
+        expect(runs[0].contains("--dangerously-skip-permissions")) to be_true
+        expect(runs[1].contains(&format!("--conversation {conversation}"))) to be_true
     }
 
     // requirement: an empty message is refused

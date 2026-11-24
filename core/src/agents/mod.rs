@@ -1,7 +1,7 @@
 //! Running agent programs and understanding what they report.
 //!
 //! Teryon does not talk to any model provider. It starts the official
-//! `claude`, `codex` and `grok` programs, which use the sign-in already
+//! `claude`, `codex`, `grok` and `agy` programs, which use the sign-in already
 //! present on the machine, and turns the lines they print into thread entries.
 //!
 //! Each program has a driver that knows two things: how to start a turn, and
@@ -11,6 +11,7 @@
 pub mod asking;
 pub mod claude;
 pub mod codex;
+pub mod gemini;
 pub mod grok;
 pub mod grok_sandbox;
 pub mod handover;
@@ -33,6 +34,7 @@ use uuid::Uuid;
 use crate::agents::asking::Questions;
 use crate::agents::claude::ClaudeDriver;
 use crate::agents::codex::CodexDriver;
+use crate::agents::gemini::GeminiDriver;
 use crate::agents::grok::GrokDriver;
 use crate::settings::AgentSettings;
 use crate::usage::Limits;
@@ -43,11 +45,12 @@ pub enum Agent {
     Claude,
     Codex,
     Grok,
+    Gemini,
 }
 
 impl Agent {
     /// Every agent, in the order the application offers them.
-    pub const ALL: [Self; 3] = [Self::Claude, Self::Codex, Self::Grok];
+    pub const ALL: [Self; 4] = [Self::Claude, Self::Codex, Self::Grok, Self::Gemini];
 
     /// Reads the name stored on a thread and sent by the application.
     pub fn parse(name: &str) -> Option<Self> {
@@ -59,6 +62,7 @@ impl Agent {
             Self::Claude => "claude",
             Self::Codex => "codex",
             Self::Grok => "grok",
+            Self::Gemini => "gemini",
         }
     }
 
@@ -68,6 +72,7 @@ impl Agent {
             Self::Claude => "Claude",
             Self::Codex => "Codex",
             Self::Grok => "Grok",
+            Self::Gemini => "Gemini",
         }
     }
 }
@@ -340,6 +345,7 @@ pub fn driver_for(agent: Agent, settings: &AgentSettings) -> Box<dyn AgentDriver
         Agent::Claude => Box::new(ClaudeDriver::new(&settings.claude)),
         Agent::Codex => Box::new(CodexDriver::new(&settings.codex)),
         Agent::Grok => Box::new(GrokDriver::new(&settings.grok)),
+        Agent::Gemini => Box::new(GeminiDriver::new(&settings.gemini)),
     }
 }
 
@@ -377,12 +383,13 @@ mod tests {
             when(name = "claude") as be_claude to hold { equal(Some(Agent::Claude)) }
             when(name = "codex") as be_codex to hold { equal(Some(Agent::Codex)) }
             when(name = "grok") as be_grok to hold { equal(Some(Agent::Grok)) }
+            when(name = "gemini") as be_gemini to hold { equal(Some(Agent::Gemini)) }
             when(name = "Claude") as be_unknown_in_capitals to hold { equal(None) }
             when(name = "") as be_unknown_when_empty to hold { equal(None) }
-            when(name = "gemini") as be_unknown to hold { equal(None) }
+            when(name = "mistral") as be_unknown to hold { equal(None) }
         }
 
-        expect(Agent::ALL.map(Agent::label)) to be_capitalised { equal(["Claude", "Codex", "Grok"]) }
+        expect(Agent::ALL.map(Agent::label)) to be_capitalised { equal(["Claude", "Codex", "Grok", "Gemini"]) }
 
         expect(Tokens::sum(&usage, &["in", "cached"], &["out"])) as tokens_added_up {
             let usage = json!({ "in": 10, "cached": 90, "out": 5 });
@@ -420,6 +427,7 @@ mod tests {
             when(agent = Agent::Claude) as read_back_claude to hold { equal(Some(Agent::Claude)) }
             when(agent = Agent::Codex) as read_back_codex to hold { equal(Some(Agent::Codex)) }
             when(agent = Agent::Grok) as read_back_grok to hold { equal(Some(Agent::Grok)) }
+            when(agent = Agent::Gemini) as read_back_gemini to hold { equal(Some(Agent::Gemini)) }
         }
 
         expect(typed_report(line).map(|(kind, _)| kind)) as the_type_of_a_report {

@@ -171,11 +171,11 @@ describe('labels', () => {
   });
 
   it('names the agents', () => {
-    expect(AGENTS.map(agentLabel)).toEqual(['Claude', 'Codex', 'Grok']);
+    expect(AGENTS.map(agentLabel)).toEqual(['Claude', 'Codex', 'Grok', 'Gemini']);
   });
 
   it('switches to the next agent, going round', () => {
-    expect(AGENTS.map(nextAgent)).toEqual(['codex', 'grok', 'claude']);
+    expect(AGENTS.map(nextAgent)).toEqual(['codex', 'grok', 'gemini', 'claude']);
   });
 });
 
@@ -183,9 +183,10 @@ describe('reviewersFor', () => {
   const plain = thread('t', 'a', '2026-11-03T10:00:00');
 
   it.each([
-    ['claude', ['codex', 'grok']],
-    ['codex', ['claude', 'grok']],
-    ['grok', ['claude', 'codex']],
+    ['claude', ['codex', 'grok', 'gemini']],
+    ['codex', ['claude', 'grok', 'gemini']],
+    ['grok', ['claude', 'codex', 'gemini']],
+    ['gemini', ['claude', 'codex', 'grok']],
   ] as const)('offers every agent but %s, in order', (agent, reviewers) => {
     expect(reviewersFor({ ...plain, agent })).toEqual(reviewers);
     expect(reviewerOf({ ...plain, agent })).toBe(reviewers[0]);
@@ -193,13 +194,13 @@ describe('reviewersFor', () => {
 
   it('puts the agent that reviewed before first', () => {
     const reviewed = { ...plain, reviewer: { agent: 'grok' as const, reviewing: false, verdict: null } };
-    expect(reviewersFor(reviewed)).toEqual(['grok', 'codex']);
+    expect(reviewersFor(reviewed)).toEqual(['grok', 'codex', 'gemini']);
     expect(reviewerOf(reviewed)).toBe('grok');
   });
 
   it('never offers the author, even when it is recorded as the reviewer', () => {
     const odd = { ...plain, reviewer: { agent: 'claude' as const, reviewing: false, verdict: null } };
-    expect(reviewersFor(odd)).toEqual(['codex', 'grok']);
+    expect(reviewersFor(odd)).toEqual(['codex', 'grok', 'gemini']);
   });
 });
 
@@ -336,8 +337,9 @@ describe('entryLine', () => {
 
   it('keeps the agent a reviewer line names, and only on a reviewer line', () => {
     expect(entryLine(entry('agent_message', { text: 'Findings: 1', reviewer: true, agent: 'grok' })).agent).toBe('grok');
+    expect(entryLine(entry('agent_message', { text: 'Findings: 1', reviewer: true, agent: 'gemini' })).agent).toBe('gemini');
     expect(entryLine(entry('agent_message', { text: 'Done', agent: 'grok' })).agent).toBeUndefined();
-    expect(entryLine(entry('agent_message', { text: 'Done', reviewer: true, agent: 'gemini' })).agent).toBeUndefined();
+    expect(entryLine(entry('agent_message', { text: 'Done', reviewer: true, agent: 'mistral' })).agent).toBeUndefined();
     expect(entryLine(entry('agent_message', { text: 'Done', reviewer: true })).agent).toBeUndefined();
   });
 
@@ -423,6 +425,8 @@ describe('modelLabel', () => {
     ['claude-fable-5-2', 'Fable 5.2'],
     ['opus', 'Opus'],
     ['grok-4.7-build-fast', 'Grok 4.7 build fast'],
+    ['gemini-4-neon-high', 'Gemini 4 neon high'],
+    ['gemini-3.8-flash-medium', 'Gemini 3.8 flash medium'],
     ['gpt-6-astra', 'GPT 6 astra'],
     ['gpt-6.2-sol', 'GPT 6.2 sol'],
     ['claude-haiku-4-5-1', 'Haiku 4.5.1'],
@@ -435,11 +439,12 @@ describe('modelLabel', () => {
 });
 
 describe('choices', () => {
-  const models = { claude: ['opus', 'sonnet'], codex: [], grok: ['grok-4.6'] };
+  const models = { claude: ['opus', 'sonnet'], codex: [], grok: ['grok-4.6'], gemini: ['gemini-4-neon-high'] };
 
   it('labels an agent and its model, or its default', () => {
     expect(choiceLabel({ agent: 'claude', model: 'claude-opus-5-5' })).toBe('Claude · Opus 5.5');
     expect(choiceLabel({ agent: 'codex', model: null })).toBe('Codex · default');
+    expect(choiceLabel({ agent: 'gemini', model: 'gemini-4-neon-high' })).toBe('Gemini · Gemini 4 neon high');
   });
 
   it('offers an agent\'s default first, then its models', () => {
@@ -453,7 +458,7 @@ describe('choices', () => {
 
   it('offers every agent\'s choices in the order agents are offered', () => {
     expect(allChoices(models).map(choiceLabel)).toEqual([
-      'Claude · default', 'Claude · Opus', 'Claude · Sonnet', 'Codex · default', 'Grok · default', 'Grok · Grok 4.6',
+      'Claude · default', 'Claude · Opus', 'Claude · Sonnet', 'Codex · default', 'Grok · default', 'Grok · Grok 4.6', 'Gemini · default', 'Gemini · Gemini 4 neon high',
     ]);
   });
 
@@ -476,9 +481,9 @@ describe('choices', () => {
   it('goes round the stage\'s choice and every agent when the first stage chooses', () => {
     const first = switchingAgent(FIRST_NEW_THREADS, true);
     expect([first.agent, first.picked]).toEqual(['claude', true]);
-    const third = switchingAgent(switchingAgent(first, true), true);
-    expect([third.agent, third.picked]).toEqual(['grok', true]);
-    expect(switchingAgent(third, true).picked).toBe(false);
+    const fourth = switchingAgent(switchingAgent(switchingAgent(first, true), true), true);
+    expect([fourth.agent, fourth.picked]).toEqual(['gemini', true]);
+    expect(switchingAgent(fourth, true).picked).toBe(false);
   });
 
   it('says what new threads start on: the first stage\'s choice until the person picks', () => {
@@ -503,10 +508,10 @@ describe('choices', () => {
     const onOpus = choosing(FIRST_NEW_THREADS, { agent: 'claude', model: 'opus' });
     const onCodex = switchingAgent(onOpus);
     expect(chosen(onCodex)).toEqual({ agent: 'codex', model: null });
-    const back = switchingAgent(switchingAgent(onCodex));
+    const back = switchingAgent(switchingAgent(switchingAgent(onCodex)));
     expect(chosen(back)).toEqual({ agent: 'claude', model: 'opus' });
     const grokked = choosing(back, { agent: 'grok', model: 'grok-4.6' });
-    expect(grokked.models).toEqual({ claude: 'opus', codex: null, grok: 'grok-4.6' });
+    expect(grokked.models).toEqual({ claude: 'opus', codex: null, grok: 'grok-4.6', gemini: null });
   });
 
   it('reads the choice of a thread\'s agent and of its reviewer', () => {

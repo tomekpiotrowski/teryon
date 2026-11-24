@@ -18,7 +18,7 @@ use common::{fake_agents, invocations, project_folder, unknown, Scene};
 use teryon_core::agents::models::{list_codex_models, ListingError, ModelLists};
 use teryon_core::agents::Voice;
 use teryon_core::protocol::Event;
-use teryon_core::settings::{AgentSettings, CodexSettings, GrokSettings};
+use teryon_core::settings::{AgentSettings, CodexSettings, GeminiSettings, GrokSettings};
 use teryon_core::store::Status;
 use teryon_core::workspace::Workspace;
 
@@ -36,8 +36,8 @@ fn names(names: &[&str]) -> Vec<String> {
 
 /// Fake agents, with Grok's program and models as given.
 ///
-/// Codex is given an empty list, which is an explicit setting, so these
-/// stories do not also ask Codex and then mistake its notice for Grok's.
+/// Codex and Gemini are given empty lists, which are explicit settings, so
+/// these stories do not also ask them and then mistake their notices for Grok's.
 fn grok_with(program: &str, models: Option<&[&str]>) -> AgentSettings {
     let agents = fake_agents();
     AgentSettings {
@@ -49,6 +49,31 @@ fn grok_with(program: &str, models: Option<&[&str]>) -> AgentSettings {
         codex: CodexSettings {
             models: Some(Vec::new()),
             ..agents.codex
+        },
+        gemini: GeminiSettings {
+            models: Some(Vec::new()),
+            ..agents.gemini
+        },
+        ..agents
+    }
+}
+
+/// Fake agents, with Gemini's program and models as given, and Codex and Grok silenced.
+fn gemini_with(program: &str, models: Option<&[&str]>) -> AgentSettings {
+    let agents = fake_agents();
+    AgentSettings {
+        gemini: GeminiSettings {
+            program: program.to_string(),
+            models: models.map(names),
+            ..agents.gemini.clone()
+        },
+        codex: CodexSettings {
+            models: Some(Vec::new()),
+            ..agents.codex
+        },
+        grok: GrokSettings {
+            models: Some(Vec::new()),
+            ..agents.grok
         },
         ..agents
     }
@@ -208,7 +233,7 @@ lets_expect! { #tokio_test
     // requirement: before discovery, the snapshot offers Claude's short names and the other agents' defaults
     story the_snapshot_offers_the_models {
         let scene = Scene::new();
-        expect(offered(&scene.workspace)) to equal(Some(ModelLists { claude: names(&["opus", "sonnet", "haiku"]), codex: Vec::new(), grok: Vec::new() }))
+        expect(offered(&scene.workspace)) to equal(Some(ModelLists { claude: names(&["opus", "sonnet", "haiku"]), codex: Vec::new(), grok: Vec::new(), gemini: Vec::new() }))
     }
 
     // requirement: Grok's models are read from the program, and clients are told when they arrive
@@ -242,6 +267,52 @@ lets_expect! { #tokio_test
         expect(offered(&scene.workspace).map(|models| models.grok)) to equal(Some(Vec::new()))
         expect(changes.try_recv().is_err()) to be_true
     }
+
+    // requirement: Gemini's models are read from Antigravity, keeping only Gemini models, and clients are told when they arrive
+    story gemini_lists_its_models {
+        let scene = Scene::with(gemini_with("tests/samples/fake-gemini.sh", None));
+        let mut changes = scene.workspace.subscribe();
+
+        scene.workspace.list_models().await;
+        let gemini = names(&["gemini-4-neon-high", "gemini-4-neon-medium", "gemini-3.8-flash-medium", "gemini-3.8-flash-low"]);
+        expect(offered(&scene.workspace).map(|models| models.gemini)) to equal(Some(gemini.clone()))
+        let told = matches!(changes.try_recv(), Ok(Event::ModelsChanged { models }) if models.gemini == gemini);
+        expect(told) to be_true
+    }
+
+    // requirement: Gemini's models named in config.toml are offered as they are, without asking Antigravity
+    story gemini_models_named_in_settings_are_kept {
+        let scene = Scene::with(gemini_with("a-program-nobody-has", Some(&["gemini-4-neon-high"])));
+        let mut changes = scene.workspace.subscribe();
+
+        scene.workspace.list_models().await;
+        expect(offered(&scene.workspace).map(|models| models.gemini)) to equal(Some(names(&["gemini-4-neon-high"])))
+        expect(changes.try_recv().is_err()) to be_true
+    }
+
+    // requirement: when Antigravity cannot list its models, Gemini offers only its default
+    story gemini_that_cannot_list_offers_its_default {
+        let scene = Scene::with(gemini_with("a-program-nobody-has", None));
+        let mut changes = scene.workspace.subscribe();
+
+        scene.workspace.list_models().await;
+        expect(offered(&scene.workspace).map(|models| models.gemini)) to equal(Some(Vec::new()))
+        expect(changes.try_recv().is_err()) to be_true
+    }
+
+    // requirement: a Gemini thread passes its chosen model and records the model Antigravity reports
+    story a_gemini_thread_runs_on_its_chosen_model {
+        let scene = Scene::new();
+        let folder = project_folder();
+        let project = scene.project(&folder);
+
+        let thread = scene.workspace.start_thread(project.id, Some("gemini"), Some("gemini-4-neon-high"), "").unwrap();
+        scene.say(&thread, "hello").unwrap();
+        scene.wait_until_idle(&thread).await;
+        expect(invocations(&folder)[0].contains("--model gemini-4-neon-high")) to be_true
+        let summary = scene.entries(&thread).into_iter().find(|entry| entry.kind == "turn_summary").unwrap();
+        expect(summary.body["model"].clone()) to equal(json!("gemini-3.8-flash-low"))
+    }
     // requirement: Codex discovery follows initialization and pagination, hides hidden
     // models, uses model identifiers rather than display IDs, and removes duplicates
     // requirement: whichever list arrives later still offers the one that arrived first
@@ -253,14 +324,15 @@ lets_expect! { #tokio_test
         expect(offered(&scene.workspace).map(|models| models.codex)) to equal(Some(codex.clone()))
         // The later notice has to keep the earlier list. A copy taken before
         // the other agent answered would wipe that agent for whoever is listening.
-        let mut last_has_both = false;
+        let mut last_has_all = false;
         while let Ok(event) = changes.try_recv() {
             if let Event::ModelsChanged { models } = event {
-                last_has_both = models.codex == codex && models.grok.len() == 4;
+                last_has_all = models.codex == codex && models.grok.len() == 4 && models.gemini.len() == 4;
             }
         }
-        expect(last_has_both) to be_true
+        expect(last_has_all) to be_true
         expect(offered(&scene.workspace).map(|models| models.grok.len())) to equal(Some(4))
+        expect(offered(&scene.workspace).map(|models| models.gemini.len())) to equal(Some(4))
     }
 
     // requirement: explicit Codex models, including an empty list, bypass discovery
@@ -271,6 +343,7 @@ lets_expect! { #tokio_test
             agents.codex.program = "a-program-nobody-has".to_string();
             agents.codex.models = Some(models.clone());
             agents.grok.models = Some(Vec::new());
+            agents.gemini.models = Some(Vec::new());
             let scene = Scene::with(agents);
             let mut changes = scene.workspace.subscribe();
             scene.workspace.list_models().await;

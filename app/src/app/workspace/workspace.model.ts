@@ -10,10 +10,10 @@ import type { PlanInfo, Question, Stage, Starting, Workflow, Workflows } from '.
 export type { PlanInfo, Stage, Starting, Workflow, Workflows };
 import type { Asked } from './questions.model';
 
-export type AgentName = 'claude' | 'codex' | 'grok';
+export type AgentName = 'claude' | 'codex' | 'grok' | 'gemini';
 
 /** Every agent, in the order Teryon offers them. */
-export const AGENTS: readonly AgentName[] = ['claude', 'codex', 'grok'];
+export const AGENTS: readonly AgentName[] = ['claude', 'codex', 'grok', 'gemini'];
 
 export interface Project {
   readonly id: string;
@@ -166,7 +166,7 @@ export interface Choice {
 /** The models each agent offers besides its default, as the service lists them. */
 export type ModelLists = Readonly<Record<AgentName, readonly string[]>>;
 
-export const NO_MODELS: ModelLists = { claude: [], codex: [], grok: [] };
+export const NO_MODELS: ModelLists = { claude: [], codex: [], grok: [], gemini: [] };
 
 /**
  * What new threads start with: the agent, and the model last chosen for each agent.
@@ -187,7 +187,11 @@ export interface NewThreads {
   readonly picked: boolean;
 }
 
-export const FIRST_NEW_THREADS: NewThreads = { agent: 'claude', models: { claude: null, codex: null, grok: null }, picked: false };
+export const FIRST_NEW_THREADS: NewThreads = {
+  agent: 'claude',
+  models: { claude: null, codex: null, grok: null, gemini: null },
+  picked: false,
+};
 
 /** The agent and model to start a new thread with, or nothing to let the first stage choose. */
 export function startingChoice(newThreads: NewThreads): Choice | null {
@@ -744,7 +748,7 @@ export function threadLabel(thread: Thread): string {
   return thread.title || 'New thread';
 }
 
-const AGENT_LABELS: Readonly<Record<AgentName, string>> = { claude: 'Claude', codex: 'Codex', grok: 'Grok' };
+const AGENT_LABELS: Readonly<Record<AgentName, string>> = { claude: 'Claude', codex: 'Codex', grok: 'Grok', gemini: 'Gemini' };
 
 export function agentLabel(agent: AgentName): string {
   return AGENT_LABELS[agent];

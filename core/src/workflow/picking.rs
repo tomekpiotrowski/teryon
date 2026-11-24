@@ -321,7 +321,7 @@ mod tests {
         }
     }
 
-    /// Claude with its built-in strengths, Codex with a strong model only, Grok with none.
+    /// Claude with its built-in strengths, Codex with a strong model only, Grok and Gemini with none.
     fn agents() -> AgentSettings {
         let mut agents = AgentSettings::default();
         agents.codex.strong = Some("gpt-6-astra".to_string());
@@ -474,7 +474,7 @@ mod tests {
                 to take_it { equal(Ok((Agent::Claude, Some("haiku".to_string()), "preferred Claude".to_string()))) }
             }
             when(setting = setting(Some(ProviderChoice::Prefer(Agent::Claude)), Some(Strength::Strong)), left = claude_used_up) as a_preferred_provider_used_up {
-                to fall_back_at_random { equal(Ok((Agent::Grok, None, "Claude is used up, so Grok picked at random instead of preferred Claude; Grok has no strong model set, so it runs its default".to_string()))) }
+                to fall_back_at_random { equal(Ok((Agent::Gemini, None, "Claude is used up, so Gemini picked at random instead of preferred Claude; Gemini has no strong model set, so it runs its default".to_string()))) }
             }
             when(setting = setting(Some(ProviderChoice::Prefer(Agent::Claude)), Some(Strength::Strong)), left = claude_used_up, earlier = Some(Agent::Codex)) as a_preferred_provider_used_up_after_an_earlier_fallback {
                 to keep_the_earlier_fallback { equal(Ok((Agent::Codex, Some("gpt-6-astra".to_string()), "Claude is used up, so Codex as before instead of preferred Claude".to_string()))) }
@@ -483,13 +483,13 @@ mod tests {
                 to go_back_to_it { have(clone().map(agent_of)) equal(Ok(Agent::Claude)) }
             }
             when(setting = setting(Some(ProviderChoice::Prefer(Agent::Claude)), None), author = Some(Agent::Claude)) as a_preferred_provider_that_wrote_the_change {
-                to fall_back { have(clone().map(why_of)) equal(Ok("Claude wrote the change, so Grok picked at random instead of preferred Claude; Grok has no medium model set, so it runs its default".to_string())) }
+                to fall_back { have(clone().map(why_of)) equal(Ok("Claude wrote the change, so Gemini picked at random instead of preferred Claude; Gemini has no medium model set, so it runs its default".to_string())) }
             }
             when(setting = setting(Some(ProviderChoice::Prefer(Agent::Claude)), None), installed = &[Agent::Codex, Agent::Grok]) as a_preferred_provider_not_installed {
                 to fall_back { have(clone().map(agent_of)) equal(Ok(Agent::Grok)) }
             }
             when(setting = setting(Some(ProviderChoice::Prefer(Agent::Claude)), None), left = none_left) as a_preferred_provider_with_nobody_to_fall_back_on {
-                to refuse { equal(Err(none_left_because(" (Claude is used up; Codex is used up; Grok is used up)"))) }
+                to refuse { equal(Err(none_left_because(" (Claude is used up; Codex is used up; Grok is used up; Gemini is used up)"))) }
             }
             when(setting = among(ProviderChoice::Prefer(Agent::Claude), &[Agent::Claude, Agent::Codex]), left = claude_used_up) as a_preferred_provider_with_fallbacks_listed {
                 to fall_back_only_to_those { have(clone().map(agent_of)) equal(Ok(Agent::Codex)) }
@@ -497,22 +497,22 @@ mod tests {
 
             // Any provider
             when(setting = setting(Some(ProviderChoice::Any), None)) as any_provider {
-                to pick_at_random { equal(Ok((Agent::Grok, None, "Grok picked at random; Grok has no medium model set, so it runs its default".to_string()))) }
+                to pick_at_random { equal(Ok((Agent::Gemini, None, "Gemini picked at random; Gemini has no medium model set, so it runs its default".to_string()))) }
             }
             when(setting = setting(None, Some(Strength::Strong))) as a_strength_without_a_provider {
-                to pick_any_provider { have(clone().map(agent_of)) equal(Ok(Agent::Grok)) }
+                to pick_any_provider { have(clone().map(agent_of)) equal(Ok(Agent::Gemini)) }
             }
             when(setting = setting(Some(ProviderChoice::Any), Some(Strength::Strong)), earlier = Some(Agent::Claude)) as any_provider_after_an_earlier_pick {
                 to keep_it { equal(Ok((Agent::Claude, Some("opus".to_string()), "Claude as before".to_string()))) }
             }
             when(setting = setting(Some(ProviderChoice::Any), None), earlier = Some(Agent::Claude), left = claude_used_up) as any_provider_after_the_earlier_pick_ran_out {
-                to pick_again { have(clone().map(agent_of)) equal(Ok(Agent::Grok)) }
+                to pick_again { have(clone().map(agent_of)) equal(Ok(Agent::Gemini)) }
             }
             when(setting = setting(Some(ProviderChoice::Any), None), earlier = Some(Agent::Claude), ran_out = Some(Agent::Claude)) as any_provider_after_the_earlier_pick_just_ran_out {
-                to pick_again { have(clone().map(agent_of)) equal(Ok(Agent::Grok)) }
+                to pick_again { have(clone().map(agent_of)) equal(Ok(Agent::Gemini)) }
             }
-            when(setting = setting(Some(ProviderChoice::Any), None), author = Some(Agent::Grok), earlier = Some(Agent::Grok)) as any_reviewer_when_the_earlier_one_wrote_the_change {
-                to leave_out_the_author { have(clone().map(agent_of)) equal(Ok(Agent::Codex)) }
+            when(setting = setting(Some(ProviderChoice::Any), None), author = Some(Agent::Gemini), earlier = Some(Agent::Gemini)) as any_reviewer_when_the_earlier_one_wrote_the_change {
+                to leave_out_the_author { have(clone().map(agent_of)) equal(Ok(Agent::Grok)) }
             }
             when(setting = setting(Some(ProviderChoice::Any), None), left = only_grok_left) as any_provider_with_one_left {
                 to take_that_one { have(clone().map(agent_of)) equal(Ok(Agent::Grok)) }

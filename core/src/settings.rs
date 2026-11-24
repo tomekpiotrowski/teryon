@@ -33,6 +33,12 @@
 //! models = ["grok-4.7", "grok-4.7-build-fast"]
 //! fast = "grok-4.7-build-fast"
 //!
+//! [agents.gemini]
+//! program = "agy"
+//! models = ["gemini-4-neon-high", "gemini-3.8-flash-medium"]
+//! strong = "gemini-4-neon-high"
+//! fast = "gemini-3.8-flash-low"
+//!
 //! [workflow]
 //! default = "default"    # the workflow new threads start on
 //! automatic_rounds = 3   # agents started in a row without a message from the person; 0 starts none
@@ -325,9 +331,9 @@ impl TryFrom<String> for AgentName {
     type Error = String;
 
     fn try_from(name: String) -> Result<Self, Self::Error> {
-        Agent::parse(&name)
-            .map(Self)
-            .ok_or_else(|| format!("`{name}` is not an agent Teryon knows: claude, codex or grok"))
+        Agent::parse(&name).map(Self).ok_or_else(|| {
+            format!("`{name}` is not an agent Teryon knows: claude, codex, grok or gemini")
+        })
     }
 }
 
@@ -350,7 +356,7 @@ impl TryFrom<String> for ProviderChoice {
         let words: Vec<&str> = text.split_whitespace().collect();
         let agent = |name: &str| {
             Agent::parse(name).ok_or_else(|| {
-                format!("`{name}` is not an agent Teryon knows: claude, codex or grok")
+                format!("`{name}` is not an agent Teryon knows: claude, codex, grok or gemini")
             })
         };
         match words.as_slice() {
@@ -425,6 +431,7 @@ pub struct AgentSettings {
     pub claude: ClaudeSettings,
     pub codex: CodexSettings,
     pub grok: GrokSettings,
+    pub gemini: GeminiSettings,
 }
 
 impl AgentSettings {
@@ -434,6 +441,7 @@ impl AgentSettings {
             Agent::Claude => (&self.claude.strong, &self.claude.medium, &self.claude.fast),
             Agent::Codex => (&self.codex.strong, &self.codex.medium, &self.codex.fast),
             Agent::Grok => (&self.grok.strong, &self.grok.medium, &self.grok.fast),
+            Agent::Gemini => (&self.gemini.strong, &self.gemini.medium, &self.gemini.fast),
         };
         match strength {
             Strength::Strong => strong.clone(),
@@ -448,6 +456,7 @@ impl AgentSettings {
             Agent::Claude => &self.claude.program,
             Agent::Codex => &self.codex.program,
             Agent::Grok => &self.grok.program,
+            Agent::Gemini => &self.gemini.program,
         }
     }
 }
@@ -459,6 +468,7 @@ impl Default for AgentSettings {
             claude: ClaudeSettings::default(),
             codex: CodexSettings::default(),
             grok: GrokSettings::default(),
+            gemini: GeminiSettings::default(),
         }
     }
 }
@@ -617,11 +627,36 @@ impl Default for GrokSettings {
     }
 }
 
+/// How Antigravity, which runs Gemini models, is started.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(default, deny_unknown_fields)]
+pub struct GeminiSettings {
+    pub program: String,
+    /// The models offered besides the program's default. Nothing means asking `agy models` for its Gemini models.
+    pub models: Option<Vec<String>>,
+    /// The model for the strong, medium and fast strengths. Nothing runs the program's default model.
+    pub strong: Option<String>,
+    pub medium: Option<String>,
+    pub fast: Option<String>,
+}
+
+impl Default for GeminiSettings {
+    fn default() -> Self {
+        Self {
+            program: "agy".to_string(),
+            models: None,
+            strong: None,
+            medium: None,
+            fast: None,
+        }
+    }
+}
+
 /// The choices the settings screen reads and saves.
 ///
 /// The screen shows what Teryon is using, defaults included. A blank model
 /// name means the default again: Claude's built-in name, or the program's
-/// own for Codex and Grok. A blank label means the stage's usual word.
+/// own for Codex, Grok and Gemini. A blank label means the stage's usual word.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct Configuration {
     pub default_workflow: String,
@@ -635,6 +670,7 @@ pub struct Configuration {
     pub claude: StrengthModels,
     pub codex: StrengthModels,
     pub grok: StrengthModels,
+    pub gemini: StrengthModels,
     /// Empty when no editor is set up.
     pub editor: String,
     /// Empty when no terminal is set up.
@@ -722,6 +758,12 @@ impl Configuration {
                 &settings.agents.grok.medium,
                 &settings.agents.grok.fast,
                 &GrokSettings::default(),
+            ),
+            gemini: shown_models(
+                &settings.agents.gemini.strong,
+                &settings.agents.gemini.medium,
+                &settings.agents.gemini.fast,
+                &GeminiSettings::default(),
             ),
             editor: settings.open.editor.clone().unwrap_or_default(),
             terminal: settings.open.terminal.clone().unwrap_or_default(),
@@ -831,6 +873,18 @@ impl StrengthDefaults for GrokSettings {
     }
 }
 
+impl StrengthDefaults for GeminiSettings {
+    fn strong(&self) -> Option<&str> {
+        self.strong.as_deref()
+    }
+    fn medium(&self) -> Option<&str> {
+        self.medium.as_deref()
+    }
+    fn fast(&self) -> Option<&str> {
+        self.fast.as_deref()
+    }
+}
+
 /// The text `config.toml` would have after the settings screen saves `draft`.
 ///
 /// The screen writes only the choices it edits, and a broken draft must not
@@ -881,6 +935,9 @@ fn overlay(current: &Settings, draft: &Configuration) -> Result<Settings, String
     settings.agents.grok.strong = strength_value(&draft.grok.strong, None);
     settings.agents.grok.medium = strength_value(&draft.grok.medium, None);
     settings.agents.grok.fast = strength_value(&draft.grok.fast, None);
+    settings.agents.gemini.strong = strength_value(&draft.gemini.strong, None);
+    settings.agents.gemini.medium = strength_value(&draft.gemini.medium, None);
+    settings.agents.gemini.fast = strength_value(&draft.gemini.fast, None);
     settings.open.editor = blank_as_none(&draft.editor);
     settings.open.terminal = blank_as_none(&draft.terminal);
     Ok(settings)
@@ -964,8 +1021,9 @@ fn named_agents(names: &[String]) -> Result<Option<Vec<AgentName>>, String> {
 }
 
 fn named_agent(name: &str) -> Result<Agent, String> {
-    Agent::parse(name.trim())
-        .ok_or_else(|| format!("`{name}` is not an agent Teryon knows: claude, codex or grok"))
+    Agent::parse(name.trim()).ok_or_else(|| {
+        format!("`{name}` is not an agent Teryon knows: claude, codex, grok or gemini")
+    })
 }
 
 /// An empty field means the default. A name equal to the default is stored as that default, and left out of the file.
@@ -994,32 +1052,46 @@ fn patch(document: &mut DocumentMut, before: &Settings, next: &Settings) {
     patch_strengths(
         document,
         "claude",
-        &next.agents.claude.strong,
-        &next.agents.claude.medium,
-        &next.agents.claude.fast,
-        claude.strong.as_deref(),
-        claude.medium.as_deref(),
-        claude.fast.as_deref(),
+        [
+            &next.agents.claude.strong,
+            &next.agents.claude.medium,
+            &next.agents.claude.fast,
+        ],
+        [
+            claude.strong.as_deref(),
+            claude.medium.as_deref(),
+            claude.fast.as_deref(),
+        ],
     );
     patch_strengths(
         document,
         "codex",
-        &next.agents.codex.strong,
-        &next.agents.codex.medium,
-        &next.agents.codex.fast,
-        None,
-        None,
-        None,
+        [
+            &next.agents.codex.strong,
+            &next.agents.codex.medium,
+            &next.agents.codex.fast,
+        ],
+        [None, None, None],
     );
     patch_strengths(
         document,
         "grok",
-        &next.agents.grok.strong,
-        &next.agents.grok.medium,
-        &next.agents.grok.fast,
-        None,
-        None,
-        None,
+        [
+            &next.agents.grok.strong,
+            &next.agents.grok.medium,
+            &next.agents.grok.fast,
+        ],
+        [None, None, None],
+    );
+    patch_strengths(
+        document,
+        "gemini",
+        [
+            &next.agents.gemini.strong,
+            &next.agents.gemini.medium,
+            &next.agents.gemini.fast,
+        ],
+        [None, None, None],
     );
     patch_open(document, &next.open);
 }
@@ -1135,17 +1207,17 @@ fn provider_text(provider: ProviderChoice) -> String {
 fn patch_strengths(
     document: &mut DocumentMut,
     agent: &str,
-    strong: &Option<String>,
-    medium: &Option<String>,
-    fast: &Option<String>,
-    strong_default: Option<&str>,
-    medium_default: Option<&str>,
-    fast_default: Option<&str>,
+    values: [&Option<String>; 3],
+    defaults: [Option<&str>; 3],
 ) {
     patch_table(document, &["agents", agent], |table| {
-        set_or_clear_string(table, "strong", written_strength(strong, strong_default));
-        set_or_clear_string(table, "medium", written_strength(medium, medium_default));
-        set_or_clear_string(table, "fast", written_strength(fast, fast_default));
+        for ((key, value), default) in ["strong", "medium", "fast"]
+            .into_iter()
+            .zip(values)
+            .zip(defaults)
+        {
+            set_or_clear_string(table, key, written_strength(value, default));
+        }
     });
 }
 
@@ -1378,6 +1450,11 @@ mod tests {
                     have(as_ref().unwrap().agents.grok.models.clone()) equal(Some(vec!["grok-4.6".to_string()]))
                 }
             }
+            when(text = Some("[agents.gemini]\nmodels = [\"gemini-4-neon-high\"]\nstrong = \"gemini-4-neon-high\"\n")) as gemini_settings_are_named {
+                to keep_them {
+                    have(as_ref().unwrap().agents.gemini.clone()) equal(GeminiSettings { models: Some(vec!["gemini-4-neon-high".to_string()]), strong: Some("gemini-4-neon-high".to_string()), ..GeminiSettings::default() })
+                }
+            }
             when(text = Some("[agents.claude]\nmodels = []\n")) as no_claude_models_are_named {
                 to keep_the_empty_list {
                     have(as_ref().unwrap().agents.claude.models.clone()) equal(Some(Vec::new()))
@@ -1448,12 +1525,15 @@ mod tests {
             when(text = Some("[stages.implementing]\nprovider = \"only codex\"\n")) as only_one_provider {
                 to keep_it { have(as_ref().unwrap().stages.implementing.clone().unwrap().provider) equal(Some(ProviderChoice::Only(Agent::Codex))) }
             }
-            when(text = Some("[stages.implementing]\nprovider = \"only gemini\"\n")) as an_unknown_agent_in_provider to be_refused { be_err }
+            when(text = Some("[stages.implementing]\nprovider = \"only mistral\"\n")) as an_unknown_agent_in_provider to be_refused { be_err }
+            when(text = Some("[stages.implementing]\nprovider = \"only gemini\"\n")) as only_gemini_provider {
+                to keep_it { have(as_ref().unwrap().stages.implementing.clone().unwrap().provider) equal(Some(ProviderChoice::Only(Agent::Gemini))) }
+            }
             when(text = Some("[stages.implementing]\nprovider = \"always claude\"\n")) as an_unknown_way_to_choose to be_refused { be_err }
             when(text = Some("[stages.implementing]\nprovider = \"prefer\"\n")) as prefer_without_an_agent to be_refused { be_err }
             when(text = Some("[stages.implementing]\nprovider = \"any claude\"\n")) as any_with_an_agent to be_refused { be_err }
             when(text = Some("[stages.implementing]\nstrength = \"huge\"\n")) as an_unknown_strength to be_refused { be_err }
-            when(text = Some("[stages.review]\namong = [\"gemini\"]\n")) as an_unknown_agent_in_among to be_refused { be_err }
+            when(text = Some("[stages.review]\namong = [\"mistral\"]\n")) as an_unknown_agent_in_among to be_refused { be_err }
             when(text = Some("[stages.review]\namong = []\n")) as an_empty_among {
                 to be_refused { have(clone().unwrap_err().contains("among lists no provider")) be_true }
             }
@@ -1653,7 +1733,7 @@ stages = [\"talking\", \"implementing\", \"ready\", \"done\"]
             when(draft = { let mut draft = Configuration::from_settings(&Settings::default()); for stage in &mut draft.stages { if stage.stage == Stage::Implementing || stage.stage == Stage::Review { stage.provider = Some(StageProvider::Only { agent: "claude".to_string() }); } } draft }) as one_provider_writing_and_reviewing {
                 to be_refused { have(clone().unwrap_err().contains("cannot review its own change")) be_true }
             }
-            when(draft = { let mut draft = Configuration::from_settings(&Settings::default()); let review = draft.stages.iter_mut().find(|stage| stage.stage == Stage::Review).unwrap(); review.provider = Some(StageProvider::Any { among: vec!["gemini".to_string()] }); draft }) as an_unknown_agent {
+            when(draft = { let mut draft = Configuration::from_settings(&Settings::default()); let review = draft.stages.iter_mut().find(|stage| stage.stage == Stage::Review).unwrap(); review.provider = Some(StageProvider::Any { among: vec!["mistral".to_string()] }); draft }) as an_unknown_agent {
                 to be_refused { have(clone().unwrap_err().contains("is not an agent Teryon knows")) be_true }
             }
         }

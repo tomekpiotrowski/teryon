@@ -33,7 +33,7 @@ class FakeSocket implements Socket {
   }
 }
 
-const SNAPSHOT: ServiceMessage = { type: 'event', event: { type: 'snapshot', projects: [], threads: [], opens: { editor: false, terminal: false }, models: { claude: [], codex: [], grok: [] }, workflows: NO_WORKFLOWS, starting: null } };
+const SNAPSHOT: ServiceMessage = { type: 'event', event: { type: 'snapshot', projects: [], threads: [], opens: { editor: false, terminal: false }, models: { claude: [], codex: [], grok: [], gemini: [] }, workflows: NO_WORKFLOWS, starting: null } };
 
 /** What the address finder does on one attempt: find an address or nothing, fail, or never finish. */
 type Finding = ServiceAddress | null | { readonly fails: unknown } | 'never';

@@ -44,7 +44,7 @@ use crate::files::git::{first_line, Git};
 use crate::settings::AgentSettings;
 use crate::store::Thread;
 use crate::usage::grok::{grok_home_here, grok_reading};
-use crate::usage::limits::{codex_home_here, codex_reading};
+use crate::usage::limits::{codex_home_here, codex_reading, gemini_used_up};
 use crate::usage::{says_limit_hit, Limits, Reading};
 
 /// How often a running turn has its thread's change looked at.
@@ -332,6 +332,8 @@ async fn run_turn(
         }
         None => {}
     }
+    let hit_limit =
+        outcome.hit_limit || (!outcome.summarised && says_limit_hit(&outcome.complaints));
     let mut late = None;
     let reading = match (speaker.agent, outcome.limits.clone()) {
         (Agent::Claude, Some(limits)) => Reading::Fresh(limits),
@@ -358,6 +360,9 @@ async fn run_turn(
             });
             Reading::Nothing
         }
+        (Agent::Gemini, _) if hit_limit => Reading::Fresh(gemini_used_up(Utc::now())),
+        (Agent::Gemini, _) if outcome.summarised && !outcome.early => Reading::Cleared,
+        (Agent::Gemini, _) => Reading::Nothing,
     };
     journal.usage(
         thread.id,
@@ -370,12 +375,12 @@ async fn run_turn(
                 })
             }),
             reading,
-            hit_limit: outcome.hit_limit,
+            hit_limit,
             model: outcome.model.clone(),
         },
     );
 
-    if outcome.hit_limit {
+    if hit_limit {
         journal.note(thread.id, ThreadChange::RanOut(speaker.agent));
     }
     if voice == Voice::Reviewer {
@@ -510,8 +515,9 @@ async fn follow(
                                 tokens = from_value::<Tokens>(draft.body["tokens"].clone()).ok();
                                 model = driver.model();
                             }
-                            hit_limit |= draft.kind == EntryKind::Notice
-                                && draft.body["text"].as_str().is_some_and(says_limit_hit);
+                            hit_limit |=
+                                matches!(draft.kind, EntryKind::Notice | EntryKind::Error)
+                                    && draft.body["text"].as_str().is_some_and(says_limit_hit);
                             remember_message(&mut last_message, &draft);
                             let draft = with_model(timed(draft, started), driver.model());
                             journal.add(thread.id, draft.by(voice).naming(speaker.agent));

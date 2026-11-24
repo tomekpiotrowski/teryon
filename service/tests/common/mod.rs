@@ -51,6 +51,7 @@ pub async fn scene_with(more: &str) -> Scene {
              [agents]\nstop_grace_seconds = 1\n\n\
              [agents.claude]\nprogram = \"../core/tests/samples/fake-claude.sh\"\n\n\
              [agents.grok]\nprogram = \"../core/tests/samples/fake-grok.sh\"\nhome = \"{}\"\n\n\
+             [agents.gemini]\nprogram = \"../core/tests/samples/fake-gemini.sh\"\n\n\
              {more}",
             free_port().await,
             home.path().join("grok").display()

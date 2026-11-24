@@ -295,11 +295,13 @@ impl Session {
                 .map(|file| Answer::File { file })
                 .map_err(|problem| problem.to_string()),
             Request::Configuration => Ok(Answer::Configuration {
-                configuration: workspace.configuration(),
+                configuration: Box::new(workspace.configuration()),
             }),
             Request::SaveConfiguration { configuration } => workspace
                 .save_configuration(&configuration)
-                .map(|configuration| Answer::Configuration { configuration })
+                .map(|configuration| Answer::Configuration {
+                    configuration: Box::new(configuration),
+                })
                 .map_err(|problem| problem.to_string()),
         };
         (answer, Aftermath::Nothing)

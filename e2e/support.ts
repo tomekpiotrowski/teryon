@@ -59,6 +59,9 @@ async function startService(origin: string, more: string): Promise<Service> {
       "[agents.grok]",
       `program = "${join(samples, "fake-grok.sh")}"`,
       "",
+      "[agents.gemini]",
+      `program = "${join(samples, "fake-gemini.sh")}"`,
+      "",
       more,
     ].join("\n"),
   );

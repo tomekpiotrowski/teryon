@@ -282,7 +282,7 @@ lets_expect! { #tokio_test
         // Grok is asked when the service starts, which may finish before or after this client connects:
         // its models arrive in the snapshot or in a later update. Codex is asked at the same time
         // and may announce first, so an update that does not list Grok yet is not this one.
-        let grok = match snapshot.map(|models| models.grok).filter(|grok| !grok.is_empty()) {
+        let grok = match snapshot.as_ref().map(|models| models.grok.clone()).filter(|grok| !grok.is_empty()) {
             Some(grok) => grok,
             None => match wait_for(&mut client, |event| {
                 matches!(event, Event::ModelsChanged { models } if !models.grok.is_empty())
@@ -294,6 +294,19 @@ lets_expect! { #tokio_test
             },
         };
         expect(grok.first().cloned()) to equal(Some("grok-4.7".to_string()))
+
+        let gemini = match snapshot.map(|models| models.gemini).filter(|gemini| !gemini.is_empty()) {
+            Some(gemini) => gemini,
+            None => match wait_for(&mut client, |event| {
+                matches!(event, Event::ModelsChanged { models } if !models.gemini.is_empty())
+            })
+            .await
+            {
+                Event::ModelsChanged { models } => models.gemini,
+                _ => Vec::new(),
+            },
+        };
+        expect(gemini.first().cloned()) to equal(Some("gemini-4-neon-high".to_string()))
 
         let project = project_id(client.call(Request::AddProject { name: "Sample".to_string(), directory: folder.path().to_string_lossy().into_owned() }).await.unwrap());
         let started = client.call(Request::StartThread { project_id: project, agent: Some("claude".to_string()), model: Some("sonnet".to_string()), title: String::new() }).await.unwrap();

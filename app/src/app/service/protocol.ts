@@ -333,7 +333,7 @@ export type Opener = "folder" | "editor" | "terminal";
 
 export type Opens = { editor: boolean, terminal: boolean, };
 
-export type ModelLists = { claude: Array<string>, codex: Array<string>, grok: Array<string>, };
+export type ModelLists = { claude: Array<string>, codex: Array<string>, grok: Array<string>, gemini: Array<string>, };
 
 export type Entry = { id: string, thread_id: string, 
 /**
@@ -571,7 +571,7 @@ own_workflows: boolean, workflows: Array<ConfiguredWorkflow>,
 /**
  * One entry per stage, in the fixed order.
  */
-stages: Array<ConfiguredStage>, claude: StrengthModels, codex: StrengthModels, grok: StrengthModels, 
+stages: Array<ConfiguredStage>, claude: StrengthModels, codex: StrengthModels, grok: StrengthModels, gemini: StrengthModels, 
 /**
  * Empty when no editor is set up.
  */

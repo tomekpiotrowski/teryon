@@ -32,6 +32,7 @@ const SAVED: Configuration = {
   claude: { strong: 'opus', medium: 'sonnet', fast: 'haiku' },
   codex: { strong: '', medium: '', fast: '' },
   grok: { strong: '', medium: '', fast: '' },
+  gemini: { strong: '', medium: '', fast: '' },
   editor: '',
   terminal: '',
 };

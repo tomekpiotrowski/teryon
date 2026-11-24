@@ -119,8 +119,8 @@ lets_expect! { #tokio_test
         let project = scene.project(&folder);
         let thread = scene.thread(&project, "claude");
 
-        let unknown_agent = scene.workspace.change_agent(thread.id, Voice::Author, "gemini", None).map_err(|problem| problem.to_string());
-        expect(unknown_agent.err()) to equal(Some("Choose Claude, Codex or Grok.".to_string()))
+        let unknown_agent = scene.workspace.change_agent(thread.id, Voice::Author, "mistral", None).map_err(|problem| problem.to_string());
+        expect(unknown_agent.err()) to equal(Some("Choose Claude, Codex, Grok or Gemini.".to_string()))
         let elsewhere = scene.workspace.change_agent(unknown(), Voice::Author, "codex", None).map_err(|problem| problem.to_string());
         expect(elsewhere.err()) to equal(Some("There is no such thread.".to_string()))
         let reviewer = scene.workspace.change_agent(thread.id, Voice::Reviewer, "codex", None).map_err(|problem| problem.to_string());

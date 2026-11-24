@@ -28,7 +28,7 @@ use teryon_core::workspace::{Setup, Workspace};
 /// The choices the settings screen is showing.
 async fn shown(client: &mut Client) -> Configuration {
     match client.call(Request::Configuration).await.unwrap() {
-        Answer::Configuration { configuration } => configuration,
+        Answer::Configuration { configuration } => *configuration,
         other => panic!("not the settings: {other:?}"),
     }
 }
@@ -119,7 +119,7 @@ lets_expect! { #tokio_test
         let mut configuration = shown(&mut client).await;
         configuration.editor = "zed {path}".to_string();
 
-        client.call(Request::SaveConfiguration { configuration }).await.unwrap();
+        client.call(Request::SaveConfiguration { configuration: Box::new(configuration) }).await.unwrap();
         let changed = wait_for(&mut client, |event| matches!(event, Event::SettingsChanged { .. })).await;
 
         let editor = matches!(changed, Event::SettingsChanged { opens, .. } if opens.editor && !opens.terminal);
@@ -127,6 +127,7 @@ lets_expect! { #tokio_test
         let text = config_text(scene.home.path());
         expect(text.contains("fake-claude.sh")) to be_true
         expect(text.contains("fake-grok.sh")) to be_true
+        expect(text.contains("fake-gemini.sh")) to be_true
         expect(text.contains("zed {path}")) to be_true
     }
 
@@ -138,7 +139,7 @@ lets_expect! { #tokio_test
         let draft = Configuration::from_settings(&Settings::default());
 
         let (read, _) = session.answer(Request::Configuration).await;
-        let (saved, _) = session.answer(Request::SaveConfiguration { configuration: draft }).await;
+        let (saved, _) = session.answer(Request::SaveConfiguration { configuration: Box::new(draft) }).await;
 
         expect(read) to equal(Err("This can only be done on the machine itself.".to_string()))
         expect(saved) to equal(Err("This can only be done on the machine itself.".to_string()))
@@ -156,7 +157,7 @@ lets_expect! { #tokio_test
             }
         }
         configuration.grok.fast = "grok-test".to_string();
-        client.call(Request::SaveConfiguration { configuration }).await.unwrap();
+        client.call(Request::SaveConfiguration { configuration: Box::new(configuration) }).await.unwrap();
 
         let thread = started(&mut client, &repository(), None, None).await;
 
@@ -175,7 +176,7 @@ lets_expect! { #tokio_test
         let mut configuration = shown(&mut client).await;
         configuration.claude.strong = "later-model".to_string();
 
-        client.call(Request::SaveConfiguration { configuration }).await.unwrap();
+        client.call(Request::SaveConfiguration { configuration: Box::new(configuration) }).await.unwrap();
         let mut other = scene.client().await;
         let snapshot = other.event().await.unwrap();
         let running = matches!(snapshot, Event::Snapshot { threads, .. } if threads.iter().any(|found| found.id == thread && found.status == Status::Running));
@@ -199,7 +200,7 @@ lets_expect! { #tokio_test
         let mut configuration = shown(&mut client).await;
         configuration.editor = "zed {path}".to_string();
 
-        client.call(Request::SaveConfiguration { configuration }).await.unwrap();
+        client.call(Request::SaveConfiguration { configuration: Box::new(configuration) }).await.unwrap();
 
         expect(read_to_string(&sentinel).unwrap()) to equal("leave this name alone\n".to_string())
         expect(config_text(scene.home.path()).contains("zed {path}")) to be_true
@@ -214,7 +215,7 @@ lets_expect! { #tokio_test
         let workflow = configuration.workflows.iter_mut().find(|workflow| workflow.name == "default").unwrap();
         workflow.stages = vec![Stage::Review, Stage::Ready, Stage::Done];
 
-        let saved = client.call(Request::SaveConfiguration { configuration }).await;
+        let saved = client.call(Request::SaveConfiguration { configuration: Box::new(configuration) }).await;
 
         let refused = matches!(saved, Err(ClientError::Refused(ref message)) if message.contains("has to start with talking, planning or implementing"));
         expect(refused) to be_true

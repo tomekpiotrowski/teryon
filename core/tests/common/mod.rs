@@ -20,7 +20,9 @@ use uuid::Uuid;
 
 use teryon_core::agents::Voice;
 use teryon_core::protocol::{Event, ProjectView};
-use teryon_core::settings::{AgentSettings, ClaudeSettings, CodexSettings, GrokSettings};
+use teryon_core::settings::{
+    AgentSettings, ClaudeSettings, CodexSettings, GeminiSettings, GrokSettings,
+};
 use teryon_core::store::{Entry, Status, Thread};
 use teryon_core::workspace::{Setup, Workspace};
 
@@ -43,6 +45,10 @@ pub fn fake_agents() -> AgentSettings {
             program: "tests/samples/fake-grok.sh".to_string(),
             home: Some(temp_dir().join("teryon-core-tests-grok")),
             ..GrokSettings::default()
+        },
+        gemini: GeminiSettings {
+            program: "tests/samples/fake-gemini.sh".to_string(),
+            ..GeminiSettings::default()
         },
     }
 }

@@ -43,7 +43,7 @@ use uuid::Uuid;
 use crate::agents::asking::{Questions, SHAPE};
 use crate::agents::handover::handed_over;
 use crate::agents::models::{
-    checked_model, list_codex_models, list_grok_models, ModelError, ModelLists,
+    checked_model, list_codex_models, list_gemini_models, list_grok_models, ModelError, ModelLists,
 };
 use crate::agents::runner::{Journal, Pending, Runner, ThreadChange, TurnRequest, TurnUsage};
 use crate::agents::staging::{planning, reviewing_plan, staging};
@@ -528,12 +528,14 @@ impl Workspace {
     /// has started. Each list arrives independently; failures are logged and
     /// leave that agent with its default. Explicit settings are never replaced.
     pub async fn list_models(&self) {
-        let (codex, grok_program, grok_named) = {
+        let (codex, grok_program, grok_named, gemini_program, gemini_named) = {
             let setup = self.inner.setup();
             (
                 setup.agents.codex.clone(),
                 setup.agents.grok.program.clone(),
                 setup.agents.grok.models.is_some(),
+                setup.agents.gemini.program.clone(),
+                setup.agents.gemini.models.is_some(),
             )
         };
         let codex_list = async {
@@ -554,7 +556,16 @@ impl Workspace {
                 Err(problem) => warn!("Grok offers only its default model: {problem}"),
             }
         };
-        join!(codex_list, grok_list);
+        let gemini_list = async {
+            if gemini_named {
+                return;
+            }
+            match list_gemini_models(&gemini_program).await {
+                Ok(names) => self.inner.publish_models(|models| models.gemini = names),
+                Err(problem) => warn!("Gemini offers only its default model: {problem}"),
+            }
+        };
+        join!(codex_list, grok_list, gemini_list);
     }
 
     /// Every change from now on.
@@ -663,7 +674,7 @@ impl Workspace {
             (Some(agent), _) => {
                 let agent = Agent::parse(agent).ok_or_else(|| {
                     WorkspaceError::Invalid(
-                        "Choose Claude, Codex or Grok as the agent.".to_string(),
+                        "Choose Claude, Codex, Grok or Gemini as the agent.".to_string(),
                     )
                 })?;
                 (agent, checked_model(model)?, false)
@@ -983,7 +994,9 @@ impl Workspace {
         model: Option<&str>,
     ) -> Result<Entry, WorkspaceError> {
         let agent = Agent::parse(reviewer).ok_or_else(|| {
-            WorkspaceError::Invalid("Choose Claude, Codex or Grok as the reviewer.".to_string())
+            WorkspaceError::Invalid(
+                "Choose Claude, Codex, Grok or Gemini as the reviewer.".to_string(),
+            )
         })?;
         let model = checked_model(model)?;
         self.review(thread_id, agent, model, Starter::Person)
@@ -1196,8 +1209,9 @@ impl Workspace {
         agent: &str,
         model: Option<&str>,
     ) -> Result<Thread, WorkspaceError> {
-        let agent = Agent::parse(agent)
-            .ok_or_else(|| WorkspaceError::Invalid("Choose Claude, Codex or Grok.".to_string()))?;
+        let agent = Agent::parse(agent).ok_or_else(|| {
+            WorkspaceError::Invalid("Choose Claude, Codex, Grok or Gemini.".to_string())
+        })?;
         let model = checked_model(model)?;
         let mut state = self.inner.state();
         let (store, thread) = state.holding(thread_id)?;
@@ -1644,6 +1658,9 @@ fn view_of(setup: &Setup) -> Settings {
     settings.agents.grok.strong = setup.agents.grok.strong.clone();
     settings.agents.grok.medium = setup.agents.grok.medium.clone();
     settings.agents.grok.fast = setup.agents.grok.fast.clone();
+    settings.agents.gemini.strong = setup.agents.gemini.strong.clone();
+    settings.agents.gemini.medium = setup.agents.gemini.medium.clone();
+    settings.agents.gemini.fast = setup.agents.gemini.fast.clone();
     settings
 }
 
@@ -1662,6 +1679,9 @@ fn apply_saved(setup: &mut Setup, settings: &Settings) {
     setup.agents.grok.strong = settings.agents.grok.strong.clone();
     setup.agents.grok.medium = settings.agents.grok.medium.clone();
     setup.agents.grok.fast = settings.agents.grok.fast.clone();
+    setup.agents.gemini.strong = settings.agents.gemini.strong.clone();
+    setup.agents.gemini.medium = settings.agents.gemini.medium.clone();
+    setup.agents.gemini.fast = settings.agents.gemini.fast.clone();
     setup.open = settings.open.clone();
     setup.workflow = settings.workflow.clone();
     setup.stages = settings.stages.clone();

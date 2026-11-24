@@ -22,6 +22,7 @@ fn agents() -> AgentSettings {
     agents.claude.program = "tests/samples/fake-claude.sh".to_string();
     agents.codex.program = "tests/samples/fake-codex.sh".to_string();
     agents.grok.program = "tests/samples/fake-grok.sh".to_string();
+    agents.gemini.program = "tests/samples/fake-gemini.sh".to_string();
     agents
 }
 

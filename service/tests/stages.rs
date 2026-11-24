@@ -164,11 +164,13 @@ async fn next_starting(client: &mut Client) -> Option<Option<Starting>> {
 /// The settings screen's choices with Claude's medium model replaced.
 async fn with_medium(client: &mut Client, model: &str) -> Request {
     let mut configuration = match client.call(Request::Configuration).await.unwrap() {
-        Answer::Configuration { configuration } => configuration,
+        Answer::Configuration { configuration } => *configuration,
         other => panic!("not the settings: {other:?}"),
     };
     configuration.claude.medium = model.to_string();
-    Request::SaveConfiguration { configuration }
+    Request::SaveConfiguration {
+        configuration: Box::new(configuration),
+    }
 }
 
 /// Claude on a model, as a snapshot says it.

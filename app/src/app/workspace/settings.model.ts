@@ -50,6 +50,7 @@ export interface SettingsDraft {
   readonly claude: StrengthModels;
   readonly codex: StrengthModels;
   readonly grok: StrengthModels;
+  readonly gemini: StrengthModels;
   readonly editor: string;
   readonly terminal: string;
   /** Set when a workflow was removed, until the next save replaces the draft. */
@@ -143,6 +144,7 @@ export function fromConfiguration(configuration: Configuration): SettingsDraft {
     claude: { ...configuration.claude },
     codex: { ...configuration.codex },
     grok: { ...configuration.grok },
+    gemini: { ...configuration.gemini },
     editor: configuration.editor,
     terminal: configuration.terminal,
     removalNote: null,
@@ -164,6 +166,7 @@ export function toConfiguration(draft: SettingsDraft): Configuration {
     claude: { ...draft.claude },
     codex: { ...draft.codex },
     grok: { ...draft.grok },
+    gemini: { ...draft.gemini },
     editor: draft.editor,
     terminal: draft.terminal,
   };
@@ -409,7 +412,7 @@ function refusalOfStage(stage: ConfiguredStage): string | null {
   }
   const names = providerNames(stage.provider);
   for (const name of names) {
-    if (!knownAgent(name)) return `\`${name}\` is not an agent Teryon knows: claude, codex or grok`;
+    if (!knownAgent(name)) return `\`${name}\` is not an agent Teryon knows: claude, codex, grok or gemini`;
   }
   return null;
 }

@@ -111,6 +111,8 @@ pub enum Reading {
     ///
     /// `advice` says what the person can do about it, when anything.
     Failed { advice: Option<String> },
+    /// A provider without regular readings finished a turn normally, clearing any prior used-up marker.
+    Cleared,
     /// The program said nothing about them this time.
     Nothing,
 }
@@ -252,6 +254,12 @@ fn next_limits(
                 .cloned()
                 .unwrap_or_else(|| unknown_limits(agent, now))
         }),
+        Reading::Cleared => match previous {
+            Some(previous) if previous.windows.iter().any(|window| window.reached) => {
+                Some(unknown_limits(agent, now))
+            }
+            _ => None,
+        },
         Reading::Nothing => match previous {
             Some(previous) if hit_limit => {
                 let marked = marked_reached(previous.clone());
@@ -280,12 +288,24 @@ fn read_limits(path: &Path) -> Result<Vec<Limits>, UsageError> {
     })
 }
 
-/// Whether a notice says the agent's usage limit was hit.
+/// Whether a notice or error says the agent's usage limit or quota was hit.
 ///
 /// Claude Code's notice is Teryon's own, "The subscription's usage limit was
-/// reached."; Codex's is its own, "You've hit your usage limit.".
+/// reached."; Codex's is its own, "You've hit your usage limit."; Gemini and
+/// Antigravity report quota or rate-limit errors.
 pub fn says_limit_hit(text: &str) -> bool {
-    text.to_lowercase().contains("usage limit")
+    let lower = text.to_lowercase();
+    [
+        "usage limit",
+        "rate limit",
+        "rate_limit",
+        "quota",
+        "resource_exhausted",
+        "resource exhausted",
+        "too many requests",
+    ]
+    .iter()
+    .any(|phrase| lower.contains(phrase))
 }
 
 #[cfg(test)]
@@ -405,6 +425,11 @@ mod tests {
             }
             when(reading = Reading::Nothing) as no_reading to change_nothing { equal(None) }
             when(reading = Reading::Nothing, previous = None, hit_limit = true) as a_hit_limit_without_anything_known to change_nothing { equal(None) }
+            when(reading = Reading::Cleared, previous = None) as cleared_without_previous to change_nothing { equal(None) }
+            when(reading = Reading::Cleared, previous = Some(claude())) as cleared_when_nothing_was_reached to change_nothing { equal(None) }
+            when(reading = Reading::Cleared, previous = Some(limits("claude", vec![window("quota", None, true)]))) as cleared_after_a_reached_window to drop_it {
+                equal(Some(Limits { agent: "claude".to_string(), plan: None, windows: vec![], taken_at: at(12), failed: false, advice: None }))
+            }
         }
 
         // requirement: a "usage limit reached" notice marks the shortest window as reached when no window is
@@ -423,6 +448,9 @@ mod tests {
         expect(says_limit_hit(text)) {
             when(text = "The subscription's usage limit was reached.") as claudes_notice to be_true
             when(text = "You've hit your usage limit.") as codexs_notice to be_true
+            when(text = "Quota exceeded for model gemini-4-neon-high.") as geminis_quota_error to be_true
+            when(text = "RESOURCE_EXHAUSTED: rate limit reached") as geminis_rpc_error to be_true
+            when(text = "HTTP 429: Too many requests") as too_many_requests to be_true
             when(text = "Permission denied for Bash.") as another_notice to be_false
         }
 

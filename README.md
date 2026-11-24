@@ -1,6 +1,6 @@
 # Teryon
 
-Teryon runs coding agents such as Claude Code, Codex and Grok on your projects.
+Teryon runs coding agents such as Claude Code, Codex, Grok and Gemini (through Antigravity) on your projects.
 Each piece of work gets its own copy of the code, so several agents can work
 at once without getting in each other's way, and they keep working after the
 window closes. You read along, answer their questions, and apply the changes

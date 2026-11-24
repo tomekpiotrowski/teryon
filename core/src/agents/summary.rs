@@ -7,16 +7,24 @@
 use serde_json::Value;
 
 /// Fields that say what a tool was used on, most telling first.
-const TELLING_FIELDS: [&str; 9] = [
+const TELLING_FIELDS: [&str; 17] = [
+    "toolSummary",
     "description",
     "file_path",
+    "Path",
+    "TargetFile",
     "path",
     "command",
+    "CommandLine",
     "pattern",
+    "Query",
     "url",
+    "Url",
     "query",
     "prompt",
     "target_directory",
+    "DirectoryPath",
+    "SearchPath",
 ];
 
 const LONGEST_SUMMARY: usize = 200;

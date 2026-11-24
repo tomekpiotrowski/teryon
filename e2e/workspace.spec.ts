@@ -404,6 +404,25 @@ test("a thread can be started with Grok", async ({ page }) => {
   await expect(page.locator(".thread-meta").getByText("Grok")).toBeVisible();
 });
 
+test("a thread can be started with Gemini on a discovered model", async ({ page }) => {
+  await addProject(page, "Sample");
+
+  await page.keyboard.press("Control+k");
+  await expect(menu(page).getByRole("option", { name: /^Use Gemini · Gemini 4 neon high for new threads/ })).toBeVisible();
+  await menu(page).getByRole("option", { name: /^Use Gemini · Gemini 4 neon high for new threads/ }).click();
+  await expect(page.getByRole("button", { name: "Change agent" })).toHaveText("Gemini · Gemini 4 neon high");
+
+  await page.getByPlaceholder("What should Gemini do in Sample?").fill("use tools");
+  await page.getByRole("button", { name: "Run ↵" }).click();
+
+  await expect(page.getByText("write_file  /work/sample-project/note.txt")).toBeVisible();
+  await expect(page.getByText("run_command  wc -c note.txt")).toBeVisible();
+  const summary = page.getByText(/^Done in \d+s · Gemini 3\.8 flash low · 22k tokens read, 82 written$/);
+  await expect(summary).toBeVisible();
+  await expect(summary).toHaveAttribute("title", "gemini-3.8-flash-low");
+  await expect(page.locator(".thread-meta")).toContainText("Gemini · Gemini 4 neon high");
+});
+
 test("a running agent can be stopped", async ({ page }) => {
   await addProject(page, "Sample");
 
