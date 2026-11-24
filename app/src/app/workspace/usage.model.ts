@@ -107,7 +107,6 @@ function limitNote(agent: AgentName, reading: Limits | null, hasRows: boolean): 
     return reading.advice ? `${failure} ${reading.advice}` : failure;
   }
   if (hasRows) return null;
-  if (agent === 'gemini') return 'Gemini does not report its usage limits.';
   return 'No limits seen yet. They appear after the agent’s next turn.';
 }
 

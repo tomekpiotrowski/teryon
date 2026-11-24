@@ -14,8 +14,24 @@
 //!   first moment escapes the job, which agent programs do not do.
 
 use std::io::Error as IoError;
+#[cfg(unix)]
+use std::io::ErrorKind;
+#[cfg(unix)]
+use std::thread;
+#[cfg(unix)]
+use std::time::Duration;
 
 use tokio::process::{Child, Command};
+
+/// How many times to start a program Linux still has open for writing.
+///
+/// Each wait is short. The handle belongs to a process that was forked while
+/// the file was being written, and it drops the handle as soon as it starts
+/// its own program.
+#[cfg(unix)]
+const BUSY_TRIES: u32 = 40;
+#[cfg(unix)]
+const BUSY_PAUSE: Duration = Duration::from_millis(5);
 
 /// How a program is asked to stop.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -39,12 +55,16 @@ pub struct ProcessTree {
 
 impl ProcessTree {
     /// Starts `command` as the head of a tree of its own.
+    ///
+    /// Linux refuses to run a file that is still open for writing. A start
+    /// that hits that is tried again: the write handle is usually one a
+    /// process forked a moment earlier has not dropped yet.
     pub fn start(mut command: Command) -> Result<Self, IoError> {
         command.kill_on_drop(true);
         #[cfg(unix)]
         {
             command.process_group(0);
-            let child = command.spawn()?;
+            let child = spawn_when_free(&mut command)?;
             let group = child.id();
             Ok(Self { child, group })
         }
@@ -85,6 +105,21 @@ impl ProcessTree {
         {
             let _ = signal;
             self.job.end();
+        }
+    }
+}
+
+/// Starts `command`, trying again when Linux says the program is busy.
+#[cfg(unix)]
+fn spawn_when_free(command: &mut Command) -> Result<Child, IoError> {
+    let mut tries = 0;
+    loop {
+        match command.spawn() {
+            Err(error) if tries < BUSY_TRIES && error.kind() == ErrorKind::ExecutableFileBusy => {
+                tries += 1;
+                thread::sleep(BUSY_PAUSE);
+            }
+            result => return result,
         }
     }
 }

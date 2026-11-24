@@ -102,6 +102,39 @@ fn line(agent: &str, read: u64, written: u64) -> (String, String, u64, u64) {
     (agent.to_string(), "Sample".to_string(), read, written)
 }
 
+/// A window's name and whether it is used up.
+fn pair(name: &str, reached: bool) -> (String, bool) {
+    (name.to_string(), reached)
+}
+
+fn reached(limits: &Limits) -> Vec<(String, bool)> {
+    limits
+        .windows
+        .iter()
+        .map(|window| (window.name.clone(), window.reached))
+        .collect()
+}
+
+/// Gemini's limits once `ready`, which arrive after the thread has finished.
+async fn gemini_until(scene: &Scene, ready: impl Fn(&Limits) -> bool) -> Limits {
+    for _ in 0..200 {
+        if let Some(limits) = report(scene)
+            .limits
+            .into_iter()
+            .find(|limits| limits.agent == "gemini")
+        {
+            if ready(&limits) {
+                return limits;
+            }
+        }
+        sleep(Duration::from_millis(50)).await;
+    }
+    panic!(
+        "gemini's limits did not arrive in time: {:?}",
+        report(scene).limits
+    );
+}
+
 lets_expect! { #tokio_test
     // requirement: with nothing run yet there are no limits and no turns
     story usage_before_any_turn {
@@ -218,25 +251,37 @@ lets_expect! { #tokio_test
         ])
     }
 
-    // requirement: a Gemini quota failure marks Gemini used up, and a later successful turn clears it
-    story gemini_quota_failure_marks_used_up_until_it_succeeds {
+    // requirement: after a Gemini turn, Antigravity's limits are read; a short rate limit leaves them, and a quota error marks the 5-hour window used up until the next reading
+    story gemini_limits_are_read_after_a_turn {
         let scene = Scene::new();
         let folder = project_folder();
         let project = scene.project(&folder);
         let thread = scene.thread(&project, "gemini");
 
-        scene.say(&thread, "hit quota").unwrap();
-        scene.wait_until_idle(&thread).await;
-        let exhausted = limits_of(&scene, "gemini").await;
-        expect(exhausted.windows.len()) to equal(1)
-        expect(exhausted.windows[0].reached) to be_true
-        expect(exhausted.windows[0].resets_at.is_some()) to be_true
-
         scene.say(&thread, "hello").unwrap();
         scene.wait_until_idle(&thread).await;
-        let cleared = limits_of(&scene, "gemini").await;
-        expect(cleared.windows.len()) to equal(0)
-        expect(cleared.failed) to be_false
+        let limits = gemini_until(&scene, |limits| limits.windows.len() == 2 && !limits.failed).await;
+        expect(limits.failed) to be_false
+        expect(reached(&limits)) to equal(vec![pair("gemini-5h", false), pair("gemini-weekly", false)])
+        let seen = limits.taken_at;
+
+        scene.say(&thread, "hit rate limit").unwrap();
+        scene.wait_until_idle(&thread).await;
+        let limits = gemini_until(&scene, |limits| limits.taken_at > seen && limits.windows.len() == 2 && limits.windows.iter().all(|window| !window.reached)).await;
+        expect(limits.failed) to be_false
+        expect(reached(&limits)) to equal(vec![pair("gemini-5h", false), pair("gemini-weekly", false)])
+
+        scene.say(&thread, "hit quota").unwrap();
+        scene.wait_until_idle(&thread).await;
+        let limits = gemini_until(&scene, |limits| limits.windows.first().is_some_and(|window| window.reached)).await;
+        expect(limits.failed) to be_false
+        expect(reached(&limits)) to equal(vec![pair("gemini-5h", true), pair("gemini-weekly", false)])
+
+        scene.say(&thread, "hello again").unwrap();
+        scene.wait_until_idle(&thread).await;
+        let limits = gemini_until(&scene, |limits| limits.windows.first().is_some_and(|window| !window.reached)).await;
+        expect(limits.failed) to be_false
+        expect(reached(&limits)) to equal(vec![pair("gemini-5h", false), pair("gemini-weekly", false)])
     }
 
     // requirement: limits and the log are kept in the data folder, so they survive a restart

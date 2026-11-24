@@ -1,5 +1,5 @@
 #!/bin/sh
-# Stands in for the claude, codex and grok programs in tests.
+# Stands in for the claude, codex, grok and gemini programs in tests.
 #
 # Tests must never reach a real provider, so the test configuration starts
 # this instead. It replays recordings of the real programs and can be told,
@@ -15,7 +15,13 @@ shift
 # Grok's version, which Teryon asks after every Grok turn to tell Grok's
 # servers. It is not a turn, so it is not noted below.
 if [ "$1" = "--version" ]; then
-  echo "grok 1.0.92 (b06756fd6256) [alpha]"
+  # Gemini's reading asks this first and skips /usage below 1.5.16.
+  # Grok's servers are told the version this stands in for.
+  if [ "$agent" = "gemini" ]; then
+    echo "1.5.16"
+  else
+    echo "grok 1.0.92 (b06756fd6256) [alpha]"
+  fi
   exit 0
 fi
 samples="$(dirname "$0")/agents"
@@ -25,6 +31,12 @@ samples="$(dirname "$0")/agents"
 if [ "$*" = "models" ]; then
   cat "$samples/$agent-models.txt"
   exit 0
+fi
+# Antigravity's /usage, asked after every Gemini turn. It is not a turn,
+# so it is not noted below.
+if [ "$agent" = "gemini" ] && [ "$*" = "-p /usage --output-format json" ]; then
+  cat "$(dirname "$0")/gemini-usage.json"
+  exit
 fi
 # Codex's model discovery handshake. Check the request order so tests catch
 # a client that asks before initialization or forgets the next page.
@@ -180,6 +192,14 @@ case "$*" in
       gemini) echo '{"event":"result","result":{"conversation_id":"9ec969d6-54b7-4375-9a8c-f907be2e11d0","status":"ERROR","error":{"type":"INTERNAL","message":"The model failed."},"usage":{"input_tokens":0,"output_tokens":0,"cache_read_tokens":0}}}' ;;
       *) exit 5 ;;
     esac
+    ;;
+  *"hit rate limit"*)
+    if [ "$agent" = "gemini" ]; then
+      echo '{"event":"result","result":{"conversation_id":"9ec969d6-54b7-4375-9a8c-f907be2e11d0","status":"ERROR","error":{"type":"RATE_LIMIT","message":"Too many requests"},"usage":{"input_tokens":0,"output_tokens":0,"cache_read_tokens":0}}}'
+    else
+      echo "usage limit reached" >&2
+      exit 1
+    fi
     ;;
   *"please fail"*)
     echo "the fake agent was told to fail" >&2

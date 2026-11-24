@@ -81,8 +81,8 @@ describe('limitBlocks', () => {
     expect(limitBlocks([], NOW)[2].note).toBe('No limits seen yet. They appear after the agent’s next turn.');
   });
 
-  it('says Gemini does not report its usage limits', () => {
-    expect(limitBlocks([], NOW)[3].note).toBe('Gemini does not report its usage limits.');
+  it('says Gemini’s limits appear after its next turn, like any agent’s', () => {
+    expect(limitBlocks([], NOW)[3].note).toBe('No limits seen yet. They appear after the agent’s next turn.');
   });
 
   it('shows Grok’s windows once it reports some', () => {

@@ -43,9 +43,10 @@ use crate::changes::status::Look;
 use crate::files::git::{first_line, Git};
 use crate::settings::AgentSettings;
 use crate::store::{RunEnd, Thread};
+use crate::usage::gemini::gemini_reading;
 use crate::usage::grok::{grok_home_here, grok_reading};
-use crate::usage::limits::{codex_home_here, codex_reading, gemini_used_up};
-use crate::usage::{says_limit_hit, Limits, Reading};
+use crate::usage::limits::{codex_home_here, codex_reading};
+use crate::usage::{says_limit_hit, says_quota_hit, Limits, Reading};
 
 /// How often a running turn has its thread's change looked at.
 const LOOK_AT_CHANGE_EVERY: Duration = Duration::from_secs(1);
@@ -172,7 +173,7 @@ impl Runner {
                         agent: late.agent,
                         tokens: None,
                         reading,
-                        hit_limit: false,
+                        hit_limit: late.hit_limit,
                         model: None,
                     },
                 );
@@ -211,10 +212,15 @@ impl Runner {
 
 /// An agent's limits, read once its thread has finished.
 ///
-/// Grok's are asked of its servers, and a slow server must not keep a
-/// finished thread busy, nor a stopped one from stopping.
+/// Grok's are asked of its servers and Gemini's of Antigravity. A slow
+/// answer must not keep a finished thread busy, nor a stopped one from stopping.
 struct LateReading {
     agent: Agent,
+    /// Whether this turn used up a limit the reading itself may not show.
+    /// Applied with the reading, so a fresh reading is marked once. Grok's
+    /// reading already says when a window is used up, so its turn leaves this
+    /// false. Gemini sets it only for a quota error, not a short rate limit.
+    hit_limit: bool,
     reading: Pin<Box<dyn Future<Output = Reading> + Send>>,
 }
 
@@ -338,6 +344,8 @@ async fn run_turn(
     }
     let hit_limit =
         outcome.hit_limit || (!outcome.summarised && says_limit_hit(&outcome.complaints));
+    let quota_hit =
+        outcome.quota_hit || (!outcome.summarised && says_quota_hit(&outcome.complaints));
     let mut late = None;
     let reading = match (speaker.agent, outcome.limits.clone()) {
         (Agent::Claude, Some(limits)) => Reading::Fresh(limits),
@@ -358,15 +366,34 @@ async fn run_turn(
             let home = grok_home_here(settings.grok.home.as_deref());
             late = Some(LateReading {
                 agent: Agent::Grok,
+                hit_limit: false,
                 reading: Box::pin(async move {
                     grok_reading(&program, home.as_deref(), Utc::now()).await
                 }),
             });
             Reading::Nothing
         }
-        (Agent::Gemini, _) if hit_limit => Reading::Fresh(gemini_used_up(Utc::now())),
-        (Agent::Gemini, _) if outcome.summarised && !outcome.early => Reading::Cleared,
-        (Agent::Gemini, _) => Reading::Nothing,
+        // Teryon is about to end, and nobody would see the reading.
+        (Agent::Gemini, _) if outcome.stop == Some(Stop::Shutdown) => Reading::Nothing,
+        (Agent::Gemini, _) => {
+            let program = settings.gemini.program.clone();
+            late = Some(LateReading {
+                agent: Agent::Gemini,
+                hit_limit: quota_hit,
+                reading: Box::pin(async move { gemini_reading(&program, Utc::now()).await }),
+            });
+            Reading::Nothing
+        }
+    };
+    // Gemini's long window is marked with the reading that follows, and only
+    // for a quota error. A short rate limit still hands the turn on, below,
+    // and must not mark that window on the way: a failed reading would then
+    // keep the mark. On shutdown there is no reading, so a quota mark is
+    // applied now and a rate limit is not.
+    let reported_hit = if speaker.agent == Agent::Gemini {
+        late.is_none() && quota_hit
+    } else {
+        hit_limit
     };
     journal.usage(
         thread.id,
@@ -379,7 +406,7 @@ async fn run_turn(
                 })
             }),
             reading,
-            hit_limit,
+            hit_limit: reported_hit,
             model: outcome.model.clone(),
         },
     );
@@ -471,6 +498,8 @@ struct Outcome {
     limits: Option<Limits>,
     /// Whether the program said a usage limit was hit.
     hit_limit: bool,
+    /// Whether that was a quota, rather than a short rate limit.
+    quota_hit: bool,
     /// The model the turn ran on, as its summary names it.
     model: Option<String>,
 }
@@ -503,6 +532,7 @@ async fn follow(
     let mut tokens = None;
     let mut limits = None;
     let mut hit_limit = false;
+    let mut quota_hit = false;
     let mut model = None;
     let mut known_commands = thread.commands.clone();
     let mut stop = None;
@@ -527,9 +557,10 @@ async fn follow(
                                 tokens = from_value::<Tokens>(draft.body["tokens"].clone()).ok();
                                 model = driver.model();
                             }
-                            hit_limit |=
-                                matches!(draft.kind, EntryKind::Notice | EntryKind::Error)
-                                    && draft.body["text"].as_str().is_some_and(says_limit_hit);
+                            let text = draft.body["text"].as_str();
+                            let mentions_limit = matches!(draft.kind, EntryKind::Notice | EntryKind::Error);
+                            hit_limit |= mentions_limit && text.is_some_and(says_limit_hit);
+                            quota_hit |= mentions_limit && text.is_some_and(says_quota_hit);
                             remember_message(&mut last_message, &draft);
                             let draft = with_model(timed(draft, started), driver.model());
                             journal.add(thread.id, draft.by(voice).naming(speaker.agent));
@@ -610,6 +641,7 @@ async fn follow(
         tokens,
         limits,
         hit_limit,
+        quota_hit,
         model,
     }
 }

@@ -31,24 +31,24 @@ pub enum Left {
 
 /// Whether a provider has usage left, from what its program last said about its limits.
 ///
-/// A provider never read, or whose reading failed, counts as having usage
-/// left: Teryon knows no better, and its next turn will say if it is wrong.
-/// A limit that has reset since counts as available again.
+/// A provider never read counts as having usage left. So does a failed
+/// reading that left no window with a reset still ahead: Teryon knows no
+/// better, and blocking on a window with no reset time would keep the agent
+/// out of automatic picks, so its limits would never be read again. A window
+/// that is still reached and names a reset counts as used up until then,
+/// including when the latest reading failed, so a quota error is not
+/// forgotten. A limit that has reset since counts as available again.
 pub fn usage_left(limits: Option<&Limits>, now: DateTime<Utc>) -> Left {
-    // A failed reading keeps the windows read before it, which may be long out of date.
-    let Some(limits) = limits.filter(|limits| !limits.failed) else {
+    let Some(limits) = limits else {
         return Left::Yes;
     };
-    let reached = limits
-        .windows
-        .iter()
-        .filter(|window| window.reached)
-        .filter(|window| window.resets_at.is_none_or(|resets| resets > now));
     let mut until = None;
-    for window in reached {
+    for window in limits.windows.iter().filter(|window| window.reached) {
         match window.resets_at {
+            None if limits.failed => {}
             None => return Left::UsedUp(None),
-            Some(resets) => until = until.max(Some(resets)),
+            Some(resets) if resets > now => until = until.max(Some(resets)),
+            Some(_) => {}
         }
     }
     match until {
@@ -259,7 +259,7 @@ mod tests {
 
     use super::*;
     use crate::settings::AgentName;
-    use crate::usage::Window;
+    use crate::usage::{next_limits, Reading, Window};
 
     fn now() -> DateTime<Utc> {
         Utc.with_ymd_and_hms(2026, 11, 21, 12, 0, 0).unwrap()
@@ -301,8 +301,70 @@ mod tests {
         }
     }
 
+    fn failed_over(resets_at: Option<DateTime<Utc>>) -> Limits {
+        Limits {
+            failed: true,
+            ..limits(vec![window(true, resets_at)])
+        }
+    }
+
+    fn failed_over_both(other: Option<DateTime<Utc>>) -> Limits {
+        Limits {
+            failed: true,
+            ..limits(vec![window(true, None), window(true, other)])
+        }
+    }
+
+    /// What `next_limits` stores when a quota error is followed by a failed reading.
+    fn after_a_failed_quota_reading() -> Option<Limits> {
+        next_limits(
+            Some(&limits(vec![
+                window(false, later(2)),
+                window(false, later(30)),
+            ])),
+            Agent::Gemini,
+            Reading::Failed { advice: None },
+            true,
+            now(),
+        )
+    }
+
+    /// The same, when nothing had been read before.
+    fn after_a_failed_quota_reading_with_nothing_known() -> Option<Limits> {
+        next_limits(
+            None,
+            Agent::Gemini,
+            Reading::Failed { advice: None },
+            true,
+            now(),
+        )
+    }
+
     fn later(hours: i64) -> Option<DateTime<Utc>> {
         Some(now() + Duration::hours(hours))
+    }
+
+    fn later_minutes(minutes: i64) -> Option<DateTime<Utc>> {
+        Some(now() + Duration::minutes(minutes))
+    }
+
+    /// Usage left after a second quota error, once the first hour has passed.
+    fn left_after_the_hour() -> Left {
+        let first = after_a_failed_quota_reading_with_nothing_known().unwrap();
+        let later = now() + Duration::hours(2);
+        let second = next_limits(
+            Some(&first),
+            Agent::Gemini,
+            Reading::Failed { advice: None },
+            true,
+            later,
+        )
+        .unwrap();
+        usage_left(Some(&second), later)
+    }
+
+    fn another_hour() -> Left {
+        Left::UsedUp(Some(now() + Duration::hours(2) + Duration::minutes(60)))
     }
 
     fn setting(provider: Option<ProviderChoice>, strength: Option<Strength>) -> StageSetting {
@@ -432,7 +494,17 @@ mod tests {
             when(limits = Some(limits(vec![window(false, later(1)), window(true, later(30))]))) as one_of_several_windows_reached to be_used_up_until_it_resets { equal(Left::UsedUp(later(30))) }
             when(limits = Some(limits(vec![window(true, later(1)), window(true, later(30))]))) as two_windows_reached to wait_for_the_later { equal(Left::UsedUp(later(30))) }
             when(limits = Some(failed_limits())) as a_failed_reading to have_usage_left { equal(Left::Yes) }
-            when(limits = Some(failed_after_running_out())) as a_failed_reading_over_a_window_used_up_before to have_usage_left { equal(Left::Yes) }
+            when(limits = Some(failed_after_running_out())) as a_failed_reading_over_a_reached_window_with_no_reset_time to have_usage_left { equal(Left::Yes) }
+            when(limits = Some(failed_over_both(later(2)))) as a_failed_reading_over_an_open_window_and_one_that_resets to be_used_up_until_the_named_reset { equal(Left::UsedUp(later(2))) }
+            when(limits = Some(failed_over_both(later(-1)))) as a_failed_reading_over_an_open_window_and_one_that_has_reset to have_usage_left { equal(Left::Yes) }
+            when(limits = Some(failed_over(later(2)))) as a_failed_reading_over_a_window_that_resets_later to be_used_up_until_then { equal(Left::UsedUp(later(2))) }
+            when(limits = Some(failed_over(later(-1)))) as a_failed_reading_over_a_window_that_has_reset to have_usage_left { equal(Left::Yes) }
+            when(limits = after_a_failed_quota_reading()) as a_quota_error_whose_reading_then_failed to keep_the_shortest_window_used_up { equal(Left::UsedUp(later(2))) }
+            when(limits = after_a_failed_quota_reading_with_nothing_known()) as a_quota_error_with_nothing_known_whose_reading_failed to be_used_up_for_an_hour { equal(Left::UsedUp(later_minutes(60))) }
+        }
+
+        expect(left_after_the_hour()) as a_second_quota_error_after_the_hour_has_passed {
+            to be_used_up_for_another_hour { equal(another_hour()) }
         }
 
         expect(installed(program)) as whether_a_program_is_installed {

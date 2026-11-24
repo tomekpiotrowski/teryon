@@ -8,13 +8,16 @@
 //!
 //! Teryon never asks a company's servers on its own. It learns the limits
 //! when an agent runs: Claude Code reports them in every turn, Codex writes
-//! them to its own session file, and after a Grok turn Teryon asks Grok's
-//! servers the way Grok's own `/usage` does. Beside the limits, every turn adds a line to a log of tokens read and
-//! written, which the usage screen splits by day, project and model.
+//! them to its own session file, after a Grok turn Teryon asks Grok's
+//! servers the way Grok's own `/usage` does, and after a Gemini turn it asks
+//! Antigravity with `agy -p /usage`. Beside the limits, every turn adds a
+//! line to a log of tokens read and written, which the usage screen splits
+//! by day, project and model.
 //!
 //! Both live in the data folder: `limits.json` holds the latest reading per
 //! agent, `usage.jsonl` one line per turn.
 
+pub mod gemini;
 pub mod grok;
 pub mod limits;
 pub mod log;
@@ -24,7 +27,7 @@ use std::fs::read_to_string;
 use std::io::{Error as IoError, ErrorKind};
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{to_string_pretty, Error as JsonError};
 use thiserror::Error;
@@ -38,6 +41,12 @@ use crate::usage::limits::{marked_reached, unknown_limits};
 
 /// The file with the latest limits of every agent.
 const LIMITS_FILE: &str = "limits.json";
+
+/// How long a quota error blocks an agent when no window was known to mark.
+///
+/// The same length as the old Gemini guess. It ends on its own, so a later
+/// reading, or the reset passing, lets the agent be picked again.
+const QUOTA_FALLBACK_MINUTES: u32 = 60;
 
 /// Why usage could not be read or kept.
 #[derive(Debug, Error)]
@@ -111,8 +120,6 @@ pub enum Reading {
     ///
     /// `advice` says what the person can do about it, when anything.
     Failed { advice: Option<String> },
-    /// A provider without regular readings finished a turn normally, clearing any prior used-up marker.
-    Cleared,
     /// The program said nothing about them this time.
     Nothing,
 }
@@ -228,10 +235,15 @@ impl UsageBook {
 
 /// An agent's limits after a turn, from those before and what the turn told. Nothing when they did not change.
 ///
-/// A turn that ended on a "usage limit" notice used a window up, even when
-/// the program gave no reading that says so. The shortest window is the one
-/// that runs out first, so it is marked.
-fn next_limits(
+/// A turn that ended on a quota or usage-limit notice used a window up, even
+/// when the program gave no reading that says so. The shortest window is the
+/// one that runs out first, so it is marked when its own reset is still
+/// ahead, including when the reading failed. Picking then treats that window
+/// as used up until it resets. When that window no longer binds, the same
+/// notice holds the agent for an hour, and a later notice after that hour
+/// holds it again. A longer window is not marked in its place. A failed
+/// reading with no such notice stays as it was.
+pub(crate) fn next_limits(
     previous: Option<&Limits>,
     agent: Agent,
     reading: Reading,
@@ -247,19 +259,19 @@ fn next_limits(
     };
     match reading {
         Reading::Fresh(limits) => Some(mark(limits)),
-        Reading::Failed { advice } => Some(Limits {
-            failed: true,
-            advice,
-            ..previous
-                .cloned()
-                .unwrap_or_else(|| unknown_limits(agent, now))
-        }),
-        Reading::Cleared => match previous {
-            Some(previous) if previous.windows.iter().any(|window| window.reached) => {
-                Some(unknown_limits(agent, now))
-            }
-            _ => None,
-        },
+        Reading::Failed { advice } => {
+            let limits = match previous {
+                Some(previous) if hit_limit => hold_after_quota(previous, agent, now),
+                Some(previous) => previous.clone(),
+                None if hit_limit => quota_fallback(agent, now),
+                None => unknown_limits(agent, now),
+            };
+            Some(Limits {
+                failed: true,
+                advice,
+                ..limits
+            })
+        }
         Reading::Nothing => match previous {
             Some(previous) if hit_limit => {
                 let marked = marked_reached(previous.clone());
@@ -267,6 +279,51 @@ fn next_limits(
             }
             _ => None,
         },
+    }
+}
+
+/// What to keep when a quota error's reading failed.
+///
+/// The shortest window runs out first, so it is marked when its own reset is
+/// still ahead, and a real limit is not replaced by a guess. A longer window
+/// is not marked once the short one has reset: the new error is that short
+/// window renewing, and marking the weekly one would keep the agent out for
+/// days. When the short window no longer binds, a new hour is stored.
+/// Marking a window that does not still reset would not keep the agent out
+/// of the next pick.
+fn hold_after_quota(previous: &Limits, agent: Agent, now: DateTime<Utc>) -> Limits {
+    let ahead = |window: &Window| window.resets_at.is_some_and(|resets| resets > now);
+    let marked = marked_reached(previous.clone());
+    if marked
+        .windows
+        .iter()
+        .any(|window| window.reached && ahead(window))
+    {
+        return marked;
+    }
+    quota_fallback(agent, now)
+}
+
+/// One reached window, for a quota error that left nothing still binding.
+///
+/// There is no real window to mark, and leaving the agent available would
+/// pick it again and fail the same way. The hold is short and names when it
+/// ends, so it does not lock the agent out.
+fn quota_fallback(agent: Agent, now: DateTime<Utc>) -> Limits {
+    Limits {
+        agent: agent.name().to_string(),
+        plan: None,
+        windows: vec![Window {
+            name: "quota".to_string(),
+            label: "hour".to_string(),
+            minutes: Some(QUOTA_FALLBACK_MINUTES),
+            used: 100.0,
+            resets_at: Some(now + Duration::minutes(i64::from(QUOTA_FALLBACK_MINUTES))),
+            reached: true,
+        }],
+        taken_at: now,
+        failed: false,
+        advice: None,
     }
 }
 
@@ -291,8 +348,9 @@ fn read_limits(path: &Path) -> Result<Vec<Limits>, UsageError> {
 /// Whether a notice or error says the agent's usage limit or quota was hit.
 ///
 /// Claude Code's notice is Teryon's own, "The subscription's usage limit was
-/// reached."; Codex's is its own, "You've hit your usage limit."; Gemini and
-/// Antigravity report quota or rate-limit errors.
+/// reached."; Codex's is its own, "You've hit your usage limit." Gemini's
+/// quota errors and its short rate-limit refusals both count, so the turn
+/// can be handed on. Marking Gemini's long window uses [`says_quota_hit`].
 pub fn says_limit_hit(text: &str) -> bool {
     let lower = text.to_lowercase();
     [
@@ -308,11 +366,43 @@ pub fn says_limit_hit(text: &str) -> bool {
     .any(|phrase| lower.contains(phrase))
 }
 
+/// Whether a notice says a quota was used up, rather than a short rate limit.
+///
+/// Gemini refuses for a minute with "rate limit", "too many requests", or a
+/// quota counted "per minute", and that clears on its own. A quota error is
+/// what marks the long window. A message that says both is the short refusal.
+/// Antigravity's own per-minute sentence was never captured, so the match is
+/// the wording Google's APIs use.
+pub fn says_quota_hit(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    if [
+        "rate limit",
+        "rate_limit",
+        "too many requests",
+        "per minute",
+        "per-minute",
+        "perminute",
+    ]
+    .iter()
+    .any(|phrase| lower.contains(phrase))
+    {
+        return false;
+    }
+    [
+        "usage limit",
+        "quota",
+        "resource_exhausted",
+        "resource exhausted",
+    ]
+    .iter()
+    .any(|phrase| lower.contains(phrase))
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs::write;
 
-    use chrono::TimeZone;
+    use chrono::{Duration, TimeZone};
     use lets_expect::lets_expect;
     use tempfile::tempdir;
 
@@ -347,6 +437,117 @@ mod tests {
     fn failed(advice: Option<&str>) -> Reading {
         Reading::Failed {
             advice: advice.map(str::to_string),
+        }
+    }
+
+    fn empty(agent: &str) -> Limits {
+        limits(agent, vec![])
+    }
+
+    fn hour_from(hour: u32) -> Limits {
+        quota_hold("claude", at(hour))
+    }
+
+    /// A hold that still has half an hour to run when the next reading is at noon.
+    fn hold_still_running() -> Limits {
+        let mut hold = quota_hold("claude", at(11));
+        hold.windows[0].resets_at = Some(at(11) + Duration::minutes(120));
+        hold
+    }
+
+    /// Both windows still reset after noon, and neither is used up.
+    fn both_still_ahead() -> Limits {
+        Limits {
+            agent: "gemini".to_string(),
+            plan: None,
+            windows: vec![
+                Window {
+                    name: "five_hour".to_string(),
+                    label: "5 hours".to_string(),
+                    minutes: Some(300),
+                    used: 40.0,
+                    resets_at: Some(at(15)),
+                    reached: false,
+                },
+                Window {
+                    name: "week".to_string(),
+                    label: "week".to_string(),
+                    minutes: Some(10080),
+                    used: 10.0,
+                    resets_at: Some(at(12) + Duration::days(6)),
+                    reached: false,
+                },
+            ],
+            taken_at: at(10),
+            failed: false,
+            advice: None,
+        }
+    }
+
+    /// The short window marked, which is what a quota error does while it still resets.
+    fn shortest_marked() -> Limits {
+        let mut limits = both_still_ahead();
+        limits.failed = true;
+        limits.windows[0].reached = true;
+        limits
+    }
+
+    /// The short window is already used up, and its reset is still ahead.
+    fn short_still_binding() -> Limits {
+        let mut limits = both_still_ahead();
+        limits.windows[0].used = 100.0;
+        limits.windows[0].reached = true;
+        limits
+    }
+
+    /// That same window kept after another quota error.
+    fn short_kept() -> Limits {
+        let mut limits = short_still_binding();
+        limits.failed = true;
+        limits
+    }
+
+    /// The short window names no reset. The weekly window still resets later.
+    fn short_reset_missing() -> Limits {
+        let mut limits = both_still_ahead();
+        limits.windows[0].resets_at = None;
+        limits
+    }
+
+    /// The 5-hour window has reset. The weekly window has not, and is not marked.
+    fn weekly_still_ahead() -> Limits {
+        let mut limits = both_still_ahead();
+        limits.windows[0].used = 100.0;
+        limits.windows[0].resets_at = Some(at(11));
+        limits.windows[0].reached = true;
+        limits.windows[1].used = 40.0;
+        limits
+    }
+
+    /// Both windows already reset, and neither is used up.
+    fn both_already_reset() -> Limits {
+        let mut limits = both_still_ahead();
+        limits.windows[0].resets_at = Some(at(8));
+        limits.windows[1].resets_at = Some(at(9));
+        limits
+    }
+
+    /// The hour-long hold stored when a quota error leaves nothing still binding.
+    fn quota_hold(agent: &str, now: DateTime<Utc>) -> Limits {
+        Limits {
+            agent: agent.to_string(),
+            plan: None,
+            windows: vec![Window {
+                name: "quota".to_string(),
+                label: "hour".to_string(),
+                minutes: Some(60),
+                used: 100.0,
+                resets_at: Some(now + Duration::minutes(60)),
+                reached: true,
+            }],
+            taken_at: now,
+            failed: true,
+            advice: None,
         }
     }
 
@@ -425,10 +626,41 @@ mod tests {
             }
             when(reading = Reading::Nothing) as no_reading to change_nothing { equal(None) }
             when(reading = Reading::Nothing, previous = None, hit_limit = true) as a_hit_limit_without_anything_known to change_nothing { equal(None) }
-            when(reading = Reading::Cleared, previous = None) as cleared_without_previous to change_nothing { equal(None) }
-            when(reading = Reading::Cleared, previous = Some(claude())) as cleared_when_nothing_was_reached to change_nothing { equal(None) }
-            when(reading = Reading::Cleared, previous = Some(limits("claude", vec![window("quota", None, true)]))) as cleared_after_a_reached_window to drop_it {
-                equal(Some(Limits { agent: "claude".to_string(), plan: None, windows: vec![], taken_at: at(12), failed: false, advice: None }))
+            when(reading = failed(None), hit_limit = true) as a_failed_reading_after_a_quota_error_with_no_reset_times to hold_for_an_hour {
+                equal(Some(quota_hold("claude", at(12))))
+            }
+            when(reading = failed(None), previous = Some(both_still_ahead()), hit_limit = true) as a_quota_error_while_the_short_window_still_resets to mark_that_window {
+                equal(Some(shortest_marked()))
+            }
+            when(reading = failed(None), previous = Some(short_still_binding()), hit_limit = true) as a_quota_error_while_that_mark_still_binds to keep_that_window {
+                equal(Some(short_kept()))
+            }
+            when(reading = failed(None), previous = Some(short_reset_missing()), hit_limit = true) as a_quota_error_when_the_short_window_names_no_reset to hold_for_an_hour {
+                equal(Some(quota_hold("claude", at(12))))
+            }
+            when(reading = failed(None), previous = Some(both_already_reset()), hit_limit = true) as a_quota_error_over_windows_that_already_reset to hold_for_an_hour {
+                equal(Some(quota_hold("claude", at(12))))
+            }
+            when(reading = failed(None), previous = None, hit_limit = true) as a_failed_reading_after_a_quota_error_with_nothing_known to hold_for_an_hour {
+                equal(Some(quota_hold("claude", at(12))))
+            }
+            when(reading = failed(None), previous = Some(empty("claude"))) as a_failed_reading_with_no_windows to keep_them_empty {
+                equal(Some(Limits { failed: true, ..empty("claude") }))
+            }
+            when(reading = failed(None), previous = Some(empty("claude")), hit_limit = true) as a_failed_reading_after_a_quota_error_with_no_windows to hold_for_an_hour {
+                equal(Some(quota_hold("claude", at(12))))
+            }
+            when(reading = failed(None), previous = Some(hour_from(10)), hit_limit = true) as a_second_quota_error_after_the_hour to hold_for_another_hour {
+                equal(Some(hour_from(12)))
+            }
+            when(reading = failed(None), previous = Some(hold_still_running()), hit_limit = true) as a_second_quota_error_during_the_hour to keep_the_same_hold {
+                equal(Some(Limits { failed: true, ..hold_still_running() }))
+            }
+            when(reading = failed(None), previous = Some(hour_from(10))) as a_failed_reading_after_the_hour_without_a_quota_error to keep_the_expired_hold {
+                equal(Some(hour_from(10)))
+            }
+            when(reading = failed(None), previous = Some(weekly_still_ahead()), hit_limit = true) as a_quota_error_after_the_short_window_reset to hold_for_an_hour {
+                equal(Some(quota_hold("claude", at(12))))
             }
         }
 
@@ -451,6 +683,23 @@ mod tests {
             when(text = "Quota exceeded for model gemini-4-neon-high.") as geminis_quota_error to be_true
             when(text = "RESOURCE_EXHAUSTED: rate limit reached") as geminis_rpc_error to be_true
             when(text = "HTTP 429: Too many requests") as too_many_requests to be_true
+            when(text = "Quota exceeded for quota metric 'Generate Content API requests per minute'") as a_per_minute_quota to be_true
+            when(text = "Permission denied for Bash.") as another_notice to be_false
+        }
+
+        expect(says_quota_hit(text)) {
+            when(text = "The subscription's usage limit was reached.") as claudes_notice to be_true
+            when(text = "You've hit your usage limit.") as codexs_notice to be_true
+            when(text = "Quota exceeded for model gemini-4-neon-high.") as geminis_quota_error to be_true
+            when(text = "RESOURCE_EXHAUSTED") as geminis_quota_type to be_true
+            when(text = "resource exhausted") as the_same_words_with_a_space to be_true
+            when(text = "RESOURCE_EXHAUSTED: rate limit reached") as a_rate_limit_that_also_names_the_quota_type to be_false
+            when(text = "RATE_LIMIT") as a_rate_limit_type to be_false
+            when(text = "HTTP 429: Too many requests") as too_many_requests to be_false
+            when(text = "Quota exceeded for quota metric 'Generate Content API requests per minute'") as a_per_minute_quota to be_false
+            when(text = "Quota exceeded for quota metric 'GenerateContentRequestsPerMinute'") as a_camel_case_per_minute_quota to be_false
+            when(text = "Quota exceeded for quota metric 'requests per-minute'") as a_hyphenated_per_minute_quota to be_false
+            when(text = "Quota exceeded for quota metric 'Generate Content API requests per day'") as a_per_day_quota to be_true
             when(text = "Permission denied for Bash.") as another_notice to be_false
         }
 

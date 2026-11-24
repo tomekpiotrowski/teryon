@@ -282,6 +282,11 @@ lets_expect! { #tokio_test
         // Grok is asked when the service starts, which may finish before or after this client connects:
         // its models arrive in the snapshot or in a later update. Codex is asked at the same time
         // and may announce first, so an update that does not list Grok yet is not this one.
+        // Gemini can arrive in the same update as Grok. Waiting for Grok
+        // consumes that update, so the Gemini names have to be kept from it.
+        let mut gemini_seen = snapshot.as_ref().and_then(|models| {
+            (!models.gemini.is_empty()).then(|| models.gemini.clone())
+        });
         let grok = match snapshot.as_ref().map(|models| models.grok.clone()).filter(|grok| !grok.is_empty()) {
             Some(grok) => grok,
             None => match wait_for(&mut client, |event| {
@@ -289,13 +294,18 @@ lets_expect! { #tokio_test
             })
             .await
             {
-                Event::ModelsChanged { models } => models.grok,
+                Event::ModelsChanged { models } => {
+                    if !models.gemini.is_empty() {
+                        gemini_seen = Some(models.gemini);
+                    }
+                    models.grok
+                }
                 _ => Vec::new(),
             },
         };
         expect(grok.first().cloned()) to equal(Some("grok-4.7".to_string()))
 
-        let gemini = match snapshot.map(|models| models.gemini).filter(|gemini| !gemini.is_empty()) {
+        let gemini = match gemini_seen {
             Some(gemini) => gemini,
             None => match wait_for(&mut client, |event| {
                 matches!(event, Event::ModelsChanged { models } if !models.gemini.is_empty())

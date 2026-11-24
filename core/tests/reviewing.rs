@@ -71,6 +71,10 @@ impl Project {
             .start_change(thread.id, turn, "fix-login", None)
             .await
             .expect("the change starts");
+        self.scene
+            .workspace
+            .report_stage(thread.id, turn, "implementing")
+            .expect("the thread moves to implementing");
         self.scene.workspace.stop(thread.id).unwrap();
         self.scene.wait_until_idle(&thread).await;
         put(&path, "login.txt", "fixed\n");

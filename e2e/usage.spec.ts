@@ -23,9 +23,8 @@ test("the usage screen shows an agent's limits and the day's tokens after a turn
   await expect(limits.getByRole("meter", { name: "Claude, week", exact: true })).toBeVisible();
   await expect(limits.getByText("reset since the last reading")).toHaveCount(3);
   await expect(limits.getByText(/^as of /)).toBeVisible();
-  // No Codex or Grok turn has run, so neither has a reading of its limits yet.
-  await expect(limits.getByText("No limits seen yet. They appear after the agent’s next turn.")).toHaveCount(2);
-  await expect(limits.getByText("Gemini does not report its usage limits.")).toBeVisible();
+  // No Codex, Grok or Gemini turn has run, so none has a reading of its limits yet.
+  await expect(limits.getByText("No limits seen yet. They appear after the agent’s next turn.")).toHaveCount(3);
 
   const days = page.getByRole("region", { name: "Teryon’s agents · last 14 days" });
   await expect(days.getByRole("button", { name: "Claude 1" })).toHaveAttribute("aria-pressed", "true");
