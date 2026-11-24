@@ -1,3 +1,4 @@
+import { modelOptionForTest as model } from './model.testing';
 import {
   homeChoices,
   HOME_LIMIT,
@@ -230,13 +231,11 @@ describe('startProject', () => {
 });
 
 describe('homeChoices', () => {
-  it('lists installed agents in Teryon’s order, with each default before its models', () => {
-    const models = { ...NO_MODELS, claude: ['claude-opus-5-5', 'sonnet'], codex: ['gpt-6-astra'] };
+  it('lists each installed provider’s usual model in Teryon’s order', () => {
+    const models = { ...NO_MODELS, claude: ['claude-opus-5-5', 'sonnet'].map((id) => model(id)), codex: ['gpt-6-astra'].map((id) => model(id)) };
     expect(homeChoices(['grok', 'unknown', 'claude'], models)).toEqual([
-      { agent: 'claude', model: null },
-      { agent: 'claude', model: 'claude-opus-5-5' },
-      { agent: 'claude', model: 'sonnet' },
-      { agent: 'grok', model: null },
+      { agent: 'claude', model: 'claude-opus-5-5', effort: null },
+      { agent: 'grok', model: null, effort: null },
     ]);
   });
 
@@ -246,46 +245,45 @@ describe('homeChoices', () => {
   });
 
   it('adds models when they are discovered', () => {
-    expect(homeChoices(['codex'], NO_MODELS)).toEqual([{ agent: 'codex', model: null }]);
-    expect(homeChoices(['codex'], { ...NO_MODELS, codex: ['gpt-6-astra'] })).toEqual([
-      { agent: 'codex', model: null },
-      { agent: 'codex', model: 'gpt-6-astra' },
+    expect(homeChoices(['codex'], NO_MODELS)).toEqual([{ agent: 'codex', model: null, effort: null }]);
+    expect(homeChoices(['codex'], { ...NO_MODELS, codex: ['gpt-6-astra'].map((id) => model(id)) })).toEqual([
+      { agent: 'codex', model: 'gpt-6-astra', effort: null },
     ]);
   });
 });
 
 describe('startChoice', () => {
   const choices = [
-    { agent: 'codex', model: null },
-    { agent: 'claude', model: null },
-    { agent: 'grok', model: null },
+    { agent: 'codex', model: null, effort: null },
+    { agent: 'claude', model: null, effort: null },
+    { agent: 'grok', model: null, effort: null },
   ] as const;
-  const grok: Starting = { type: 'provider', agent: 'grok', model: 'grok-4.6' };
+  const grok: Starting = { type: 'provider', agent: 'grok', model: 'grok-4.6', effort: null };
   it.each(['gpt-6-astra', null])('keeps a picked model (%s) even if it is absent from discovery', (model) => {
-    const picked = { agent: 'codex' as const, model };
+    const picked = { agent: 'codex' as const, model, effort: null };
     expect(startChoice(choices, picked, grok)).toEqual(picked);
   });
 
   it.each(['grok-4.6', null])('shows the default workflow model (%s) even if it is absent from discovery', (model) => {
-    expect(startChoice(choices, null, { ...grok, model })).toEqual({ agent: 'grok', model });
+    expect(startChoice(choices, null, { ...grok, model })).toEqual({ agent: 'grok', model, effort: null });
   });
 
-  it.each<Starting | null>([
-    null,
-    { type: 'unavailable', problem: 'All agents are at their limits.' },
-    { type: 'provider', agent: 'gemini', model: 'gemini-4-neon-high' },
-  ])('falls back to Claude without an installed provider from the service (%j)', (starting) => {
-    expect(startChoice(choices, null, starting)).toEqual({ agent: 'claude', model: null });
+  it.each<{ starting: Starting | null }>([
+    { starting: null },
+    { starting: { type: 'unavailable', problem: 'All agents are at their limits.' } },
+    { starting: { type: 'provider', agent: 'gemini', model: 'gemini-4-neon-high', effort: null } },
+  ])('falls back to Claude without an installed provider from the service (%j)', ({ starting }) => {
+    expect(startChoice(choices, null, starting)).toEqual({ agent: 'claude', model: null, effort: null });
   });
 
   it('falls back to the first installed agent when Claude is missing', () => {
-    expect(startChoice(choices.slice(0, 1), null, null)).toEqual({ agent: 'codex', model: null });
-    expect(startChoice(choices.slice(0, 1), null, grok)).toEqual({ agent: 'codex', model: null });
+    expect(startChoice(choices.slice(0, 1), null, null)).toEqual({ agent: 'codex', model: null, effort: null });
+    expect(startChoice(choices.slice(0, 1), null, grok)).toEqual({ agent: 'codex', model: null, effort: null });
   });
 
   it('shows no agent with nothing installed, even with a remembered choice', () => {
     expect(startChoice([], null, grok)).toBeNull();
-    expect(startChoice([], { agent: 'grok', model: null }, grok)).toBeNull();
+    expect(startChoice([], { agent: 'grok', model: null, effort: null }, grok)).toBeNull();
   });
 });
 

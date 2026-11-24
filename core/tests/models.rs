@@ -5,7 +5,7 @@
 
 mod common;
 
-use std::fs::{metadata, set_permissions, write, Permissions};
+use std::fs::{create_dir_all, metadata, set_permissions, write, Permissions};
 use std::time::Duration;
 
 use tempfile::{tempdir, TempDir};
@@ -15,10 +15,14 @@ use serde_json::{json, Value};
 use tokio::time::sleep;
 
 use common::{fake_agents, invocations, project_folder, unknown, Scene};
-use teryon_core::agents::models::{list_codex_models, ListingError, ModelLists};
+use teryon_core::agents::models::{
+    list_claude_models, list_codex_models, Effort, ListingError, ModelLists, ModelOption,
+};
 use teryon_core::agents::Voice;
 use teryon_core::protocol::Event;
-use teryon_core::settings::{AgentSettings, CodexSettings, GeminiSettings, GrokSettings};
+use teryon_core::settings::{
+    AgentSettings, ClaudeSettings, CodexSettings, GeminiSettings, GrokSettings,
+};
 use teryon_core::store::Status;
 use teryon_core::workspace::Workspace;
 
@@ -28,6 +32,10 @@ fn offered(workspace: &Workspace) -> Option<ModelLists> {
         Event::Snapshot { models, .. } => Some(models),
         _ => None,
     }
+}
+
+fn ids(models: Vec<ModelOption>) -> Vec<String> {
+    models.into_iter().map(|model| model.id).collect()
 }
 
 fn names(names: &[&str]) -> Vec<String> {
@@ -143,12 +151,14 @@ lets_expect! { #tokio_test
         let folder = project_folder();
         let project = scene.project(&folder);
 
-        let thread = scene.workspace.start_thread(project.id, Some("codex"), Some("gpt-6-astra"), "").unwrap();
+        let thread = scene.workspace.start_thread_on(project.id, Some("codex"), Some("gpt-6-astra"), Some(Effort::High), "", None).unwrap();
         scene.say(&thread, "hello").unwrap();
         scene.wait_until_idle(&thread).await;
         expect(invocations(&folder)[0].contains("-m gpt-6-astra")) to be_true
+        expect(invocations(&folder)[0].contains("model_reasoning_effort=\"high\"")) to be_true
         let summary = scene.entries(&thread).into_iter().find(|entry| entry.kind == "turn_summary").unwrap();
         expect(summary.body["model"].clone()) to equal(json!("gpt-6-astra"))
+        expect(summary.body["effort"].clone()) to equal(json!("high"))
     }
 
     // requirement: a model name that would reach the program as an option, or as several words, is refused
@@ -173,13 +183,13 @@ lets_expect! { #tokio_test
         scene.say(&thread, "hello").unwrap();
         scene.wait_until_idle(&thread).await;
 
-        let changed = scene.workspace.change_agent(thread.id, Voice::Author, "claude", Some("opus")).unwrap();
+        let changed = scene.workspace.change_agent(thread.id, Voice::Author, "claude", Some("opus"), None).unwrap();
         expect(changed.model.clone()) to equal(Some("opus".to_string()))
         expect(scene.thread_now(&thread).model) to equal(Some("opus".to_string()))
         scene.say(&thread, "again").unwrap();
         scene.wait_until_idle(&thread).await;
 
-        scene.workspace.change_agent(thread.id, Voice::Author, "claude", None).unwrap();
+        scene.workspace.change_agent(thread.id, Voice::Author, "claude", None, None).unwrap();
         scene.say(&thread, "and again").unwrap();
         scene.wait_until_idle(&thread).await;
 
@@ -205,13 +215,17 @@ lets_expect! { #tokio_test
             sleep(Duration::from_millis(25)).await;
         }
 
-        let changed = scene.workspace.change_agent(thread.id, Voice::Author, "claude", Some("opus"));
+        let changed = scene.workspace.change_agent(thread.id, Voice::Author, "claude", Some("opus"), Some(Effort::Xhigh));
         expect(changed.is_ok()) to be_true
         expect(scene.thread_now(&thread).status) to equal(Status::Running)
         scene.workspace.stop(thread.id).unwrap();
         scene.wait_until_idle(&thread).await;
         expect(scene.thread_now(&thread).model) to equal(Some("opus".to_string()))
+        expect(scene.thread_now(&thread).effort) to equal(Some(Effort::Xhigh))
         expect(invocations(&folder)[0].contains("--model sonnet --")) to be_true
+        scene.say(&thread, "again").unwrap();
+        scene.wait_until_idle(&thread).await;
+        expect(invocations(&folder)[1].contains("--model opus --effort xhigh")) to be_true
     }
 
     // requirement: a thread without a reviewer has no reviewer's model to change
@@ -221,11 +235,11 @@ lets_expect! { #tokio_test
         let project = scene.project(&folder);
         let thread = scene.thread(&project, "claude");
 
-        let reviewer = scene.workspace.change_agent(thread.id, Voice::Reviewer, "codex", Some("opus")).map_err(|problem| problem.to_string());
+        let reviewer = scene.workspace.change_agent(thread.id, Voice::Reviewer, "codex", Some("opus"), None).map_err(|problem| problem.to_string());
         expect(reviewer.err()) to equal(Some("Nobody reviews this thread yet. Ask for a review first.".to_string()))
-        let elsewhere = scene.workspace.change_agent(unknown(), Voice::Author, "claude", Some("opus")).map_err(|problem| problem.to_string());
+        let elsewhere = scene.workspace.change_agent(unknown(), Voice::Author, "claude", Some("opus"), None).map_err(|problem| problem.to_string());
         expect(elsewhere.err()) to equal(Some("There is no such thread.".to_string()))
-        let malformed = scene.workspace.change_agent(thread.id, Voice::Author, "claude", Some("-x")).map_err(|problem| problem.to_string());
+        let malformed = scene.workspace.change_agent(thread.id, Voice::Author, "claude", Some("-x"), None).map_err(|problem| problem.to_string());
         expect(malformed.is_err()) to be_true
         expect(scene.thread_now(&thread).model) to equal(None)
     }
@@ -233,7 +247,102 @@ lets_expect! { #tokio_test
     // requirement: before discovery, the snapshot offers Claude's short names and the other agents' defaults
     story the_snapshot_offers_the_models {
         let scene = Scene::new();
-        expect(offered(&scene.workspace)) to equal(Some(ModelLists { claude: names(&["opus", "sonnet", "haiku"]), codex: Vec::new(), grok: Vec::new(), gemini: Vec::new() }))
+        expect(offered(&scene.workspace).map(|models| ids(models.claude))) to equal(Some(names(&["opus", "sonnet", "haiku"])))
+    }
+
+    story claude_discovers_the_current_models_with_a_configured_default {
+        let home = tempdir().unwrap();
+        let catalog = home.path().join("cache/model-catalog");
+        create_dir_all(&catalog).unwrap();
+        write(catalog.join("catalog.json"), include_str!("samples/claude-model-catalog.json")).unwrap();
+        let settings_file = home.path().join("settings.json");
+        let mut settings = ClaudeSettings { home: Some(home.path().to_path_buf()), ..ClaudeSettings::default() };
+
+        write(&settings_file, json!({ "model": "sonnet" }).to_string()).unwrap();
+        let options = list_claude_models(&settings).await;
+        expect(ids(options.clone())) to equal(names(&["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"]))
+        expect(options[0].label.as_str()) to equal("Opus 5.5")
+        expect(options[0].efforts.clone()) to equal(Effort::ALL[..5].to_vec())
+        expect(options[1].efforts.clone()) to equal(Effort::ALL[..3].to_vec())
+        expect(options[1].is_default) to be_true
+        expect(options[2].default_effort) to equal(Some(Effort::Low))
+
+        write(&settings_file, json!({ "model": "claude-haiku-5-5" }).to_string()).unwrap();
+        let options = list_claude_models(&settings).await;
+        expect(options[2].is_default) to be_true
+
+        write(catalog.join("catalog.json"), "broken").unwrap();
+        expect(ids(list_claude_models(&settings).await)) to equal(names(&["opus", "sonnet", "haiku"]))
+        settings.models = Some(names(&["claude-opus-5-5"]));
+        let explicit = list_claude_models(&settings).await;
+        expect(explicit[0].label.as_str()) to equal("Opus 5.5")
+        expect(explicit[0].default_effort) to equal(Some(Effort::Medium))
+    }
+
+    story gemini_runs_a_grouped_model_with_its_default_or_a_chosen_effort {
+        let scene = Scene::with(gemini_with("tests/samples/fake-gemini.sh", None));
+        scene.workspace.list_models().await;
+        let folder = project_folder();
+        let project = scene.project(&folder);
+        let thread = scene.workspace.start_thread(project.id, Some("gemini"), Some("gemini-4-neon"), "").unwrap();
+        expect(thread.model.clone()) to equal(Some("gemini-4-neon-high".to_string()))
+        expect(thread.effort) to equal(Some(Effort::High))
+        scene.say(&thread, "hello").unwrap();
+        scene.wait_until_idle(&thread).await;
+
+        let changed = scene.workspace.change_agent(thread.id, Voice::Author, "gemini", Some("gemini-4-neon"), Some(Effort::Medium)).unwrap();
+        expect(changed.model.clone()) to equal(Some("gemini-4-neon-medium".to_string()))
+        expect(changed.effort) to equal(Some(Effort::Medium))
+        scene.say(&thread, "again").unwrap();
+        scene.wait_until_idle(&thread).await;
+
+        let runs = invocations(&folder);
+        expect(runs[0].contains("--model gemini-4-neon-high")) to be_true
+        expect(runs[1].contains("--model gemini-4-neon-medium")) to be_true
+        expect(runs.iter().any(|run| run.contains("--effort"))) to be_false
+    }
+
+    // requirement: a Gemini thread works immediately after a restart, before `agy models` finishes
+    story gemini_thread_runs_before_model_discovery_after_restart {
+        let home = tempdir().unwrap();
+        let folder = project_folder();
+        let setup = common::setup(gemini_with("tests/samples/fake-gemini.sh", None));
+
+        let (thread_id, stored_model) = {
+            let workspace = Workspace::open(home.path(), setup.clone()).unwrap();
+            workspace.list_models().await;
+            let project = workspace
+                .add_project("Sample", folder.path().to_str().unwrap())
+                .unwrap();
+            let thread = workspace
+                .start_thread_on(project.id, Some("gemini"), Some("gemini-4-neon"), Some(Effort::High), "", None)
+                .unwrap();
+            (thread.id, thread.model)
+        };
+        expect(stored_model) to equal(Some("gemini-4-neon-high".to_string()))
+
+        // Reopen without calling `list_models()`, simulating the startup window before `agy models` answers.
+        let workspace = Workspace::open(home.path(), setup).unwrap();
+        expect(offered(&workspace).unwrap().gemini.is_empty()) to be_true
+        workspace.send_message(thread_id, "hello", Voice::Author).unwrap();
+        for _ in 0..200 {
+            let idle = match workspace.snapshot() {
+                Event::Snapshot { threads, .. } => threads
+                    .iter()
+                    .find(|thread| thread.id == thread_id)
+                    .is_some_and(|thread| thread.status == Status::Idle),
+                _ => false,
+            };
+            if idle {
+                break;
+            }
+            sleep(Duration::from_millis(25)).await;
+        }
+
+        let runs = invocations(&folder);
+        expect(runs.len()) to equal(1)
+        expect(runs[0].contains("--model gemini-4-neon-high")) to be_true
+        expect(runs[0].contains("--effort")) to be_false
     }
 
     // requirement: Grok's models are read from the program, and clients are told when they arrive
@@ -243,8 +352,8 @@ lets_expect! { #tokio_test
 
         scene.workspace.list_models().await;
         let grok = names(&["grok-4.7", "grok-4.7-build-fast", "grok-4.6", "grok-4.5"]);
-        expect(offered(&scene.workspace).map(|models| models.grok)) to equal(Some(grok.clone()))
-        let told = matches!(changes.try_recv(), Ok(Event::ModelsChanged { models }) if models.grok == grok);
+        expect(offered(&scene.workspace).map(|models| ids(models.grok))) to equal(Some(grok.clone()))
+        let told = matches!(changes.try_recv(), Ok(Event::ModelsChanged { models }) if ids(models.grok.clone()) == grok);
         expect(told) to be_true
     }
 
@@ -254,7 +363,7 @@ lets_expect! { #tokio_test
         let mut changes = scene.workspace.subscribe();
 
         scene.workspace.list_models().await;
-        expect(offered(&scene.workspace).map(|models| models.grok)) to equal(Some(names(&["grok-4.6"])))
+        expect(offered(&scene.workspace).map(|models| ids(models.grok))) to equal(Some(names(&["grok-4.6"])))
         expect(changes.try_recv().is_err()) to be_true
     }
 
@@ -264,7 +373,7 @@ lets_expect! { #tokio_test
         let mut changes = scene.workspace.subscribe();
 
         scene.workspace.list_models().await;
-        expect(offered(&scene.workspace).map(|models| models.grok)) to equal(Some(Vec::new()))
+        expect(offered(&scene.workspace).map(|models| ids(models.grok))) to equal(Some(Vec::new()))
         expect(changes.try_recv().is_err()) to be_true
     }
 
@@ -274,9 +383,9 @@ lets_expect! { #tokio_test
         let mut changes = scene.workspace.subscribe();
 
         scene.workspace.list_models().await;
-        let gemini = names(&["gemini-4-neon-high", "gemini-4-neon-medium", "gemini-3.8-flash-medium", "gemini-3.8-flash-low"]);
-        expect(offered(&scene.workspace).map(|models| models.gemini)) to equal(Some(gemini.clone()))
-        let told = matches!(changes.try_recv(), Ok(Event::ModelsChanged { models }) if models.gemini == gemini);
+        let gemini = names(&["gemini-4-neon", "gemini-3.8-flash"]);
+        expect(offered(&scene.workspace).map(|models| ids(models.gemini))) to equal(Some(gemini.clone()))
+        let told = matches!(changes.try_recv(), Ok(Event::ModelsChanged { models }) if ids(models.gemini.clone()) == gemini);
         expect(told) to be_true
     }
 
@@ -286,7 +395,7 @@ lets_expect! { #tokio_test
         let mut changes = scene.workspace.subscribe();
 
         scene.workspace.list_models().await;
-        expect(offered(&scene.workspace).map(|models| models.gemini)) to equal(Some(names(&["gemini-4-neon-high"])))
+        expect(offered(&scene.workspace).map(|models| ids(models.gemini))) to equal(Some(names(&["gemini-4-neon"])))
         expect(changes.try_recv().is_err()) to be_true
     }
 
@@ -296,7 +405,7 @@ lets_expect! { #tokio_test
         let mut changes = scene.workspace.subscribe();
 
         scene.workspace.list_models().await;
-        expect(offered(&scene.workspace).map(|models| models.gemini)) to equal(Some(Vec::new()))
+        expect(offered(&scene.workspace).map(|models| ids(models.gemini))) to equal(Some(Vec::new()))
         expect(changes.try_recv().is_err()) to be_true
     }
 
@@ -311,7 +420,8 @@ lets_expect! { #tokio_test
         scene.wait_until_idle(&thread).await;
         expect(invocations(&folder)[0].contains("--model gemini-4-neon-high")) to be_true
         let summary = scene.entries(&thread).into_iter().find(|entry| entry.kind == "turn_summary").unwrap();
-        expect(summary.body["model"].clone()) to equal(json!("gemini-3.8-flash-low"))
+        expect(summary.body["model"].clone()) to equal(json!("gemini-3.8-flash"))
+        expect(summary.body["effort"].clone()) to equal(json!("low"))
     }
     // requirement: Codex discovery follows initialization and pagination, hides hidden
     // models, uses model identifiers rather than display IDs, and removes duplicates
@@ -321,18 +431,24 @@ lets_expect! { #tokio_test
         let mut changes = scene.workspace.subscribe();
         scene.workspace.list_models().await;
         let codex = names(&["gpt-6-astra", "gpt-6-sol"]);
-        expect(offered(&scene.workspace).map(|models| models.codex)) to equal(Some(codex.clone()))
+        let catalog = offered(&scene.workspace).unwrap().codex;
+        expect(catalog[0].label.as_str()) to equal("GPT-6 Astra")
+        expect(catalog[0].efforts.clone()) to equal(vec![Effort::Low, Effort::Medium, Effort::High, Effort::Ultra])
+        expect(catalog[0].default_effort) to equal(Some(Effort::Medium))
+        expect(catalog[0].is_default) to be_true
+        expect(catalog[1].is_default) to be_false
+        expect(offered(&scene.workspace).map(|models| ids(models.codex))) to equal(Some(codex.clone()))
         // The later notice has to keep the earlier list. A copy taken before
         // the other agent answered would wipe that agent for whoever is listening.
         let mut last_has_all = false;
         while let Ok(event) = changes.try_recv() {
             if let Event::ModelsChanged { models } = event {
-                last_has_all = models.codex == codex && models.grok.len() == 4 && models.gemini.len() == 4;
+                last_has_all = ids(models.codex) == codex && models.grok.len() == 4 && models.gemini.len() == 2;
             }
         }
         expect(last_has_all) to be_true
         expect(offered(&scene.workspace).map(|models| models.grok.len())) to equal(Some(4))
-        expect(offered(&scene.workspace).map(|models| models.gemini.len())) to equal(Some(4))
+        expect(offered(&scene.workspace).map(|models| models.gemini.len())) to equal(Some(2))
     }
 
     // requirement: explicit Codex models, including an empty list, bypass discovery
@@ -347,7 +463,7 @@ lets_expect! { #tokio_test
             let scene = Scene::with(agents);
             let mut changes = scene.workspace.subscribe();
             scene.workspace.list_models().await;
-            results.push(offered(&scene.workspace).map(|models| models.codex) == Some(models) && changes.try_recv().is_err());
+            results.push(offered(&scene.workspace).map(|models| ids(models.codex)) == Some(models) && changes.try_recv().is_err());
         }
         expect(results) to equal(vec![true, true])
     }
@@ -358,7 +474,7 @@ lets_expect! { #tokio_test
         agents.codex.program = "a-program-nobody-has".to_string();
         let scene = Scene::with(agents);
         scene.workspace.list_models().await;
-        expect(offered(&scene.workspace).map(|models| models.codex)) to equal(Some(Vec::new()))
+        expect(offered(&scene.workspace).map(|models| ids(models.codex))) to equal(Some(Vec::new()))
         expect(offered(&scene.workspace).map(|models| models.grok.len())) to equal(Some(4))
     }
 
@@ -393,7 +509,7 @@ lets_expect! { #tokio_test
 
     story an_empty_codex_catalog_is_valid {
         let (_folder, settings) = codex_program("read -r request\necho '{\"id\":0,\"result\":{}}'\nread -r request\nread -r request\necho '{\"id\":1,\"result\":{\"data\":[],\"nextCursor\":null}}'");
-        expect(list_codex_models(&settings).await.unwrap()) to equal(Vec::<String>::new())
+        expect(list_codex_models(&settings).await.unwrap()) to equal(Vec::<ModelOption>::new())
     }
 
     // requirement: a stuck program cannot keep model discovery running forever

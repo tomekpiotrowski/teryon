@@ -62,6 +62,7 @@ fn provider(agent: &str, model: Option<&str>) -> Option<Starting> {
     Some(Starting::Provider {
         agent: agent.to_string(),
         model: model.map(str::to_string),
+        effort: None,
     })
 }
 
@@ -128,7 +129,7 @@ lets_expect! { #tokio_test
         let project = scene.project(&folder);
         let shown = starting(&scene.workspace);
         let thread = scene.workspace.start_thread(project.id, None, None, "").unwrap();
-        expect(Some(Starting::Provider { agent: thread.agent.clone(), model: thread.model.clone() })) to equal(shown)
+        expect(Some(Starting::Provider { agent: thread.agent.clone(), model: thread.model.clone(), effort: None })) to equal(shown)
         expect(thread.picks.get(&thread.stage).cloned()) to equal(Some(thread.agent.clone()))
     }
 

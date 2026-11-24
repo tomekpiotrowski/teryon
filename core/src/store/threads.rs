@@ -310,6 +310,7 @@ mod tests {
             named: false,
             agent: "claude".to_string(),
             model: None,
+            effort: None,
             conversation: None,
             handover: false,
             status: Status::Idle,
@@ -498,6 +499,7 @@ mod tests {
     }
 
     /// Whether a thread with these properties is a quiet conversation.
+    #[allow(clippy::too_many_arguments)]
     fn is_quiet(
         stage: Stage,
         running: bool,

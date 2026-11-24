@@ -41,6 +41,7 @@ async fn another_thread(client: &mut Client, project: Uuid) -> Uuid {
                 project_id: project,
                 agent: Some("claude".to_string()),
                 model: None,
+                effort: None,
                 title: String::new(),
                 workflow: None,
             })

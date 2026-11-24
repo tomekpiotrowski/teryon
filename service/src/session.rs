@@ -85,6 +85,7 @@ impl Session {
                 project_id,
                 agent,
                 model,
+                effort,
                 title,
                 workflow,
             } => workspace
@@ -92,6 +93,7 @@ impl Session {
                     project_id,
                     agent.as_deref(),
                     model.as_deref(),
+                    effort,
                     &title,
                     workflow.as_deref(),
                 )
@@ -111,8 +113,9 @@ impl Session {
                 thread_id,
                 agent,
                 model,
+                effort,
             } => workspace
-                .review_change(thread_id, &agent, model.as_deref())
+                .review_change(thread_id, &agent, model.as_deref(), effort)
                 .map(|entry| Answer::Entry { entry })
                 .map_err(|problem| problem.to_string()),
             Request::ChangeAgent {
@@ -120,8 +123,9 @@ impl Session {
                 to,
                 agent,
                 model,
+                effort,
             } => workspace
-                .change_agent(thread_id, to, &agent, model.as_deref())
+                .change_agent(thread_id, to, &agent, model.as_deref(), effort)
                 .map(|thread| Answer::Thread {
                     thread: Box::new(thread),
                 })

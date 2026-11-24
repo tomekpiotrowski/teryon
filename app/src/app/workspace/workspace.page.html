@@ -93,7 +93,7 @@
                 [starting]="starting$ | async"
                 [models]="(models$ | async) ?? emptyModels"
                 [pickedChoice]="pickedChoice$ | async"
-                [rememberedModels]="(newThreads$ | async)?.models ?? null"
+                [rememberedAgents]="(newThreads$ | async) ?? firstNewThreads"
                 [project]="view.project"
                 [sending]="(sending$ | async) ?? false"
                 [text]="(draft$ | async) ?? ''"
@@ -200,13 +200,17 @@
                   </label>
                   <div class="composer-meta thread-meta">
                     <div>
+                      @let voice = (target$ | async) ?? 'author';
                       @if (view.thread.reviewer) {
                         <button type="button" class="target-switch" aria-label="Who the message goes to" (click)="toggleTarget()">
-                          to {{ choiceLabel(threadChoice(view.thread, (target$ | async) ?? 'author') ?? { agent: view.thread.agent, model: null }) }} ▾
+                          to {{ voice }} ▾
                         </button>
-                      } @else {
-                        <span class="thread-choice">{{ choiceLabel({ agent: view.thread.agent, model: view.thread.model ?? null }) }}</span>
                       }
+                      <app-agent-chooser placement="up" [installed]="(installed$ | async) ?? []"
+                        [models]="(models$ | async) ?? emptyModels" [choice]="threadChoice(view.thread, voice)"
+                        [allowedAgents]="allowedThreadAgents(view.thread, voice)"
+                        [remembered]="(newThreads$ | async) ?? firstNewThreads"
+                        (chosen)="changeAgent(view.thread, voice, $event)"></app-agent-chooser>
                       <button type="button" class="code-link thread-stage" aria-keyshortcuts="b" title="Where this thread’s work stands" (click)="showBoard()">{{ view.stage }} <kbd>B</kbd></button>
                       <button type="button" class="code-link" aria-keyshortcuts="/" (click)="openMenu()">menu <kbd>/</kbd></button>
                       <button type="button" class="code-link shortcuts-link" aria-keyshortcuts="?" (click)="openShortcuts()"><kbd>?</kbd>all shortcuts</button>

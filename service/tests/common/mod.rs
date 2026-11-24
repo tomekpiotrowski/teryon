@@ -49,7 +49,7 @@ pub async fn scene_with(more: &str) -> Scene {
         format!(
             "[service]\nport = {}\nallowed_origins = [\"{DEVELOPMENT}\"]\n\n\
              [agents]\nstop_grace_seconds = 1\n\n\
-             [agents.claude]\nprogram = \"../core/tests/samples/fake-claude.sh\"\n\n\
+             [agents.claude]\nprogram = \"../core/tests/samples/fake-claude.sh\"\nhome = \"../core/tests/samples/no-claude-home\"\n\n\
              [agents.grok]\nprogram = \"../core/tests/samples/fake-grok.sh\"\nhome = \"{}\"\n\n\
              [agents.gemini]\nprogram = \"../core/tests/samples/fake-gemini.sh\"\n\n\
              {more}",

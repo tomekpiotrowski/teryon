@@ -72,12 +72,13 @@ export class BoardComponent implements OnDestroy {
     this.store.threads$,
     this.store.projects$,
     this.store.workflows$,
+    this.store.models$,
     combineLatest([this.projectId$, this.projectName$, this.everyProject$]).pipe(distinctUntilChanged((a, b) => a.every((part, index) => part === b[index]))),
     combineLatest([this.cursor$, this.startOn$]),
   ]).pipe(
-    map(([threads, projects, workflows, [projectId, projectName, everyProject], [cursor, startOn]]) => {
+    map(([threads, projects, workflows, models, [projectId, projectName, everyProject], [cursor, startOn]]) => {
       const every = everyProject || projectId === null;
-      const columns = boardColumns(threads, projects, workflows, every ? null : projectId);
+      const columns = boardColumns(threads, projects, workflows, every ? null : projectId, models);
       const scoped = threads.filter((thread) => every || thread.project_id === projectId);
       return {
         columns,

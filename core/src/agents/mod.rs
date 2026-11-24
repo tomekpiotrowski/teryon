@@ -22,6 +22,7 @@ pub mod runner;
 pub mod staging;
 mod summary;
 
+use crate::agents::models::Effort;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -278,6 +279,8 @@ pub struct Turn {
     /// a conversation started with unless told otherwise, and a person may
     /// switch models between messages.
     pub model: Option<String>,
+    /// The requested effort, or the provider setting when absent.
+    pub effort: Option<Effort>,
 }
 
 /// How to start an agent program for one turn.
@@ -325,6 +328,11 @@ pub trait AgentDriver: Send {
     /// such as `opus` means a different model once a newer one is out.
     /// Nothing when the program has not said and none was asked for.
     fn model(&self) -> Option<String>;
+
+    /// Effort reported by the program, when it identifies it.
+    fn reported_effort(&self) -> Option<Effort> {
+        None
+    }
 
     /// Hands over the subscription's limits, when the last line reported them.
     ///

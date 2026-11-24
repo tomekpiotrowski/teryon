@@ -113,7 +113,7 @@ lets_expect! { #tokio_test
         let folder = project_folder();
         let (thread, _) = changed(&scene, &folder).await;
 
-        scene.workspace.review_change(thread.id, "grok", None).unwrap();
+        scene.workspace.review_change(thread.id, "grok", None, None).unwrap();
         scene.wait_until_idle(&thread).await;
 
         let runs = invocations(&folder);
@@ -190,7 +190,7 @@ lets_expect! { #tokio_test
         let scene = Scene::new();
         let folder = project_folder();
         let (thread, path) = changed(&scene, &folder).await;
-        scene.workspace.review_change(thread.id, "grok", None).unwrap();
+        scene.workspace.review_change(thread.id, "grok", None, None).unwrap();
         scene.wait_until_idle(&thread).await;
 
         scene.ask_reviewer(&thread, "remember the turn and wait").unwrap();

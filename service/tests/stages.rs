@@ -21,6 +21,7 @@ use common::{project_id, repository, scene_with, wait_for, Scene};
 use tokio::time::timeout;
 
 use teryon::client::Client;
+use teryon_core::agents::models::Effort;
 use teryon_core::agents::Voice;
 use teryon_core::protocol::{Answer, Event, Request, Starting};
 use teryon_core::store::{Entry, Status, Thread};
@@ -66,6 +67,7 @@ async fn started_in(
             project_id: project,
             agent: agent.map(str::to_string),
             model: model.map(str::to_string),
+            effort: None,
             title: String::new(),
             workflow: None,
         })
@@ -168,7 +170,7 @@ async fn with_medium(client: &mut Client, model: &str) -> Request {
         Answer::Configuration { configuration } => *configuration,
         other => panic!("not the settings: {other:?}"),
     };
-    configuration.claude.medium = model.to_string();
+    configuration.claude.medium.model = model.to_string();
     Request::SaveConfiguration {
         configuration: Box::new(configuration),
     }
@@ -179,6 +181,7 @@ fn claude_on(model: &str) -> Starting {
     Starting::Provider {
         agent: "claude".to_string(),
         model: Some(model.to_string()),
+        effort: None,
     }
 }
 
@@ -191,6 +194,7 @@ fn on(thread: &Thread) -> Starting {
     Starting::Provider {
         agent: thread.agent.clone(),
         model: thread.model.clone(),
+        effort: None,
     }
 }
 
@@ -493,6 +497,97 @@ lets_expect! { #tokio_test
         let Event::ThreadChanged { thread: after } = after else { unreachable!() };
         expect(after.picks.get(&Stage::Implementing).cloned()) to equal(Some("claude".to_string()))
         expect(invocations(&folder).len()) to equal(1)
+    }
+
+    // requirement: a thread started from the chooser keeps its agent, versioned model, and effort when the next stage matches by alias with no effort
+    story a_chooser_thread_keeps_its_model_and_effort_when_a_stage_matches_by_alias {
+        let scene = stages_scene("[stages.implementing]\nprovider = \"only claude\"\nstrength = \"strong\"\n").await;
+        let folder = repository();
+        let mut client = scene.client().await;
+        let project = project_id(
+            client
+                .call(Request::AddProject {
+                    name: "Sample".to_string(),
+                    directory: folder.path().to_string_lossy().into_owned(),
+                })
+                .await
+                .unwrap(),
+        );
+        let Answer::Thread { thread } = client
+            .call(Request::StartThread {
+                project_id: project,
+                agent: Some("claude".to_string()),
+                model: Some("claude-opus-5-5".to_string()),
+                effort: Some(Effort::Medium),
+                title: String::new(),
+                workflow: None,
+            })
+            .await
+            .unwrap()
+        else {
+            panic!("not a thread");
+        };
+
+        say(&mut client, thread.id, "report stage implementing").await;
+        settled(&mut client, thread.id, 0).await;
+        let after = wait_for(&mut client, |event| {
+            matches!(event, Event::ThreadChanged { thread: changed } if changed.id == thread.id && changed.picks.contains_key(&Stage::Implementing))
+        })
+        .await;
+
+        let Event::ThreadChanged { thread: after } = after else { unreachable!() };
+        expect(after.model.clone()) to equal(Some("claude-opus-5-5".to_string()))
+        expect(after.effort) to equal(Some(Effort::Medium))
+        expect(invocations(&folder).len()) to equal(1)
+        expect(texts(&entries(&mut client, thread.id).await, "notice").is_empty()) to be_true
+    }
+
+    // requirement: a stage that configures a different effort for the same model hands over and runs on that effort
+    story a_stage_with_a_different_effort_starts_on_that_effort {
+        let scene = stages_scene("[stages.implementing]\nprovider = \"only claude\"\nstrength = \"strong\"\n").await;
+        let folder = repository();
+        let mut client = scene.client().await;
+        let Answer::Configuration { mut configuration } = client.call(Request::Configuration).await.unwrap() else {
+            panic!("not the settings");
+        };
+        configuration.claude.strong.effort = Some(Effort::High);
+        client
+            .call(Request::SaveConfiguration { configuration })
+            .await
+            .unwrap();
+        let project = project_id(
+            client
+                .call(Request::AddProject {
+                    name: "Sample".to_string(),
+                    directory: folder.path().to_string_lossy().into_owned(),
+                })
+                .await
+                .unwrap(),
+        );
+        let Answer::Thread { thread } = client
+            .call(Request::StartThread {
+                project_id: project,
+                agent: Some("claude".to_string()),
+                model: Some("claude-opus-5-5".to_string()),
+                effort: Some(Effort::Medium),
+                title: String::new(),
+                workflow: None,
+            })
+            .await
+            .unwrap()
+        else {
+            panic!("not a thread");
+        };
+
+        say(&mut client, thread.id, "report stage implementing").await;
+        let after = settled(&mut client, thread.id, 1).await;
+
+        expect(after.stage) to equal(Stage::Implementing)
+        expect(after.model.clone()) to equal(Some("claude-opus-5-5".to_string()))
+        expect(after.effort) to equal(Some(Effort::High))
+        let runs = invocations(&folder);
+        expect(runs.len()) to equal(2)
+        expect(runs[1].contains("--model claude-opus-5-5 --effort high")) to be_true
     }
 
     // requirement: a plan written in the thread's plan file shows as a line, and moves a talking thread to planning

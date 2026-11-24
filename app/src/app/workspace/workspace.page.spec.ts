@@ -270,7 +270,7 @@ describe('WorkspacePage', () => {
 
   describe('starting a thread from Home', () => {
     const created = changed('new', 'new-thread', null);
-    const request = { projectId: 'p', workflow: 'small', text: 'Fix the parser' };
+    const request = { projectId: 'p', workflow: 'small', text: 'Fix the parser', choice: null };
 
     beforeEach(() => {
       store.projects$.next([project]);
@@ -293,10 +293,8 @@ describe('WorkspacePage', () => {
     it.each(['gpt-6-astra', null])('starts with the exact Home selection (%s)', (model) => {
       api.createThread.mockReturnValue(of(created));
       api.sendMessage.mockReturnValue(of({}));
-      const choice = { agent: 'codex' as const, model };
-      page.chooseForNewThreads(choice);
-
-      page.startThread(request);
+      const choice = { agent: 'codex' as const, model, effort: 'high' as const };
+      page.startThread({ ...request, choice });
 
       expect(api.createThread).toHaveBeenCalledWith('p', choice, 'small');
     });
@@ -341,16 +339,17 @@ describe('WorkspacePage', () => {
       const subscription = page.pickedChoice$.subscribe(picked);
       expect(picked).toHaveBeenLastCalledWith(null);
 
-      const codex: Choice = { agent: 'codex', model: 'gpt-6-astra' };
+      const codex: Choice = { agent: 'codex', model: 'gpt-6-astra', effort: 'high' };
       page.chooseForNewThreads(codex);
       expect(picked).toHaveBeenLastCalledWith(codex);
 
-      const grok: Choice = { agent: 'grok', model: 'grok-4.6' };
+      const grok: Choice = { agent: 'grok', model: 'grok-4.6', effort: null };
       page.run({ id: 'x', title: 'x', detail: '', group: 'action', key: null, leader: null, live: false, asking: false, badge: '', action: { kind: 'useChoice', choice: grok } });
       expect(picked).toHaveBeenLastCalledWith(grok);
       expect(page.newThreads$.value).toEqual({
         agent: 'grok',
         models: { ...FIRST_NEW_THREADS.models, codex: codex.model, grok: grok.model },
+        efforts: { 'codex:gpt-6-astra': 'high' },
         picked: true,
       });
       expect(JSON.parse(localStorage.getItem('teryon.newThreads')!)).toEqual(page.newThreads$.value);

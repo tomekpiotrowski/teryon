@@ -1,0 +1,27 @@
+{
+  "catalog": {
+    "config": {
+      "models": [
+        {
+          "section": "main",
+          "id": "claude-opus-5-5",
+          "name": "Opus 5.5",
+          "runtime": { "effort_levels": ["max", "high", "low", "xhigh", "medium"], "default_effort": "medium" }
+        },
+        {
+          "section": "main",
+          "id": "claude-sonnet-5-5",
+          "name": "Sonnet 5.5",
+          "runtime": { "effort_levels": ["low", "medium", "high", "unknown"], "default_effort": "medium" }
+        },
+        {
+          "section": "main",
+          "id": "claude-haiku-5-5",
+          "name": "Haiku 5.5",
+          "runtime": { "effort_levels": ["low", "medium", "high"], "default_effort": "low" }
+        },
+        { "section": "overflow", "id": "claude-opus-4-7", "name": "Opus 4.7" }
+      ]
+    }
+  }
+}

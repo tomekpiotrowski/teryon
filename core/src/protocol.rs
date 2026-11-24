@@ -23,7 +23,7 @@ use ts_rs::{Config, TS};
 use uuid::Uuid;
 
 use crate::agents::asking::{Choice, Choosing, Question, Questions};
-use crate::agents::models::ModelLists;
+use crate::agents::models::{Effort, ModelLists, ModelOption};
 use crate::agents::Voice;
 use crate::changes::{Change, ChangeState, Finish, Fit, Review, ReviewState};
 use crate::directory::DirectoryListing;
@@ -32,7 +32,8 @@ use crate::files::{Content, FileChange, FileEntry, FileView, Listing};
 use crate::history::{ChangedFile, Changes, Commit, History};
 use crate::plans::PlanInfo;
 use crate::settings::{
-    Configuration, ConfiguredStage, ConfiguredWorkflow, StageProvider, Strength, StrengthModels,
+    Configuration, ConfiguredStage, ConfiguredWorkflow, StageProvider, Strength, StrengthChoice,
+    StrengthModels,
 };
 use crate::store::{Entry, Project, Reviewer, RunEnd, Status, Thread, Verdict};
 use crate::usage::{Limits, UsageLine, UsageReport, Window};
@@ -82,6 +83,8 @@ pub enum Request {
         #[serde(default)]
         model: Option<String>,
         #[serde(default)]
+        effort: Option<Effort>,
+        #[serde(default)]
         title: String,
         /// The workflow the thread follows, whose first stage chooses the agent when none was named.
         /// Nothing means the default.
@@ -103,6 +106,8 @@ pub enum Request {
         /// Nothing leaves the model to the agent program.
         #[serde(default)]
         model: Option<String>,
+        #[serde(default)]
+        effort: Option<Effort>,
     },
     /// Switches the thread's agent, or its reviewer, to another agent or model, from the next message on.
     ChangeAgent {
@@ -112,6 +117,8 @@ pub enum Request {
         agent: String,
         /// Nothing leaves the model to the agent program.
         model: Option<String>,
+        #[serde(default)]
+        effort: Option<Effort>,
     },
     Stop {
         thread_id: Uuid,
@@ -452,6 +459,8 @@ pub enum Starting {
     Provider {
         agent: String,
         model: Option<String>,
+        #[serde(default)]
+        effort: Option<Effort>,
     },
     /// No provider can work; the text says why.
     Unavailable { problem: String },
@@ -532,6 +541,8 @@ pub fn typescript() -> String {
         Opener::decl(&config),
         Opens::decl(&config),
         ModelLists::decl(&config),
+        ModelOption::decl(&config),
+        Effort::decl(&config),
         Entry::decl(&config),
         Questions::decl(&config),
         Question::decl(&config),
@@ -557,6 +568,7 @@ pub fn typescript() -> String {
         ConfiguredStage::decl(&config),
         StageProvider::decl(&config),
         StrengthModels::decl(&config),
+        StrengthChoice::decl(&config),
         Strength::decl(&config),
     ];
     let mut text = String::from(

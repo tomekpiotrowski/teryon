@@ -284,7 +284,7 @@ test("a commit made while an agent was working leads back to its thread", async 
   await expect(newest.locator(".history-tag")).toHaveText("be slow");
   await expect(newest.locator(".history-tag")).toHaveClass(/current/);
   await expect(page.locator(".history-by")).toHaveText(/^Claude agent · thread “be slow” · today /);
-  await expect(page.getByText("Payments · 1 agent live")).toBeVisible();
+  await expect(page.getByText("1 agent live", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "Agents" }).click();
   await expect(commits(page).locator(".history-subject")).toHaveText(["Add notes"]);

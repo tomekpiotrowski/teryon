@@ -18,6 +18,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use super::{Inner, Workspace, WorkspaceError};
+use crate::agents::models::{claude_alias_matches, split_gemini_model, Effort, ModelOption};
 use crate::agents::{Agent, EntryDraft, EntryKind, Voice};
 use crate::changes::reviewing::findings_in;
 use crate::plans::{plan_line, plan_path, read_plan, LARGEST_PLAN};
@@ -233,12 +234,18 @@ impl Inner {
     /// The model a stage names for an agent's strength. Nothing when the stage names no strength, or the agent has no model for it.
     ///
     /// For a person who picked an agent without a model: the stage still says how strong the work should be.
-    pub(super) fn first_stage_model(&self, stage: Stage, agent: Agent) -> Option<String> {
+    pub(super) fn first_stage_choice(
+        &self,
+        stage: Stage,
+        agent: Agent,
+    ) -> (Option<String>, Option<Effort>) {
         let setup = self.setup();
-        let setting = setup.stages.of(stage).filter(|setting| setting.chooses())?;
+        let Some(setting) = setup.stages.of(stage).filter(|setting| setting.chooses()) else {
+            return (None, None);
+        };
         setup
             .agents
-            .model_for(agent, setting.strength.unwrap_or(Strength::Medium))
+            .choice_for(agent, setting.strength.unwrap_or(Strength::Medium))
     }
 
     /// Who the next new thread starts with, chosen now when the held choice no longer fits.
@@ -299,7 +306,16 @@ impl Inner {
         let notice = EntryDraft::notice(&taking_over(pick, &label));
         let mut entries = vec![store.append(thread.id, notice.kind.name(), notice.body)?];
         let switching = thread.agent != pick.agent.name();
-        if !author || (!switching && thread.model == pick.model) {
+        let same_model = !switching
+            && same_model_choice(
+                pick.agent,
+                thread.model.as_deref(),
+                pick.model.as_deref(),
+                pick.effort,
+                &self.catalog_of(pick.agent),
+            );
+        let same_effort = pick.effort.is_none() || thread.effort == pick.effort;
+        if !author || (!switching && same_model && same_effort) {
             return Ok((entries, thread.clone()));
         }
         if let (true, Some(current)) = (switching, Agent::parse(&thread.agent)) {
@@ -313,9 +329,14 @@ impl Inner {
             entries.push(store.append(thread.id, notice.kind.name(), body)?);
         }
         let agent = pick.agent;
-        let model = pick.model.clone();
+        let (model, effort) = if !switching && same_model {
+            self.resolve_choice(agent, thread.model.clone(), pick.effort.or(thread.effort))
+        } else {
+            self.resolve_choice(agent, pick.model.clone(), pick.effort)
+        };
         let thread = store.change(thread.id, |thread| {
             thread.model = model;
+            thread.effort = effort;
             if switching {
                 thread.agent = agent.name().to_string();
                 thread.conversation = None;
@@ -709,8 +730,14 @@ impl Workspace {
             Next::Review(pick) => {
                 info!(%thread_id, stage = stage.name(), agent = pick.agent.name(), model = ?pick.model, rounds = thread.rounds + 1, "starting a review by itself");
                 let (agent, model) = (pick.agent, pick.model.clone());
-                self.review(thread_id, agent, model, Starter::Teryon { stage, pick })
-                    .map(|_| ())
+                self.review(
+                    thread_id,
+                    agent,
+                    model,
+                    pick.effort,
+                    Starter::Teryon { stage, pick },
+                )
+                .map(|_| ())
             }
             Next::Author { pick, message } => {
                 info!(%thread_id, stage = stage.name(), agent = pick.agent.name(), model = ?pick.model, rounds = thread.rounds + 1, "starting an agent by itself");
@@ -775,6 +802,7 @@ impl Workspace {
                     Some(agent) if start.ran_out != Some(agent) => Ok(Pick {
                         agent,
                         model: reviewer.model.clone(),
+                        effort: reviewer.effort,
                         why: format!("{} as before", agent.label()),
                     }),
                     _ => return Next::Nothing,
@@ -793,6 +821,7 @@ impl Workspace {
                 Some(agent) => Ok(Pick {
                     agent,
                     model: thread.model.clone(),
+                    effort: thread.effort,
                     why: format!("{} as before", agent.label()),
                 }),
                 None => return Next::Nothing,
@@ -802,7 +831,15 @@ impl Workspace {
             Ok(pick) => pick,
             Err(problem) => return Next::Refused(problem.to_string()),
         };
-        let same = Some(pick.agent) == author && pick.model == thread.model;
+        let same = Some(pick.agent) == author
+            && same_model_choice(
+                pick.agent,
+                thread.model.as_deref(),
+                pick.model.as_deref(),
+                pick.effort,
+                &self.inner.catalog_of(pick.agent),
+            )
+            && (pick.effort.is_none() || pick.effort == thread.effort);
         if start.voice == Voice::Author && same && start.ran_out.is_none() {
             // The agent carries on with the new stage in its own turn, or on the person's next message.
             return Next::Keep(pick);
@@ -879,14 +916,61 @@ impl Workspace {
     }
 }
 
+/// Whether a thread's current model already matches what a stage picked.
+///
+/// The chooser picks versioned catalog names (such as `claude-opus-5-5`), while
+/// stage strengths often name Claude aliases (`opus`, `sonnet`, `haiku`), leave
+/// the model unset to mean the provider's default, or name a grouped Gemini base
+/// model. Treating equivalent choices as the same avoids unnecessary takeovers.
+fn same_model_choice(
+    agent: Agent,
+    current: Option<&str>,
+    picked: Option<&str>,
+    picked_effort: Option<Effort>,
+    catalog: &[ModelOption],
+) -> bool {
+    if current == picked {
+        return true;
+    }
+    match (current, picked) {
+        (Some(current), Some(picked)) => match agent {
+            Agent::Claude => {
+                claude_alias_matches(picked, current) || claude_alias_matches(current, picked)
+            }
+            Agent::Gemini => {
+                let (picked_base, picked_suffix) = split_gemini_model(picked, catalog);
+                let (current_base, _) = split_gemini_model(current, catalog);
+                current_base == picked_base && (picked_suffix.is_none() || picked_effort.is_some())
+            }
+            Agent::Codex | Agent::Grok => false,
+        },
+        (Some(current), None) => {
+            let id = match agent {
+                Agent::Gemini => split_gemini_model(current, catalog).0,
+                _ => current,
+            };
+            catalog.iter().any(|option| {
+                option.is_default
+                    && (option.id == id
+                        || (agent == Agent::Claude && claude_alias_matches(id, &option.id)))
+            })
+        }
+        (None, Some(_)) => false,
+        (None, None) => true,
+    }
+}
+
 /// "Codex · gpt-6-astra takes Implementing (only Codex)."
 fn taking_over(pick: &Pick, stage: &str) -> String {
     let model = pick
         .model
         .as_deref()
         .map_or_else(String::new, |model| format!(" · {model}"));
+    let effort = pick
+        .effort
+        .map_or_else(String::new, |effort| format!(" · {}", effort.label()));
     format!(
-        "{}{model} takes {stage} ({}).",
+        "{}{model}{effort} takes {stage} ({}).",
         pick.agent.label(),
         pick.why
     )
@@ -926,6 +1010,7 @@ pub(super) fn starting_of(held: Option<&Result<Pick, PickError>>) -> Option<Star
         Ok(pick) => Starting::Provider {
             agent: pick.agent.name().to_string(),
             model: pick.model.clone(),
+            effort: pick.effort,
         },
         Err(problem) => Starting::Unavailable {
             problem: problem.to_string(),
@@ -951,6 +1036,7 @@ mod tests {
         Pick {
             agent: Agent::Codex,
             model: model.map(str::to_string),
+            effort: None,
             why: "only Codex".to_string(),
         }
     }
@@ -977,7 +1063,52 @@ mod tests {
 
         expect(taking_over(&pick, "Implementing")) {
             when(pick = pick(Some("gpt-6-astra"))) as a_model to name_it { equal("Codex · gpt-6-astra takes Implementing (only Codex).".to_string()) }
+            when(pick = Pick { effort: Some(Effort::Xhigh), ..pick(Some("gpt-6-astra")) }) as a_model_and_effort to name_both { equal("Codex · gpt-6-astra · Extra high takes Implementing (only Codex).".to_string()) }
             when(pick = pick(None)) as the_default_model to leave_it_out { equal("Codex takes Implementing (only Codex).".to_string()) }
+        }
+
+        story same_model_choice_matches_aliases_defaults_and_gemini_variants {
+            let claude = vec![ModelOption {
+                id: "claude-opus-5-5".to_string(),
+                label: "Opus 5.5".to_string(),
+                efforts: vec![Effort::Low, Effort::Medium, Effort::High],
+                default_effort: Some(Effort::Medium),
+                is_default: true,
+            }];
+            let codex = vec![
+                ModelOption {
+                    id: "gpt-6-astra".to_string(),
+                    label: "GPT-6 Astra".to_string(),
+                    efforts: vec![Effort::Low, Effort::Medium, Effort::High],
+                    default_effort: Some(Effort::Medium),
+                    is_default: true,
+                },
+                ModelOption {
+                    id: "gpt-6-sol".to_string(),
+                    label: "GPT-6 Sol".to_string(),
+                    efforts: vec![Effort::High],
+                    default_effort: Some(Effort::High),
+                    is_default: false,
+                },
+            ];
+            let gemini = vec![ModelOption {
+                id: "gemini-4-neon".to_string(),
+                label: "Gemini 4 Neon".to_string(),
+                efforts: vec![Effort::Low, Effort::High],
+                default_effort: Some(Effort::High),
+                is_default: true,
+            }];
+
+            expect(same_model_choice(Agent::Claude, Some("claude-opus-5-5"), Some("opus"), None, &claude)) to be_true
+            expect(same_model_choice(Agent::Claude, Some("opus"), Some("claude-opus-5-5"), None, &claude)) to be_true
+            expect(same_model_choice(Agent::Claude, Some("claude-sonnet-5-5"), Some("opus"), None, &claude)) to be_false
+            expect(same_model_choice(Agent::Claude, None, Some("haiku"), None, &claude)) to be_false
+            expect(same_model_choice(Agent::Codex, Some("gpt-6-astra"), None, None, &codex)) to be_true
+            expect(same_model_choice(Agent::Codex, Some("gpt-6-sol"), None, None, &codex)) to be_false
+            expect(same_model_choice(Agent::Gemini, Some("gemini-4-neon-high"), Some("gemini-4-neon"), None, &gemini)) to be_true
+            expect(same_model_choice(Agent::Gemini, Some("gemini-4-neon-high"), Some("gemini-4-neon-low"), None, &gemini)) to be_false
+            expect(same_model_choice(Agent::Gemini, Some("gemini-4-neon-high"), Some("gemini-4-neon-low"), Some(Effort::High), &gemini)) to be_true
+            expect(same_model_choice(Agent::Gemini, Some("gemini-4-neon-high"), None, None, &gemini)) to be_true
         }
 
         expect(brings_back(&starter)) {
@@ -1009,6 +1140,7 @@ mod tests {
             named: false,
             agent: String::new(),
             model: None,
+            effort: None,
             conversation: None,
             handover: false,
             status: Status::Idle,

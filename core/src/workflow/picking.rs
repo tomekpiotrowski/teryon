@@ -11,6 +11,7 @@
 //! another program each time. "Prefer" is the exception: the preferred
 //! provider is taken again as soon as it has usage left.
 
+use crate::agents::models::Effort;
 use std::env::{split_paths, var_os};
 use std::path::Path;
 
@@ -94,6 +95,8 @@ pub struct Pick {
     pub agent: Agent,
     /// Nothing runs the program's default model.
     pub model: Option<String>,
+    /// The requested effort, or the provider setting when absent.
+    pub effort: Option<Effort>,
     /// How the provider was picked, such as "picked at random".
     pub why: String,
 }
@@ -178,7 +181,7 @@ pub fn pick(
         },
         ProviderChoice::Any => fallback(setting, situation, &usable, random, None)?,
     };
-    let model = agents.model_for(agent, strength);
+    let (model, effort) = agents.choice_for(agent, strength);
     let why = match &model {
         Some(_) => why,
         None => format!(
@@ -187,7 +190,12 @@ pub fn pick(
             strength.name()
         ),
     };
-    Ok(Pick { agent, model, why })
+    Ok(Pick {
+        agent,
+        model,
+        effort,
+        why,
+    })
 }
 
 /// Why a provider can't be picked.

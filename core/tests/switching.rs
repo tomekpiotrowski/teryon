@@ -27,7 +27,7 @@ lets_expect! { #tokio_test
         scene.say(&thread, "hello").unwrap();
         scene.wait_until_idle(&thread).await;
 
-        let changed = scene.workspace.change_agent(thread.id, Voice::Author, "codex", Some("gpt-6-astra")).unwrap();
+        let changed = scene.workspace.change_agent(thread.id, Voice::Author, "codex", Some("gpt-6-astra"), None).unwrap();
         expect(changed.agent.clone()) to equal("codex".to_string())
         expect(changed.model.clone()) to equal(Some("gpt-6-astra".to_string()))
         expect(changed.conversation.clone()) to equal(None)
@@ -64,7 +64,7 @@ lets_expect! { #tokio_test
         let project = scene.project(&folder);
         let thread = scene.thread(&project, "claude");
 
-        scene.workspace.change_agent(thread.id, Voice::Author, "grok", None).unwrap();
+        scene.workspace.change_agent(thread.id, Voice::Author, "grok", None, None).unwrap();
         scene.say(&thread, "hello").unwrap();
         scene.wait_until_idle(&thread).await;
 
@@ -85,7 +85,7 @@ lets_expect! { #tokio_test
         let before = scene.entries(&thread).len();
         let conversation = scene.thread_now(&thread).conversation;
 
-        let changed = scene.workspace.change_agent(thread.id, Voice::Author, "claude", Some("opus")).unwrap();
+        let changed = scene.workspace.change_agent(thread.id, Voice::Author, "claude", Some("opus"), None).unwrap();
         expect(changed.conversation.clone()) to equal(conversation)
         expect(changed.handover) to be_false
         expect(scene.entries(&thread).len()) to equal(before)
@@ -105,7 +105,7 @@ lets_expect! { #tokio_test
             sleep(Duration::from_millis(25)).await;
         }
 
-        let refused = scene.workspace.change_agent(thread.id, Voice::Author, "codex", None).map_err(|problem| problem.to_string());
+        let refused = scene.workspace.change_agent(thread.id, Voice::Author, "codex", None, None).map_err(|problem| problem.to_string());
         expect(refused.err()) to equal(Some("The agent is still working on the previous message.".to_string()))
         scene.workspace.stop(thread.id).unwrap();
         scene.wait_until_idle(&thread).await;
@@ -119,11 +119,11 @@ lets_expect! { #tokio_test
         let project = scene.project(&folder);
         let thread = scene.thread(&project, "claude");
 
-        let unknown_agent = scene.workspace.change_agent(thread.id, Voice::Author, "mistral", None).map_err(|problem| problem.to_string());
+        let unknown_agent = scene.workspace.change_agent(thread.id, Voice::Author, "mistral", None, None).map_err(|problem| problem.to_string());
         expect(unknown_agent.err()) to equal(Some("Choose Claude, Codex, Grok or Gemini.".to_string()))
-        let elsewhere = scene.workspace.change_agent(unknown(), Voice::Author, "codex", None).map_err(|problem| problem.to_string());
+        let elsewhere = scene.workspace.change_agent(unknown(), Voice::Author, "codex", None, None).map_err(|problem| problem.to_string());
         expect(elsewhere.err()) to equal(Some("There is no such thread.".to_string()))
-        let reviewer = scene.workspace.change_agent(thread.id, Voice::Reviewer, "codex", None).map_err(|problem| problem.to_string());
+        let reviewer = scene.workspace.change_agent(thread.id, Voice::Reviewer, "codex", None, None).map_err(|problem| problem.to_string());
         expect(reviewer.err()) to equal(Some("Nobody reviews this thread yet. Ask for a review first.".to_string()))
         expect(scene.thread_now(&thread).agent) to equal("claude".to_string())
     }

@@ -1,4 +1,4 @@
-import { afterNextRender, ChangeDetectionStrategy, Component, ElementRef, EventEmitter, HostListener, inject, Injector, Input, Output, ViewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, EventEmitter, HostListener, inject, Input, Output, ViewChild } from '@angular/core';
 import { BehaviorSubject, combineLatest, distinctUntilChanged, map, type Observable, shareReplay } from 'rxjs';
 import {
   type HomeChoice,
@@ -15,12 +15,10 @@ import {
 } from './home.model';
 import { stepped } from './commands.model';
 import {
-  agentLabel,
-  type AgentName,
   type Choice,
-  choiceLabel,
+  FIRST_NEW_THREADS,
+  firstStageChooses,
   type ModelLists,
-  modelLabel,
   type NewThreads,
   NO_MODELS,
   NO_WORKFLOWS,
@@ -40,10 +38,11 @@ export interface StartRequest {
   /** The workflow's name, one that is still set up. */
   readonly workflow: string;
   readonly text: string;
+  readonly choice: Choice | null;
 }
 
 /** Which small list under the prompt's buttons is open. */
-type Chooser = 'project' | 'agent' | { readonly agent: AgentName } | null;
+type Chooser = 'project' | null;
 
 /** Everything the template shows, at one moment. */
 interface HomeView {
@@ -52,13 +51,11 @@ interface HomeView {
   readonly text: string;
   readonly projects: readonly Project[];
   readonly project: Project | null;
-  readonly agents: readonly AgentName[];
-  readonly choices: readonly Choice[];
+  readonly installed: readonly string[];
+  readonly models: ModelLists;
+  readonly remembered: NewThreads;
   /** The choice displayed on the button. */
   readonly choice: Choice | null;
-  readonly choosingAgent: boolean;
-  readonly modelOptions: readonly Choice[];
-  readonly selectedModel: string | null;
   readonly chooser: Chooser;
   /** Which row of the list is marked. Nothing while the prompt has the keys. */
   readonly cursor: number | null;
@@ -94,14 +91,13 @@ export class HomeComponent {
   @Output() readonly textChanged = new EventEmitter<string>();
 
   private readonly host: ElementRef<HTMLElement> = inject(ElementRef);
-  private readonly injector = inject(Injector);
   private readonly groups$ = new BehaviorSubject<readonly ProjectGroup[]>([]);
   private readonly installed$ = new BehaviorSubject<readonly string[]>([]);
   private readonly workflows$ = new BehaviorSubject<Workflows>(NO_WORKFLOWS);
   private readonly starting$ = new BehaviorSubject<Starting | null>(null);
   private readonly picked$ = new BehaviorSubject<Choice | null>(null);
   private readonly models$ = new BehaviorSubject<ModelLists>(NO_MODELS);
-  private readonly rememberedModels$ = new BehaviorSubject<NewThreads['models'] | null>(null);
+  private readonly rememberedAgents$ = new BehaviorSubject<NewThreads>(FIRST_NEW_THREADS);
   private readonly open$ = new BehaviorSubject<Project | null>(null);
   private readonly sending$ = new BehaviorSubject(false);
   private readonly text$ = new BehaviorSubject('');
@@ -110,8 +106,6 @@ export class HomeComponent {
   private readonly cursor$ = new BehaviorSubject<number | null>(null);
 
   @ViewChild('prompt') private prompt?: ElementRef<HTMLInputElement>;
-  @ViewChild('agentButton') private agentButton?: ElementRef<HTMLButtonElement>;
-  @ViewChild('agentOptions') private agentOptions?: ElementRef<HTMLElement>;
   @ViewChild('list') private list?: ElementRef<HTMLElement>;
 
   /** Every project with its threads. */
@@ -143,9 +137,9 @@ export class HomeComponent {
     this.models$.next(models);
   }
 
-  /** The last model picked for each agent, shown when browsing that agent's models. */
-  @Input() set rememberedModels(models: NewThreads['models'] | null) {
-    this.rememberedModels$.next(models);
+  /** The last model and efforts chosen for each agent. */
+  @Input() set rememberedAgents(remembered: NewThreads) {
+    this.rememberedAgents$.next(remembered);
   }
 
   /** The project open before Home, which a new thread starts in until the person picks another. */
@@ -168,7 +162,7 @@ export class HomeComponent {
     this.sending$.next(sending);
   }
 
-  private readonly rest$: Observable<Pick<HomeView, 'list' | 'running' | 'projects' | 'project' | 'agents' | 'choices' | 'choice'>> = combineLatest([
+  private readonly rest$: Observable<Pick<HomeView, 'list' | 'running' | 'projects' | 'project' | 'installed' | 'models' | 'choice'>> = combineLatest([
     this.groups$,
     this.installed$,
     this.models$,
@@ -185,9 +179,9 @@ export class HomeComponent {
         running: runningLines(groups),
         projects,
         project: startProject(projects, choice, open),
-        agents: choices.filter(({ model }) => model === null).map(({ agent }) => agent),
-        choices,
-        choice: startChoice(choices, picked, starting),
+        installed,
+        models,
+        choice: startChoice(choices, picked, starting, models),
       };
     }),
   );
@@ -196,25 +190,17 @@ export class HomeComponent {
     this.rest$,
     this.text$,
     this.chooser$,
-    this.rememberedModels$,
+    this.rememberedAgents$,
     this.cursor$,
   ]).pipe(
-    map(([rest, text, chooser, rememberedModels, cursor]) => {
-      const modelAgent = chooser && typeof chooser === 'object' ? chooser.agent : null;
-      const selectedModel = modelAgent === rest.choice?.agent
-        ? rest.choice.model
-        : (modelAgent && rememberedModels?.[modelAgent]) ?? null;
-      return {
-        ...rest,
-        choosingAgent: chooser === 'agent' || modelAgent !== null,
-        modelOptions: rest.choices.filter((choice) => choice.agent === modelAgent),
-        selectedModel,
-        text,
-        chooser,
-        cursor: cursor === null ? null : Math.min(cursor, Math.max(0, rest.list.rows.length - 1)),
-        placeholder: 'Start a thread',
-      };
-    }),
+    map(([rest, text, chooser, remembered, cursor]) => ({
+      ...rest,
+      remembered,
+      text,
+      chooser,
+      cursor: cursor === null ? null : Math.min(cursor, Math.max(0, rest.list.rows.length - 1)),
+      placeholder: 'Start a thread',
+    })),
     shareReplay({ bufferSize: 1, refCount: true }),
   );
 
@@ -223,10 +209,6 @@ export class HomeComponent {
     map((view) => view.list.total === 0),
     distinctUntilChanged(),
   );
-
-  readonly agentLabel = agentLabel;
-  readonly choiceLabel = choiceLabel;
-  readonly modelLabel = modelLabel;
 
   updateText(event: Event): void {
     this.setText((event.target as HTMLInputElement).value);
@@ -299,7 +281,7 @@ export class HomeComponent {
     if (event.key === 'Escape' && !event.isComposing && this.chooser$.value) {
       event.preventDefault();
       this.chooser$.next(null);
-      target?.closest('.home-popover')?.closest('.home-chooser')?.querySelector<HTMLButtonElement>('.home-option')?.focus();
+      target?.closest('.home-chooser')?.querySelector<HTMLButtonElement>('.home-option')?.focus();
       return;
     }
     if (target && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable)) return;
@@ -322,73 +304,19 @@ export class HomeComponent {
     if (!text || this.sending$.value) return;
     const projects = this.groups$.value.map((group) => group.project);
     const project = startProject(projects, this.choice$.value, this.open$.value);
-    if (project) this.started.emit({ projectId: project.id, workflow: this.workflows$.value.default, text });
-  }
-
-  chooseAgent(agent: AgentName, choices: readonly Choice[]): void {
-    const models = choices.filter((choice) => choice.agent === agent);
-    if (models.length === 1) return this.chooseModel(models[0]);
-    this.openAgentOptions({ agent });
-  }
-
-  chooseModel(choice: Choice): void {
-    this.closeAgentChooser();
-    this.choiceChosen.emit(choice);
-  }
-
-  showAgents(): void {
-    this.openAgentOptions('agent');
-  }
-
-  /** Moves focus through the open list, including the way back from the models. */
-  handleAgentKey(event: KeyboardEvent, view: HomeView): void {
-    if (event.isComposing || event.altKey || event.ctrlKey || event.metaKey) return;
-    switch (event.key) {
-      case 'Escape':
-        if (!view.choosingAgent) return;
-        event.preventDefault();
-        return this.closeAgentChooser();
-      case 'ArrowLeft':
-      case 'Backspace':
-        if (!view.modelOptions.length) return;
-        event.preventDefault();
-        return this.showAgents();
-      case 'ArrowUp':
-      case 'ArrowDown': {
-        event.preventDefault();
-        if (!view.choosingAgent) return this.showAgents();
-        const options = Array.from(this.agentOptions?.nativeElement.querySelectorAll('button') ?? []);
-        const current = options.indexOf(event.target as HTMLButtonElement);
-        const direction = event.key === 'ArrowDown' ? 1 : -1;
-        options[current < 0 ? (direction === 1 ? 0 : options.length - 1) : stepped(current, direction, options.length)]?.focus();
-      }
-    }
-  }
-
-  private openAgentOptions(chooser: 'agent' | { readonly agent: AgentName }): void {
-    this.chooser$.next(chooser);
-    afterNextRender(() => {
-      if (this.chooser$.value !== chooser) return;
-      const options = this.agentOptions?.nativeElement;
-      const selected = options?.querySelector<HTMLButtonElement>('[aria-selected="true"]');
-      (selected ?? options?.querySelector<HTMLButtonElement>('[role="option"]'))?.focus();
-    }, { injector: this.injector });
-  }
-
-  private closeAgentChooser(): void {
-    this.chooser$.next(null);
-    this.agentButton?.nativeElement.focus();
+    if (!project) return;
+    const workflows = this.workflows$.value;
+    const models = this.models$.value;
+    const picked = this.picked$.value;
+    const useFirstStage = !picked && firstStageChooses(workflows);
+    const choice = useFirstStage ? null : startChoice(homeChoices(this.installed$.value, models), picked, this.starting$.value, models);
+    this.started.emit({ projectId: project.id, workflow: workflows.default, text, choice });
   }
 
   chooseProject(project: Project): void {
     this.chooser$.next(null);
     this.remember({ ...this.choice$.value, projectId: project.id });
     this.focusPrompt();
-  }
-
-  toggleAgentChooser(open: boolean): void {
-    if (open) this.closeAgentChooser();
-    else this.showAgents();
   }
 
   toggleProjectChooser(): void {
@@ -399,12 +327,7 @@ export class HomeComponent {
   dismissChooser(event: MouseEvent): void {
     const chooser = this.chooser$.value;
     if (!chooser || (event.target instanceof Element && event.target.closest('.home-chooser'))) return;
-    if ((chooser === 'agent' || typeof chooser === 'object') &&
-        (document.activeElement === document.body || this.agentOptions?.nativeElement.contains(document.activeElement))) {
-      this.closeAgentChooser();
-    } else {
-      this.chooser$.next(null);
-    }
+    this.chooser$.next(null);
   }
 
   markRow(index: number): void {

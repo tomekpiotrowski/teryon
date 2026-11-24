@@ -32,6 +32,8 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::agents::asking::with_asking;
+use crate::agents::gemini::GeminiDriver;
+use crate::agents::models::{resolve_gemini_choice, Effort, ModelOption};
 use crate::agents::naming::with_naming;
 use crate::agents::process::{ProcessTree, Signal};
 use crate::agents::{
@@ -132,6 +134,8 @@ pub struct TurnRequest {
     pub environment: Vec<(String, OsString)>,
     /// What the agent is told about the thread's stage and plan, see [`crate::agents::staging`].
     pub staging: Option<String>,
+    /// Antigravity variants known when the turn starts.
+    pub gemini_models: Vec<ModelOption>,
 }
 
 /// An agent program that is running.
@@ -241,11 +245,12 @@ async fn run_turn(
         message,
         mut environment,
         staging,
+        gemini_models,
     } = request;
     environment.push(("TERYON_THREAD".to_string(), thread.id.to_string().into()));
     environment.push(("TERYON_TURN".to_string(), turn.to_string().into()));
 
-    let Some(speaker) = Speaker::of(&thread, voice) else {
+    let Some(mut speaker) = Speaker::of(&thread, voice) else {
         journal.add(
             thread.id,
             EntryDraft::error("This thread names an agent Teryon does not know.").by(voice),
@@ -255,7 +260,18 @@ async fn run_turn(
         return None;
     };
 
-    let mut driver = driver_for(speaker.agent, settings);
+    if speaker.agent == Agent::Claude {
+        if let Some(home) = &settings.claude.home {
+            environment.push(("CLAUDE_CONFIG_DIR".to_string(), home.as_os_str().to_owned()));
+        }
+    }
+    if speaker.agent == Agent::Gemini {
+        speaker.resolve_gemini(&gemini_models);
+    }
+    let mut driver: Box<dyn AgentDriver> = match speaker.agent {
+        Agent::Gemini => Box::new(GeminiDriver::with_models(&settings.gemini, gemini_models)),
+        agent => driver_for(agent, settings),
+    };
     let change = thread.change.as_deref();
     let brief = match voice {
         Voice::Author => instruction_for(&directory, change).await,
@@ -279,6 +295,7 @@ async fn run_turn(
         directory: directory.clone(),
         writable_outside,
         model: speaker.model.clone(),
+        effort: speaker.effort,
     });
     let tree = match spawn(&invocation, &directory, &environment) {
         Ok(tree) => tree,
@@ -457,16 +474,27 @@ struct Speaker {
     conversation: Option<String>,
     /// Nothing leaves the model to the program.
     model: Option<String>,
+    effort: Option<Effort>,
 }
 
 impl Speaker {
     /// The thread's agent, or its reviewer. Nothing when the thread has no such agent, or names one Teryon does not know.
     fn of(thread: &Thread, voice: Voice) -> Option<Self> {
-        let (agent, conversation, model) = match voice {
-            Voice::Author => (&thread.agent, &thread.conversation, &thread.model),
+        let (agent, conversation, model, effort) = match voice {
+            Voice::Author => (
+                &thread.agent,
+                &thread.conversation,
+                &thread.model,
+                thread.effort,
+            ),
             Voice::Reviewer => {
                 let reviewer = thread.reviewer.as_ref()?;
-                (&reviewer.agent, &reviewer.conversation, &reviewer.model)
+                (
+                    &reviewer.agent,
+                    &reviewer.conversation,
+                    &reviewer.model,
+                    reviewer.effort,
+                )
             }
         };
         Some(Self {
@@ -474,7 +502,15 @@ impl Speaker {
             agent: Agent::parse(agent)?,
             conversation: conversation.clone(),
             model: model.clone(),
+            effort,
         })
+    }
+
+    /// Turns a grouped choice into the concrete identifier Antigravity accepts.
+    fn resolve_gemini(&mut self, catalog: &[ModelOption]) {
+        let (model, effort) = resolve_gemini_choice(catalog, self.model.take(), self.effort);
+        self.model = model;
+        self.effort = effort;
     }
 }
 
@@ -562,7 +598,11 @@ async fn follow(
                             hit_limit |= mentions_limit && text.is_some_and(says_limit_hit);
                             quota_hit |= mentions_limit && text.is_some_and(says_quota_hit);
                             remember_message(&mut last_message, &draft);
-                            let draft = with_model(timed(draft, started), driver.model());
+                            let draft = with_choice(
+                                timed(draft, started),
+                                driver.model(),
+                                driver.reported_effort().or(speaker.effort),
+                            );
                             journal.add(thread.id, draft.by(voice).naming(speaker.agent));
                         }
                     }
@@ -752,10 +792,15 @@ fn timed(mut draft: EntryDraft, started: Instant) -> EntryDraft {
     draft
 }
 
-/// Adds the model the turn ran on to its summary, when it is known.
-fn with_model(mut draft: EntryDraft, model: Option<String>) -> EntryDraft {
-    if let (EntryKind::TurnSummary, Some(model)) = (draft.kind, model) {
-        draft.body["model"] = json!(model);
+/// Adds the model and effort the turn ran on to its summary, when known.
+fn with_choice(mut draft: EntryDraft, model: Option<String>, effort: Option<Effort>) -> EntryDraft {
+    if draft.kind == EntryKind::TurnSummary {
+        if let Some(model) = model {
+            draft.body["model"] = json!(model);
+        }
+        if let Some(effort) = effort {
+            draft.body["effort"] = json!(effort);
+        }
     }
     draft
 }
@@ -949,14 +994,18 @@ mod tests {
             when(draft = EntryDraft::notice("Hello")) as another_entry to be_left_alone { be_false }
         }
 
-        // requirement: a turn's summary names the model it ran on, when that is known
-        expect(with_model(draft, model).body["model"].clone()) {
+        // requirement: a turn's summary names the model and effort it ran on, when known
+        expect({
+            let entry = with_choice(draft, model, effort);
+            (entry.body["model"].clone(), entry.body["effort"].clone())
+        }) {
             let draft = EntryDraft::turn_summary(None, None);
             let model = Some("claude-opus-5-5".to_string());
+            let effort = Some(Effort::Xhigh);
 
-            to name_the_model { equal(json!("claude-opus-5-5")) }
-            when(model = None) as the_model_is_unknown to leave_it_out { equal(Value::Null) }
-            when(draft = EntryDraft::notice("Hello")) as another_entry to be_left_alone { equal(Value::Null) }
+            to name_the_model_and_effort { equal((json!("claude-opus-5-5"), json!("xhigh"))) }
+            when(model = None, effort = None) as neither_is_known to leave_both_out { equal((Value::Null, Value::Null)) }
+            when(draft = EntryDraft::notice("Hello")) as another_entry to be_left_alone { equal((Value::Null, Value::Null)) }
         }
     }
 }

@@ -29,6 +29,7 @@ use std::mem::take;
 
 use serde_json::{from_str, Value};
 
+use crate::agents::models::{split_gemini_model, Effort, ModelOption};
 use crate::agents::summary::summarise_input;
 use crate::agents::{AgentDriver, EntryDraft, Invocation, NotUnderstood, Tokens, Turn};
 use crate::settings::GeminiSettings;
@@ -47,6 +48,8 @@ const STOPPED_UNAPPROVED: &str =
 
 pub struct GeminiDriver {
     program: String,
+    /// Discovered Gemini models, used to tell grouped effort variants from standalone model names.
+    catalog: Vec<ModelOption>,
     /// Pieces of the message the agent is writing in the current response step.
     text: String,
     /// Whether any agent message has already been released during this turn.
@@ -69,8 +72,17 @@ pub struct GeminiDriver {
 
 impl GeminiDriver {
     pub fn new(settings: &GeminiSettings) -> Self {
+        Self::with_models(settings, Vec::new())
+    }
+
+    /// Creates a Gemini driver aware of the discovered catalog.
+    ///
+    /// Knowing the catalog lets the driver split grouped Antigravity variants
+    /// without cutting standalone model names that happen to end in an effort word.
+    pub fn with_models(settings: &GeminiSettings, catalog: Vec<ModelOption>) -> Self {
         Self {
             program: settings.program.clone(),
+            catalog,
             text: String::new(),
             emitted_text: false,
             resumed: false,
@@ -251,10 +263,19 @@ impl AgentDriver for GeminiDriver {
         if let Some(conversation) = &turn.conversation {
             arguments.extend(["--conversation".to_string(), conversation.clone()]);
         }
-        if let Some(model) = &turn.model {
+        self.model = turn.model.as_ref().map(|model| {
+            let (base, suffix) = split_gemini_model(model, &self.catalog);
+            match (suffix, turn.effort) {
+                (Some(_), Some(effort)) => format!("{base}-{}", effort.name()),
+                _ => model.clone(),
+            }
+        });
+        if let Some(model) = &self.model {
             arguments.extend(["--model".to_string(), model.clone()]);
         }
-        self.model = turn.model.clone();
+        if let Some(effort) = turn.effort.filter(|_| self.reported_effort().is_none()) {
+            arguments.extend(["--effort".to_string(), effort.name().to_string()]);
+        }
 
         Invocation {
             program: self.program.clone(),
@@ -299,7 +320,15 @@ impl AgentDriver for GeminiDriver {
     /// On its default model Antigravity leaves `init.model` out, so nothing is
     /// known when no model was asked for.
     fn model(&self) -> Option<String> {
-        self.model.clone()
+        self.model
+            .as_deref()
+            .map(|model| split_gemini_model(model, &self.catalog).0.to_string())
+    }
+
+    fn reported_effort(&self) -> Option<Effort> {
+        self.model
+            .as_deref()
+            .and_then(|model| split_gemini_model(model, &self.catalog).1)
     }
 
     fn finish(&mut self) -> Vec<EntryDraft> {
@@ -390,6 +419,7 @@ mod tests {
             directory: PathBuf::from("/work/app"),
             writable_outside: Vec::new(),
             model: None,
+            effort: None,
         }
     }
 
@@ -464,7 +494,69 @@ mod tests {
             .collect()
     }
 
+    fn has_high_effort(
+        effort: Option<Effort>,
+        conversation: Option<&str>,
+        read_only: bool,
+        model: Option<&str>,
+    ) -> bool {
+        driver()
+            .invocation(&Turn {
+                effort,
+                ..on_model(model, turn("Think", conversation, None, read_only))
+            })
+            .arguments
+            .windows(2)
+            .any(|pair| pair[0] == "--effort" && pair[1] == "high")
+    }
+
     lets_expect! {
+        expect(has_high_effort(effort, conversation, read_only, model)) as effort_argument {
+            let conversation: Option<&str> = None;
+            let read_only = false;
+            let effort = None;
+            let model: Option<&str> = None;
+            to omit_effort_without_a_choice { be_false }
+            when(effort = Some(Effort::High)) as a_new_turn to pass_effort { be_true }
+            when(effort = Some(Effort::High), conversation = Some("known")) as a_resumed_turn to pass_effort { be_true }
+            when(effort = Some(Effort::High), read_only = true) as a_review to pass_effort { be_true }
+            when(effort = Some(Effort::High), model = Some("gemini-custom")) as an_ungrouped_model to pass_effort { be_true }
+            when(effort = Some(Effort::High), model = Some("gemini-4-neon-low")) as a_grouped_model to use_its_suffix { be_false }
+        }
+
+        expect(driver().invocation(&Turn {
+            effort: Some(Effort::High),
+            ..on_model(Some("gemini-4-neon-low"), turn("Think", Some(KNOWN), None, true))
+        }).arguments.windows(2).any(|pair| pair[0] == "--model" && pair[1] == "gemini-4-neon-high"))
+            as gemini_effort_override to use_the_new_suffix { be_true }
+
+        story standalone_gemini_names_ending_in_effort_words_stay_intact {
+            let catalog = vec![
+                ModelOption { id: "gemini-4-ultra".to_string(), label: "Gemini 4 Ultra".to_string(), efforts: Vec::new(), default_effort: None, is_default: false },
+                ModelOption { id: "gemini-4-high".to_string(), label: "Gemini 4 High".to_string(), efforts: Vec::new(), default_effort: None, is_default: false },
+            ];
+            let mut ultra = GeminiDriver::with_models(&GeminiSettings::default(), catalog.clone());
+            let args = ultra.invocation(&Turn {
+                effort: Some(Effort::High),
+                ..on_model(Some("gemini-4-ultra"), turn("Think", None, None, false))
+            }).arguments;
+            expect(args.windows(2).any(|pair| pair[0] == "--model" && pair[1] == "gemini-4-ultra")) to be_true
+            expect(args.windows(2).any(|pair| pair[0] == "--effort" && pair[1] == "high")) to be_true
+            ultra.interpret(r#"{"event":"init","conversation_id":"abc","init":{"model":"gemini-4-ultra"}}"#).unwrap();
+            expect(ultra.model()) to equal(Some("gemini-4-ultra".to_string()))
+            expect(ultra.reported_effort()) to equal(None)
+
+            let mut named_high = GeminiDriver::with_models(&GeminiSettings::default(), catalog);
+            let args = named_high.invocation(&Turn {
+                effort: Some(Effort::Low),
+                ..on_model(Some("gemini-4-high"), turn("Think", None, None, false))
+            }).arguments;
+            expect(args.windows(2).any(|pair| pair[0] == "--model" && pair[1] == "gemini-4-high")) to be_true
+            expect(args.windows(2).any(|pair| pair[0] == "--effort" && pair[1] == "low")) to be_true
+            expect(named_high.model()) to equal(Some("gemini-4-high".to_string()))
+            expect(named_high.reported_effort()) to equal(None)
+        }
+
         expect(driver().invocation(&on_model(model, turn(message, conversation, brief, read_only)))) {
             let message = "Fix the bug";
             let conversation: Option<&str> = None;
@@ -548,9 +640,9 @@ mod tests {
             let lines = "";
 
             when(asked = None) as nothing_is_asked_or_said to be_unknown { equal(None) }
-            when(asked = Some("gemini-4-neon-high")) as nothing_is_said_yet to be_the_one_asked_for { equal(Some("gemini-4-neon-high".to_string())) }
-            when(lines = FIRST) as init_names_the_model to be_the_one_named { equal(Some("gemini-3.8-flash-low".to_string())) }
-            when(asked = Some("gemini-3.8-flash-medium"), lines = OTHER_MODEL) as continuing_on_a_new_model to be_the_new_model { equal(Some("gemini-3.8-flash-medium".to_string())) }
+            when(asked = Some("gemini-4-neon-high")) as nothing_is_said_yet to be_the_one_asked_for { equal(Some("gemini-4-neon".to_string())) }
+            when(lines = FIRST) as init_names_the_model to be_the_one_named { equal(Some("gemini-3.8-flash".to_string())) }
+            when(asked = Some("gemini-3.8-flash-medium"), lines = OTHER_MODEL) as continuing_on_a_new_model to be_the_new_model { equal(Some("gemini-3.8-flash".to_string())) }
             when(lines = r#"{"event":"init","conversation_id":"abc","init":{"cwd":"/work"}}"#) as default_omits_model to stay_unknown { equal(None) }
         }
 

@@ -43,7 +43,8 @@ use uuid::Uuid;
 use crate::agents::asking::{Questions, SHAPE};
 use crate::agents::handover::handed_over;
 use crate::agents::models::{
-    checked_model, list_codex_models, list_gemini_models, list_grok_models, ModelError, ModelLists,
+    checked_model, list_claude_models, list_codex_models, list_gemini_models, list_grok_models,
+    resolve_gemini_choice, Effort, ModelError, ModelLists, ModelOption,
 };
 use crate::agents::runner::{Journal, Pending, Runner, ThreadChange, TurnRequest, TurnUsage};
 use crate::agents::staging::{planning, reviewing_plan, staging};
@@ -365,6 +366,35 @@ impl Inner {
         self.models.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// The discovered catalog entries for one provider.
+    pub(super) fn catalog_of(&self, agent: Agent) -> Vec<ModelOption> {
+        let models = self.models();
+        match agent {
+            Agent::Claude => models.claude.clone(),
+            Agent::Codex => models.codex.clone(),
+            Agent::Grok => models.grok.clone(),
+            Agent::Gemini => models.gemini.clone(),
+        }
+    }
+
+    /// Turns a grouped Gemini selection into the concrete Antigravity identifier before saving it.
+    ///
+    /// Storing the concrete name on the thread ensures turns work immediately
+    /// after a restart, before `agy models` has finished running.
+    pub(super) fn resolve_choice(
+        &self,
+        agent: Agent,
+        model: Option<String>,
+        effort: Option<Effort>,
+    ) -> (Option<String>, Option<Effort>) {
+        if agent == Agent::Gemini {
+            let catalog = self.models().gemini.clone();
+            resolve_gemini_choice(&catalog, model, effort)
+        } else {
+            (model, effort)
+        }
+    }
+
     /// Replaces one agent's models and tells listeners the lists as they now stand.
     ///
     /// Codex and Grok are asked together. The lists stay locked until the
@@ -372,7 +402,11 @@ impl Inner {
     /// instead of publishing a copy from before that change and wiping it.
     fn publish_models(&self, change: impl FnOnce(&mut ModelLists)) {
         let mut models = self.models();
+        let previous = models.clone();
         change(&mut models);
+        if *models == previous {
+            return;
+        }
         self.announce(Event::ModelsChanged {
             models: models.clone(),
         });
@@ -534,15 +568,20 @@ impl Workspace {
     /// has started. Each list arrives independently; failures are logged and
     /// leave that agent with its default. Explicit settings are never replaced.
     pub async fn list_models(&self) {
-        let (codex, grok_program, grok_named, gemini_program, gemini_named) = {
+        let (claude, codex, grok_program, grok_named, gemini_program, gemini_named) = {
             let setup = self.inner.setup();
             (
+                setup.agents.claude.clone(),
                 setup.agents.codex.clone(),
                 setup.agents.grok.program.clone(),
                 setup.agents.grok.models.is_some(),
                 setup.agents.gemini.program.clone(),
                 setup.agents.gemini.models.is_some(),
             )
+        };
+        let claude_list = async {
+            let catalog = list_claude_models(&claude).await;
+            self.inner.publish_models(|models| models.claude = catalog);
         };
         let codex_list = async {
             if codex.models.is_some() {
@@ -571,7 +610,7 @@ impl Workspace {
                 Err(problem) => warn!("Gemini offers only its default model: {problem}"),
             }
         };
-        join!(codex_list, grok_list, gemini_list);
+        join!(claude_list, codex_list, grok_list, gemini_list);
     }
 
     /// Every change from now on.
@@ -658,6 +697,7 @@ impl Workspace {
         Ok(())
     }
 
+    /// Starts a thread on the default workflow.
     ///
     /// Without an agent, the workflow's first stage chooses one, as `config.toml`
     /// says, and Claude on its default model when it says nothing. An agent
@@ -670,7 +710,7 @@ impl Workspace {
         model: Option<&str>,
         title: &str,
     ) -> Result<Thread, WorkspaceError> {
-        self.start_thread_on(project_id, agent, model, title, None)
+        self.start_thread_on(project_id, agent, model, None, title, None)
     }
 
     /// Starts a thread on a named workflow, or the default one without a name.
@@ -683,6 +723,7 @@ impl Workspace {
         project_id: Uuid,
         agent: Option<&str>,
         model: Option<&str>,
+        effort: Option<Effort>,
         title: &str,
         workflow: Option<&str>,
     ) -> Result<Thread, WorkspaceError> {
@@ -713,34 +754,35 @@ impl Workspace {
             (None, true) => Some(self.inner.starting()),
             _ => None,
         };
-        let (agent, model, picked) = match (agent, held.as_mut()) {
+        let (agent, model, effort, picked) = match (agent, held.as_mut()) {
             (Some(agent), _) => {
                 let agent = Agent::parse(agent).ok_or_else(|| {
                     WorkspaceError::Invalid(
                         "Choose Claude, Codex, Grok or Gemini as the agent.".to_string(),
                     )
                 })?;
-                let model = match checked_model(model)? {
-                    Some(model) => Some(model),
+                let (model, stage_effort) = match checked_model(model)? {
+                    Some(model) => (Some(model), None),
                     // An agent picked without a model runs the model the first stage names for its strength.
-                    None => self.inner.first_stage_model(first, agent),
+                    None => self.inner.first_stage_choice(first, agent),
                 };
-                (agent, model, false)
+                (agent, model, effort.or(stage_effort), false)
             }
             (None, Some(held)) => {
                 self.inner.update_starting(held, false);
                 match held.clone() {
-                    Some(Ok(pick)) => (pick.agent, pick.model, true),
+                    Some(Ok(pick)) => (pick.agent, pick.model, pick.effort, true),
                     Some(Err(problem)) => return Err(WorkspaceError::Invalid(problem.to_string())),
-                    None => (Agent::Claude, None, false),
+                    None => (Agent::Claude, None, None, false),
                 }
             }
             (None, None) => match self.inner.stage_pick_after(None, first, None, None) {
-                Some(Ok(pick)) => (pick.agent, pick.model, true),
+                Some(Ok(pick)) => (pick.agent, pick.model, pick.effort, true),
                 Some(Err(problem)) => return Err(WorkspaceError::Invalid(problem.to_string())),
-                None => (Agent::Claude, None, false),
+                None => (Agent::Claude, None, None, false),
             },
         };
+        let (model, effort) = self.inner.resolve_choice(agent, model, effort);
         let title = title.trim();
         let mut state = self.inner.state();
         state.project(project_id)?;
@@ -751,6 +793,7 @@ impl Workspace {
             named: !title.is_empty(),
             agent: agent.name().to_string(),
             model,
+            effort,
             conversation: None,
             handover: false,
             status: Status::Idle,
@@ -1050,6 +1093,7 @@ impl Workspace {
         thread_id: Uuid,
         reviewer: &str,
         model: Option<&str>,
+        effort: Option<Effort>,
     ) -> Result<Entry, WorkspaceError> {
         let agent = Agent::parse(reviewer).ok_or_else(|| {
             WorkspaceError::Invalid(
@@ -1057,7 +1101,7 @@ impl Workspace {
             )
         })?;
         let model = checked_model(model)?;
-        self.review(thread_id, agent, model, Starter::Person)
+        self.review(thread_id, agent, model, effort, Starter::Person)
     }
 
     /// Starts a review, asked for by the person or by Teryon when the thread reached its review stage.
@@ -1066,8 +1110,10 @@ impl Workspace {
         thread_id: Uuid,
         agent: Agent,
         model: Option<String>,
+        effort: Option<Effort>,
         starter: Starter,
     ) -> Result<Entry, WorkspaceError> {
+        let (model, effort) = self.inner.resolve_choice(agent, model, effort);
         let mut state = self.inner.state();
         let (store, thread) = state.holding(thread_id)?;
         self.inner.check_free(&thread)?;
@@ -1139,6 +1185,7 @@ impl Workspace {
                 thread.reviewer = Some(Reviewer {
                     agent: agent.name().to_string(),
                     model: None,
+                    effort: None,
                     conversation: None,
                     handover: false,
                     reviewing: false,
@@ -1147,6 +1194,7 @@ impl Workspace {
             }
             if let Some(reviewer) = &mut thread.reviewer {
                 reviewer.model = model;
+                reviewer.effort = effort;
                 reviewer.reviewing = true;
                 reviewer.verdict = None;
             }
@@ -1224,6 +1272,7 @@ impl Workspace {
                 message: message.to_string(),
                 environment,
                 staging,
+                gemini_models: self.inner.models().gemini.clone(),
             },
         );
     }
@@ -1267,11 +1316,13 @@ impl Workspace {
         to: Voice,
         agent: &str,
         model: Option<&str>,
+        effort: Option<Effort>,
     ) -> Result<Thread, WorkspaceError> {
         let agent = Agent::parse(agent).ok_or_else(|| {
             WorkspaceError::Invalid("Choose Claude, Codex, Grok or Gemini.".to_string())
         })?;
         let model = checked_model(model)?;
+        let (model, effort) = self.inner.resolve_choice(agent, model, effort);
         let mut state = self.inner.state();
         let (store, thread) = state.holding(thread_id)?;
         let (current, other) = match to {
@@ -1332,6 +1383,7 @@ impl Workspace {
         let thread = store.change(thread_id, |thread| match to {
             Voice::Author => {
                 thread.model = model;
+                thread.effort = effort;
                 // The person's choice is kept for the stage, until the thread moves on.
                 thread.picks.insert(thread.stage, agent.name().to_string());
                 if switching {
@@ -1344,6 +1396,7 @@ impl Workspace {
             Voice::Reviewer => {
                 if let Some(reviewer) = &mut thread.reviewer {
                     reviewer.model = model;
+                    reviewer.effort = effort;
                     if switching {
                         reviewer.agent = agent.name().to_string();
                         reviewer.conversation = None;
@@ -1703,7 +1756,8 @@ fn opens_of(open: &OpenSettings) -> Opens {
 /// Program paths, the port and the model lists stay out: the screen neither
 /// shows nor saves them, and a later read must still see the live strengths.
 fn view_of(setup: &Setup) -> Settings {
-    let mut settings = Settings {
+    Settings {
+        agents: setup.agents.clone(),
         workflow: setup.workflow.clone(),
         stages: setup.stages.clone(),
         open: setup.open.clone(),
@@ -1711,20 +1765,7 @@ fn view_of(setup: &Setup) -> Settings {
             .own_workflows
             .then(|| workflow_definitions(&setup.workflows)),
         ..Settings::default()
-    };
-    settings.agents.claude.strong = setup.agents.claude.strong.clone();
-    settings.agents.claude.medium = setup.agents.claude.medium.clone();
-    settings.agents.claude.fast = setup.agents.claude.fast.clone();
-    settings.agents.codex.strong = setup.agents.codex.strong.clone();
-    settings.agents.codex.medium = setup.agents.codex.medium.clone();
-    settings.agents.codex.fast = setup.agents.codex.fast.clone();
-    settings.agents.grok.strong = setup.agents.grok.strong.clone();
-    settings.agents.grok.medium = setup.agents.grok.medium.clone();
-    settings.agents.grok.fast = setup.agents.grok.fast.clone();
-    settings.agents.gemini.strong = setup.agents.gemini.strong.clone();
-    settings.agents.gemini.medium = setup.agents.gemini.medium.clone();
-    settings.agents.gemini.fast = setup.agents.gemini.fast.clone();
-    settings
+    }
 }
 
 /// Keeps a saved file in what the next decision reads.
@@ -1734,17 +1775,29 @@ fn view_of(setup: &Setup) -> Settings {
 /// wipe a path the service started with.
 fn apply_saved(setup: &mut Setup, settings: &Settings) {
     setup.agents.claude.strong = settings.agents.claude.strong.clone();
+    setup.agents.claude.strong_effort = settings.agents.claude.strong_effort;
     setup.agents.claude.medium = settings.agents.claude.medium.clone();
+    setup.agents.claude.medium_effort = settings.agents.claude.medium_effort;
     setup.agents.claude.fast = settings.agents.claude.fast.clone();
+    setup.agents.claude.fast_effort = settings.agents.claude.fast_effort;
     setup.agents.codex.strong = settings.agents.codex.strong.clone();
+    setup.agents.codex.strong_effort = settings.agents.codex.strong_effort;
     setup.agents.codex.medium = settings.agents.codex.medium.clone();
+    setup.agents.codex.medium_effort = settings.agents.codex.medium_effort;
     setup.agents.codex.fast = settings.agents.codex.fast.clone();
+    setup.agents.codex.fast_effort = settings.agents.codex.fast_effort;
     setup.agents.grok.strong = settings.agents.grok.strong.clone();
+    setup.agents.grok.strong_effort = settings.agents.grok.strong_effort;
     setup.agents.grok.medium = settings.agents.grok.medium.clone();
+    setup.agents.grok.medium_effort = settings.agents.grok.medium_effort;
     setup.agents.grok.fast = settings.agents.grok.fast.clone();
+    setup.agents.grok.fast_effort = settings.agents.grok.fast_effort;
     setup.agents.gemini.strong = settings.agents.gemini.strong.clone();
+    setup.agents.gemini.strong_effort = settings.agents.gemini.strong_effort;
     setup.agents.gemini.medium = settings.agents.gemini.medium.clone();
+    setup.agents.gemini.medium_effort = settings.agents.gemini.medium_effort;
     setup.agents.gemini.fast = settings.agents.gemini.fast.clone();
+    setup.agents.gemini.fast_effort = settings.agents.gemini.fast_effort;
     setup.open = settings.open.clone();
     setup.workflow = settings.workflow.clone();
     setup.stages = settings.stages.clone();

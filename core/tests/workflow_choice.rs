@@ -107,7 +107,7 @@ lets_expect! { #tokio_test
         let scene = scene_with(None, None, fake_agents());
         let folder = project_folder();
         let project = scene.project(&folder);
-        let thread = scene.workspace.start_thread_on(project.id, Some("claude"), None, "", Some("planned")).unwrap();
+        let thread = scene.workspace.start_thread_on(project.id, Some("claude"), None, None, "", Some("planned")).unwrap();
         expect((thread.workflow, thread.stage)) to equal(("planned".to_string(), Stage::Planning))
     }
 
@@ -115,8 +115,8 @@ lets_expect! { #tokio_test
         let scene = scene_with(None, None, fake_agents());
         let folder = project_folder();
         let project = scene.project(&folder);
-        let plain = scene.workspace.start_thread_on(project.id, Some("claude"), None, "", None).unwrap();
-        let blank = scene.workspace.start_thread_on(project.id, Some("claude"), None, "", Some("  ")).unwrap();
+        let plain = scene.workspace.start_thread_on(project.id, Some("claude"), None, None, "", None).unwrap();
+        let blank = scene.workspace.start_thread_on(project.id, Some("claude"), None, None, "", Some("  ")).unwrap();
         expect((plain.workflow, blank.workflow)) to equal(("default".to_string(), "default".to_string()))
     }
 
@@ -124,7 +124,7 @@ lets_expect! { #tokio_test
         let scene = scene_with(None, None, fake_agents());
         let folder = project_folder();
         let project = scene.project(&folder);
-        let refused = scene.workspace.start_thread_on(project.id, Some("claude"), None, "", Some("nonsense"))
+        let refused = scene.workspace.start_thread_on(project.id, Some("claude"), None, None, "", Some("nonsense"))
             .map_err(|problem| problem.to_string());
         expect(refused.err().map(|text| text.starts_with("There is no workflow `nonsense`."))) to equal(Some(true))
         expect(scene.threads().len()) to equal(0)
@@ -135,8 +135,8 @@ lets_expect! { #tokio_test
         let scene = scene_with(only(Agent::Claude, Strength::Medium), only(Agent::Codex, Strength::Medium), fake_agents());
         let folder = project_folder();
         let project = scene.project(&folder);
-        let on_default = scene.workspace.start_thread_on(project.id, None, None, "", None).unwrap();
-        let on_planned = scene.workspace.start_thread_on(project.id, None, None, "", Some("planned")).unwrap();
+        let on_default = scene.workspace.start_thread_on(project.id, None, None, None, "", None).unwrap();
+        let on_planned = scene.workspace.start_thread_on(project.id, None, None, None, "", Some("planned")).unwrap();
         expect((on_default.agent.as_str(), on_default.model)) to equal(("claude", Some("sonnet".to_string())))
         expect((on_planned.agent.as_str(), on_planned.model, on_planned.stage)) to equal(("codex", None, Stage::Planning))
         expect(on_planned.picks.get(&Stage::Planning).cloned()) to equal(Some("codex".to_string()))
@@ -147,8 +147,8 @@ lets_expect! { #tokio_test
         let scene = scene_with(only(Agent::Grok, Strength::Medium), only(Agent::Claude, Strength::Fast), without_grok());
         let folder = project_folder();
         let project = scene.project(&folder);
-        let refused = scene.workspace.start_thread_on(project.id, None, None, "", None).map_err(|problem| problem.to_string());
-        let started = scene.workspace.start_thread_on(project.id, None, None, "", Some("planned"));
+        let refused = scene.workspace.start_thread_on(project.id, None, None, None, "", None).map_err(|problem| problem.to_string());
+        let started = scene.workspace.start_thread_on(project.id, None, None, None, "", Some("planned"));
         expect(refused.is_err()) to be_true
         expect(started.map(|thread| (thread.agent, thread.model)).ok()) to equal(Some(("claude".to_string(), Some("haiku".to_string()))))
     }
@@ -159,7 +159,7 @@ lets_expect! { #tokio_test
         let folder = project_folder();
         let project = scene.project(&folder);
         let shown = starting(&scene.workspace);
-        scene.workspace.start_thread_on(project.id, None, None, "", Some("planned")).unwrap();
+        scene.workspace.start_thread_on(project.id, None, None, None, "", Some("planned")).unwrap();
         expect(starting(&scene.workspace)) to equal(shown)
     }
 
@@ -168,7 +168,7 @@ lets_expect! { #tokio_test
         let scene = scene_with(only(Agent::Claude, Strength::Fast), None, fake_agents());
         let folder = project_folder();
         let project = scene.project(&folder);
-        let thread = scene.workspace.start_thread_on(project.id, Some("claude"), None, "", None).unwrap();
+        let thread = scene.workspace.start_thread_on(project.id, Some("claude"), None, None, "", None).unwrap();
         expect(thread.model) to equal(Some("haiku".to_string()))
     }
 
@@ -176,7 +176,7 @@ lets_expect! { #tokio_test
         let scene = scene_with(Some(StageSetting { provider: Some(ProviderChoice::Any), ..StageSetting::default() }), None, fake_agents());
         let folder = project_folder();
         let project = scene.project(&folder);
-        let thread = scene.workspace.start_thread_on(project.id, Some("claude"), None, "", None).unwrap();
+        let thread = scene.workspace.start_thread_on(project.id, Some("claude"), None, None, "", None).unwrap();
         expect(thread.model) to equal(Some("sonnet".to_string()))
     }
 
@@ -184,7 +184,7 @@ lets_expect! { #tokio_test
         let scene = scene_with(only(Agent::Claude, Strength::Fast), None, fake_agents());
         let folder = project_folder();
         let project = scene.project(&folder);
-        let thread = scene.workspace.start_thread_on(project.id, Some("claude"), Some("opus"), "", None).unwrap();
+        let thread = scene.workspace.start_thread_on(project.id, Some("claude"), Some("opus"), None, "", None).unwrap();
         expect(thread.model) to equal(Some("opus".to_string()))
     }
 
@@ -192,7 +192,7 @@ lets_expect! { #tokio_test
         let scene = scene_with(only(Agent::Claude, Strength::Fast), only(Agent::Claude, Strength::Strong), fake_agents());
         let folder = project_folder();
         let project = scene.project(&folder);
-        let thread = scene.workspace.start_thread_on(project.id, Some("claude"), None, "", Some("planned")).unwrap();
+        let thread = scene.workspace.start_thread_on(project.id, Some("claude"), None, None, "", Some("planned")).unwrap();
         expect(thread.model) to equal(Some("opus".to_string()))
     }
 
@@ -200,7 +200,7 @@ lets_expect! { #tokio_test
         let scene = scene_with(None, None, fake_agents());
         let folder = project_folder();
         let project = scene.project(&folder);
-        let thread = scene.workspace.start_thread_on(project.id, Some("claude"), None, "", None).unwrap();
+        let thread = scene.workspace.start_thread_on(project.id, Some("claude"), None, None, "", None).unwrap();
         expect(thread.model) to equal(None)
     }
 }

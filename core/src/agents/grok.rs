@@ -110,6 +110,9 @@ impl AgentDriver for GrokDriver {
             arguments.push("-m".to_string());
             arguments.push(model.clone());
         }
+        if let Some(effort) = turn.effort {
+            arguments.extend(["--reasoning-effort".to_string(), effort.name().to_string()]);
+        }
         self.model = turn.model.clone();
         if turn.read_only {
             arguments.push("--disallowed-tools".to_string());
@@ -282,6 +285,7 @@ fn end_entries(report: &Value, unapproved: bool) -> Vec<EntryDraft> {
 
 #[cfg(test)]
 mod tests {
+    use crate::agents::models::Effort;
     use lets_expect::lets_expect;
     use serde_json::{from_str, json};
 
@@ -333,6 +337,7 @@ mod tests {
             directory: PathBuf::from(PROJECT),
             writable_outside: Vec::new(),
             model: None,
+            effort: None,
         }
     }
 
@@ -451,7 +456,35 @@ mod tests {
         }
     }
 
+    fn has_high_effort(
+        effort: Option<Effort>,
+        conversation: Option<&str>,
+        read_only: bool,
+    ) -> bool {
+        driver()
+            .invocation(&Turn {
+                effort,
+                read_only,
+                ..turn("Think", conversation, None)
+            })
+            .arguments
+            .windows(2)
+            .any(|pair| pair[0] == "--reasoning-effort" && pair[1] == "high")
+    }
+
     lets_expect! {
+        expect(has_high_effort(effort, conversation, read_only)) as effort_argument {
+            let conversation: Option<&str> = None;
+            let read_only = false;
+            let effort = None;
+
+            to omit_effort_without_a_choice { be_false }
+            when(effort = Some(Effort::High)) as a_new_turn to pass_effort { be_true }
+            when(effort = Some(Effort::High), conversation = Some("known")) as a_resumed_turn to pass_effort { be_true }
+            when(effort = Some(Effort::High), read_only = true) as a_review to pass_effort { be_true }
+
+        }
+
         expect(driver().invocation(&turn(message, conversation, brief))) {
             let message = "Fix the bug";
             let conversation = Some(KNOWN);

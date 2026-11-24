@@ -144,6 +144,12 @@ impl AgentDriver for CodexDriver {
         if let Some(model) = &turn.model {
             arguments.extend(["-m".to_string(), model.clone()]);
         }
+        if let Some(effort) = turn.effort {
+            arguments.extend([
+                "-c".to_string(),
+                format!("model_reasoning_effort=\"{}\"", effort.name()),
+            ]);
+        }
         self.model = turn.model.clone();
         let sandbox: &[&str] = if turn.read_only {
             &REVIEWER_SANDBOX
@@ -283,6 +289,7 @@ fn shell_command(command: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use crate::agents::models::Effort;
     use std::path::PathBuf;
 
     use lets_expect::lets_expect;
@@ -323,6 +330,7 @@ mod tests {
             directory: PathBuf::from("/work/app"),
             writable_outside: Vec::new(),
             model: None,
+            effort: None,
         }
     }
 
@@ -397,7 +405,34 @@ mod tests {
         "approvals_reviewer=\"auto_review\"",
     ];
 
+    fn has_high_effort(
+        effort: Option<Effort>,
+        conversation: Option<&str>,
+        read_only: bool,
+    ) -> bool {
+        driver(true)
+            .invocation(&Turn {
+                effort,
+                ..turn("Think", conversation, None, read_only)
+            })
+            .arguments
+            .windows(2)
+            .any(|pair| pair[0] == "-c" && pair[1] == "model_reasoning_effort=\"high\"")
+    }
+
     lets_expect! {
+        expect(has_high_effort(effort, conversation, read_only)) as effort_argument {
+            let conversation: Option<&str> = None;
+            let read_only = false;
+            let effort = None;
+
+            to omit_effort_without_a_choice { be_false }
+            when(effort = Some(Effort::High)) as a_new_turn to pass_effort { be_true }
+            when(effort = Some(Effort::High), conversation = Some("known")) as a_resumed_turn to pass_effort { be_true }
+            when(effort = Some(Effort::High), read_only = true) as a_review to pass_effort { be_true }
+
+        }
+
         // requirement: the summary names the model asked for, since Codex never says which one ran
         expect(model_after(asked, OTHER_MODEL)) {
             when(asked = None) as the_default_runs to be_unknown { equal(None) }

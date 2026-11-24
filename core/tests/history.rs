@@ -463,7 +463,7 @@ lets_expect! { #tokio_test
         scene.wait_until_idle(&thread).await;
         let claude_started = scene.entries(&thread)[0].created_at.timestamp();
         sleep(Duration::from_millis(1100)).await;
-        scene.workspace.change_agent(thread.id, Voice::Author, "codex", None).unwrap();
+        scene.workspace.change_agent(thread.id, Voice::Author, "codex", None, None).unwrap();
         let took_over = scene.entries(&thread).last().expect("the takeover").created_at.timestamp();
         sleep(Duration::from_millis(1100)).await;
         scene.say(&thread, "go on").unwrap();

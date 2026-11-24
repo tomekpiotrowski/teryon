@@ -12,11 +12,18 @@ import type { Opener } from '../service/protocol';
 import {
   type AgentName,
   agentLabel,
+  allowedThreadAgents,
   allChoices,
   changeBadge,
   type Choice,
   choiceLabel,
   chosen,
+  effortLabel,
+  modelOption,
+  pendingChoice,
+  rememberedChoice,
+  resolveChoice,
+  type Starting,
   firstStageChooses,
   isBareLetter,
   isQuiet,
@@ -101,6 +108,8 @@ export interface Situation {
   readonly newThreads: NewThreads;
   /** The models each agent offers besides its default. */
   readonly models: ModelLists;
+  readonly installed?: readonly string[];
+  readonly starting?: Starting | null;
   /** Which of the open thread's agents the message box writes to. */
   readonly to: Voice;
   readonly theme: 'light' | 'dark';
@@ -237,13 +246,18 @@ export function commandList(situation: Situation): Command[] {
   }
   actions.push(...threadChoiceCommands(situation));
   // While the first stage chooses for new threads, every agent and model is something else to pick.
-  const current = situation.newThreads.picked || !firstStageChooses(situation.workflows) ? chosen(situation.newThreads) : null;
+  const current = situation.newThreads.picked || !firstStageChooses(situation.workflows)
+    ? resolveChoice(chosen(situation.newThreads), situation.models) : null;
+  const active = current ?? resolveChoice(pendingChoice(situation.newThreads, situation.starting ?? null), situation.models);
   actions.push(
-    ...allChoices(situation.models)
+    ...availableChoices(situation)
       .filter((choice) => current === null || !sameChoice(choice, current))
       .map((choice) =>
-        command(`action:use:${choiceId(choice)}`, `Use ${choiceLabel(choice)} for new threads`, 'action', { kind: 'useChoice', choice }),
+        command(`action:use:${choiceId(choice)}`, `Use ${choiceLabel(choice, situation.models)} for new threads`, 'action', { kind: 'useChoice', choice }),
       ),
+    ...effortChoices(situation, active).map((choice) =>
+      command(`action:effort:${choice.effort}`, `Use ${effortLabel(choice.effort)} effort for new threads`, 'action', { kind: 'useChoice', choice }),
+    ),
     command('action:newProject', 'New project', 'action', { kind: 'newProject' }),
   );
   if (project) {
@@ -259,6 +273,20 @@ export function commandList(situation: Situation): Command[] {
   }
 
   return [...threads, ...projects, ...changeCommands(situation), ...actions, ...agentCommands(situation), ...putAwayThreads];
+}
+
+/** Model commands available from installed providers. */
+function availableChoices(situation: Situation): Choice[] {
+  return allChoices(situation.models, situation.newThreads)
+    .filter(({ agent }) => !situation.installed || situation.installed.includes(agent));
+}
+
+/** The other available efforts for the active model. */
+function effortChoices(situation: Situation, current: Choice): (Choice & { effort: NonNullable<Choice['effort']> })[] {
+  if (situation.installed && !situation.installed.includes(current.agent)) return [];
+  const option = modelOption(current.agent, current.model, situation.models);
+  return (option?.efforts ?? []).filter((effort) => effort !== current.effort)
+    .map((effort) => ({ ...current, effort }));
 }
 
 /** A choice as part of a command's identifier, such as `claude:opus` or `codex:default`. */
@@ -284,20 +312,28 @@ function threadChoiceCommands(situation: Situation): Command[] {
   const to = thread?.reviewer ? situation.to : 'author';
   const current = thread ? threadChoice(thread, to) : null;
   if (!thread || !current) return [];
-  const other = threadChoice(thread, to === 'author' ? 'reviewer' : 'author')?.agent;
-  const idle = thread.status !== 'running';
-  return allChoices(situation.models)
-    .filter((choice) => !sameChoice(choice, current) && choice.agent !== other)
-    .filter((choice) => idle || choice.agent === current.agent)
-    .map((choice) =>
-      command(
+  const active = resolveChoice(current, situation.models);
+  const allowed = allowedThreadAgents(thread, to);
+  const suffix = to === 'reviewer' ? ' to review' : '';
+  const detail = { detail: threadLabel(thread) };
+  return [
+    ...availableChoices(situation)
+      .filter((choice) => allowed.includes(choice.agent) && !sameChoice(choice, active))
+      .map((choice) => command(
         `action:useInThread:${choiceId(choice)}`,
-        `Use ${choiceLabel(choice)} in this thread${to === 'reviewer' ? ' to review' : ''}`,
+        `Use ${choiceLabel(choice, situation.models)} in this thread${suffix}`,
         'action',
         { kind: 'useChoiceInThread', thread, to, choice },
-        { detail: threadLabel(thread) },
-      ),
-    );
+        detail,
+      )),
+    ...effortChoices(situation, active).map((choice) => command(
+      `action:effortInThread:${choice.effort}`,
+      `Use ${effortLabel(choice.effort)} effort in this thread${suffix}`,
+      'action',
+      { kind: 'useChoiceInThread', thread, to, choice },
+      detail,
+    )),
+  ];
 }
 
 /**
@@ -336,14 +372,20 @@ function agentReviewCommands(situation: Situation, thread: Thread): Command[] {
   const extra = (key: string) => ({ detail: threadLabel(thread), key, leader: CHANGE_LEADER });
   const verdict = thread.reviewer?.verdict;
   const reviewer = thread.reviewer;
-  const on = (agent: AgentName): Choice =>
-    reviewer?.agent === agent ? { agent, model: reviewer.model ?? null } : { agent, model: situation.newThreads.models[agent] };
-  const [usual, ...others] = reviewersFor(thread).map(on);
-  const again = verdict && thread.reviewer?.agent === usual.agent ? ' again' : '';
+  const on = (agent: AgentName): Choice => {
+    if (reviewer?.agent === agent) return resolveChoice({ agent, model: reviewer.model ?? null, effort: reviewer.effort ?? null }, situation.models);
+    const remembered = rememberedChoice(situation.newThreads, agent);
+    const resolved = resolveChoice(remembered, situation.models);
+    return resolveChoice(rememberedChoice(situation.newThreads, agent, resolved.model), situation.models);
+  };
+  const [usual, ...others] = reviewersFor(thread)
+    .filter((agent) => !situation.installed || situation.installed.includes(agent))
+    .map(on);
+  const again = verdict && thread.reviewer?.agent === usual?.agent ? ' again' : '';
   const commands = [
-    command('change:askReview', `Ask ${choiceLabel(usual)} to review${again}`, 'change', { kind: 'reviewChange', thread, choice: usual }, extra('c')),
+    ...(usual ? [command('change:askReview', `Ask ${choiceLabel(usual, situation.models)} to review${again}`, 'change', { kind: 'reviewChange', thread, choice: usual }, extra('c'))] : []),
     ...others.map((choice) =>
-      command(`change:askReview:${choice.agent}`, `Ask ${choiceLabel(choice)} to review`, 'change', { kind: 'reviewChange', thread, choice }, { detail: threadLabel(thread) }),
+      command(`change:askReview:${choice.agent}`, `Ask ${choiceLabel(choice, situation.models)} to review`, 'change', { kind: 'reviewChange', thread, choice }, { detail: threadLabel(thread) }),
     ),
   ];
   if (verdict && !verdict.answered && !verdict.cut && verdict.findings !== 0) {

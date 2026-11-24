@@ -49,10 +49,10 @@ if [ "$agent" = "codex" ] && [ "$1" = "app-server" ]; then
   IFS= read -r request
   case "$request" in *'"method":"model/list"'*) ;; *) exit 2 ;; esac
   echo '{"method":"notice","params":{}}'
-  echo '{"id":1,"result":{"data":[{"id":"display-id","model":"gpt-6-astra"},{"model":"hidden-model","hidden":true}],"nextCursor":"page-two"}}'
+  echo '{"id":1,"result":{"data":[{"id":"display-id","model":"gpt-6-astra","displayName":"GPT-6 Astra","supportedReasoningEfforts":[{"reasoningEffort":"ultra"},{"reasoningEffort":"high"},{"reasoningEffort":"medium"},{"reasoningEffort":"low"}],"defaultReasoningEffort":"medium","isDefault":true},{"model":"hidden-model","hidden":true}],"nextCursor":"page-two"}}'
   IFS= read -r request
   case "$request" in *'"cursor":"page-two"'*) ;; *) exit 2 ;; esac
-  echo '{"id":2,"result":{"data":[{"model":"gpt-6-astra"},{"model":"gpt-6-sol"}],"nextCursor":null}}'
+  echo '{"id":2,"result":{"data":[{"model":"gpt-6-astra"},{"model":"gpt-6-sol","displayName":"GPT-6 Sol","supportedReasoningEfforts":[{"reasoningEffort":"low"},{"reasoningEffort":"high"}],"defaultReasoningEffort":"high"}],"nextCursor":null}}'
   # Stay alive until the client closes its input or stops the process.
   cat >/dev/null
   exit 0

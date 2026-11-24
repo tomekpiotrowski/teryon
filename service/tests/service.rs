@@ -29,6 +29,7 @@ use teryon::service::{Service, ServiceError};
 use teryon::service_file::ServiceFile;
 use teryon::starting::{restarted_service, running_service, StartError};
 use teryon::stopping::{stop_service, Stopped};
+use teryon_core::agents::models::Effort;
 use teryon_core::agents::Voice;
 use teryon_core::paths::Folders;
 use teryon_core::protocol::{Answer, Event, Request};
@@ -252,7 +253,7 @@ lets_expect! { #tokio_test
         let check_4 = matches!(added, Event::ProjectAdded { project: ref added } if added.id == project);
         expect(check_4) to be_true
 
-        let thread = thread_id(client.call(Request::StartThread { project_id: project, agent: Some("claude".to_string()), model: None, title: String::new(), workflow: None }).await.unwrap());
+        let thread = thread_id(client.call(Request::StartThread { project_id: project, agent: Some("claude".to_string()), model: None, effort: None, title: String::new(), workflow: None }).await.unwrap());
         let followed = client.call(Request::FollowThread { thread_id: thread }).await.unwrap();
         expect(followed) to equal(no_entries())
 
@@ -278,7 +279,7 @@ lets_expect! { #tokio_test
             Event::Snapshot { models, .. } => Some(models),
             _ => None,
         };
-        expect(snapshot.as_ref().map(|models| models.claude.clone())) to equal(Some(vec!["opus".to_string(), "sonnet".to_string(), "haiku".to_string()]))
+        expect(snapshot.as_ref().map(|models| models.claude.iter().map(|model| model.id.clone()).collect::<Vec<_>>())) to equal(Some(vec!["opus".to_string(), "sonnet".to_string(), "haiku".to_string()]))
         // Grok is asked when the service starts, which may finish before or after this client connects:
         // its models arrive in the snapshot or in a later update. Codex is asked at the same time
         // and may announce first, so an update that does not list Grok yet is not this one.
@@ -303,7 +304,7 @@ lets_expect! { #tokio_test
                 _ => Vec::new(),
             },
         };
-        expect(grok.first().cloned()) to equal(Some("grok-4.7".to_string()))
+        expect(grok.first().map(|model| model.id.clone())) to equal(Some("grok-4.7".to_string()))
 
         let gemini = match gemini_seen {
             Some(gemini) => gemini,
@@ -316,17 +317,18 @@ lets_expect! { #tokio_test
                 _ => Vec::new(),
             },
         };
-        expect(gemini.first().cloned()) to equal(Some("gemini-4-neon-high".to_string()))
+        expect(gemini.first().map(|model| model.id.as_str())) to equal(Some("gemini-4-neon"))
 
         let project = project_id(client.call(Request::AddProject { name: "Sample".to_string(), directory: folder.path().to_string_lossy().into_owned() }).await.unwrap());
-        let started = client.call(Request::StartThread { project_id: project, agent: Some("claude".to_string()), model: Some("sonnet".to_string()), title: String::new(), workflow: None }).await.unwrap();
+        let started = client.call(Request::StartThread { project_id: project, agent: Some("claude".to_string()), model: Some("sonnet".to_string()), effort: Some(Effort::Low), title: String::new(), workflow: None }).await.unwrap();
         let thread = match started { Answer::Thread { thread } => thread, _ => panic!("a thread") };
         expect(thread.model.clone()) to equal(Some("sonnet".to_string()))
+        expect(thread.effort) to equal(Some(Effort::Low))
 
-        let changed = client.call(Request::ChangeAgent { thread_id: thread.id, to: Voice::Author, agent: "claude".to_string(), model: Some("opus".to_string()) }).await.unwrap();
-        let model = match changed { Answer::Thread { thread } => thread.model, _ => None };
-        expect(model) to equal(Some("opus".to_string()))
-        let refused = client.call(Request::ChangeAgent { thread_id: thread.id, to: Voice::Reviewer, agent: "codex".to_string(), model: None }).await;
+        let changed = client.call(Request::ChangeAgent { thread_id: thread.id, to: Voice::Author, agent: "claude".to_string(), model: Some("opus".to_string()), effort: Some(Effort::High) }).await.unwrap();
+        let choice = match changed { Answer::Thread { thread } => (thread.model, thread.effort), _ => (None, None) };
+        expect(choice) to equal((Some("opus".to_string()), Some(Effort::High)))
+        let refused = client.call(Request::ChangeAgent { thread_id: thread.id, to: Voice::Reviewer, agent: "codex".to_string(), model: None, effort: None }).await;
         expect(refused.is_err()) to be_true
     }
 
@@ -336,7 +338,7 @@ lets_expect! { #tokio_test
         let folder = tempdir().unwrap();
         let mut client = scene.client().await;
         let project = project_id(client.call(Request::AddProject { name: "Sample".to_string(), directory: folder.path().to_string_lossy().into_owned() }).await.unwrap());
-        let thread = thread_id(client.call(Request::StartThread { project_id: project, agent: Some("claude".to_string()), model: None, title: String::new(), workflow: None }).await.unwrap());
+        let thread = thread_id(client.call(Request::StartThread { project_id: project, agent: Some("claude".to_string()), model: None, effort: None, title: String::new(), workflow: None }).await.unwrap());
 
         client.call(Request::SendMessage { thread_id: thread, text: "hello".to_string(), to: Voice::Author }).await.unwrap();
         wait_for(&mut client, |event| matches!(event, Event::ThreadChanged { thread: changed } if changed.status == Status::Idle)).await;

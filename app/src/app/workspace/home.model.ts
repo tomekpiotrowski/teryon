@@ -6,7 +6,7 @@
  * thread. Free of Angular so it can be tested on its own.
  */
 
-import { AGENTS, changeCard, type Choice, choicesOf, type ModelLists, type Project, type ProjectGroup, type Starting, type Thread } from './workspace.model';
+import { AGENTS, changeCard, type Choice, type ModelLists, resolveChoice, type Project, type ProjectGroup, type Starting, type Thread } from './workspace.model';
 
 /** The word at the right of a thread on Home, which is also the order of the list. */
 export type HomeWord = 'apply' | 'failed' | 'reply' | 'new';
@@ -140,12 +140,14 @@ export function startProject(projects: readonly Project[], choice: HomeChoice, o
 }
 
 /**
- * The choices on Home, in agent order, with each agent's default before its models.
+ * The default choice of every installed agent on Home.
  *
  * Only installed agents are offered, even when discovery has models for other agents.
  */
 export function homeChoices(installed: readonly string[], models: ModelLists): Choice[] {
-  return AGENTS.filter((agent) => installed.includes(agent)).flatMap((agent) => choicesOf(agent, models));
+  return AGENTS.filter((agent) => installed.includes(agent)).map((agent) => resolveChoice({
+    agent, model: null, effort: null,
+  }, models));
 }
 
 /**
@@ -159,13 +161,17 @@ export function startChoice(
   choices: readonly Choice[],
   picked: Choice | null,
   starting: Starting | null,
+  models?: ModelLists,
 ): Choice | null {
   if (!choices.length) return null;
-  if (picked) return picked;
+  if (picked && choices.some((choice) => choice.agent === picked.agent)) return models ? resolveChoice(picked, models) : picked;
 
   if (starting?.type === 'provider') {
     const provider = choices.find((choice) => choice.agent === starting.agent);
-    if (provider) return { agent: provider.agent, model: starting.model };
+    if (provider) {
+      const choice = { agent: provider.agent, model: starting.model, effort: starting.effort };
+      return models ? resolveChoice(choice, models) : choice;
+    }
   }
 
   return choices.find((choice) => choice.agent === 'claude') ?? choices[0];

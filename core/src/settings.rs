@@ -89,6 +89,7 @@ use thiserror::Error;
 use toml_edit::{Array, DocumentMut, InlineTable, Item, Table, TableLike, Value};
 use ts_rs::TS;
 
+use crate::agents::models::Effort;
 use crate::agents::Agent;
 use crate::workflow::{built_in_workflows, Stage};
 
@@ -435,19 +436,38 @@ pub struct AgentSettings {
 }
 
 impl AgentSettings {
-    /// The model an agent runs for a strength. Nothing means the program's own default.
-    pub fn model_for(&self, agent: Agent, strength: Strength) -> Option<String> {
-        let (strong, medium, fast) = match agent {
-            Agent::Claude => (&self.claude.strong, &self.claude.medium, &self.claude.fast),
-            Agent::Codex => (&self.codex.strong, &self.codex.medium, &self.codex.fast),
-            Agent::Grok => (&self.grok.strong, &self.grok.medium, &self.grok.fast),
-            Agent::Gemini => (&self.gemini.strong, &self.gemini.medium, &self.gemini.fast),
+    /// The model and effort an agent runs for a strength.
+    ///
+    /// An unset value leaves that part of the choice to the program.
+    pub fn choice_for(&self, agent: Agent, strength: Strength) -> (Option<String>, Option<Effort>) {
+        let choices = match agent {
+            Agent::Claude => [
+                (&self.claude.strong, self.claude.strong_effort),
+                (&self.claude.medium, self.claude.medium_effort),
+                (&self.claude.fast, self.claude.fast_effort),
+            ],
+            Agent::Codex => [
+                (&self.codex.strong, self.codex.strong_effort),
+                (&self.codex.medium, self.codex.medium_effort),
+                (&self.codex.fast, self.codex.fast_effort),
+            ],
+            Agent::Grok => [
+                (&self.grok.strong, self.grok.strong_effort),
+                (&self.grok.medium, self.grok.medium_effort),
+                (&self.grok.fast, self.grok.fast_effort),
+            ],
+            Agent::Gemini => [
+                (&self.gemini.strong, self.gemini.strong_effort),
+                (&self.gemini.medium, self.gemini.medium_effort),
+                (&self.gemini.fast, self.gemini.fast_effort),
+            ],
         };
-        match strength {
-            Strength::Strong => strong.clone(),
-            Strength::Medium => medium.clone(),
-            Strength::Fast => fast.clone(),
-        }
+        let (model, effort) = match strength {
+            Strength::Strong => choices[0],
+            Strength::Medium => choices[1],
+            Strength::Fast => choices[2],
+        };
+        (model.clone(), effort)
     }
 
     /// The program that runs an agent.
@@ -508,6 +528,8 @@ impl Default for GitHubSettings {
 #[serde(default, deny_unknown_fields)]
 pub struct ClaudeSettings {
     pub program: String,
+    /// Claude Code configuration directory, also used for its cached catalog.
+    pub home: Option<PathBuf>,
     /// Run on the subscription the program is signed in with.
     ///
     /// Claude Code prefers an API key from the environment over its own
@@ -521,17 +543,24 @@ pub struct ClaudeSettings {
     pub strong: Option<String>,
     pub medium: Option<String>,
     pub fast: Option<String>,
+    pub strong_effort: Option<Effort>,
+    pub medium_effort: Option<Effort>,
+    pub fast_effort: Option<Effort>,
 }
 
 impl Default for ClaudeSettings {
     fn default() -> Self {
         Self {
             program: "claude".to_string(),
+            home: None,
             use_subscription: true,
             models: None,
             strong: Some("opus".to_string()),
             medium: Some("sonnet".to_string()),
             fast: Some("haiku".to_string()),
+            strong_effort: None,
+            medium_effort: None,
+            fast_effort: None,
         }
     }
 }
@@ -563,6 +592,9 @@ pub struct CodexSettings {
     pub strong: Option<String>,
     pub medium: Option<String>,
     pub fast: Option<String>,
+    pub strong_effort: Option<Effort>,
+    pub medium_effort: Option<Effort>,
+    pub fast_effort: Option<Effort>,
 }
 
 impl Default for CodexSettings {
@@ -575,6 +607,9 @@ impl Default for CodexSettings {
             strong: None,
             medium: None,
             fast: None,
+            strong_effort: None,
+            medium_effort: None,
+            fast_effort: None,
         }
     }
 }
@@ -600,6 +635,9 @@ pub struct GrokSettings {
     pub strong: Option<String>,
     pub medium: Option<String>,
     pub fast: Option<String>,
+    pub strong_effort: Option<Effort>,
+    pub medium_effort: Option<Effort>,
+    pub fast_effort: Option<Effort>,
 }
 
 impl Default for GrokSettings {
@@ -623,6 +661,9 @@ impl Default for GrokSettings {
             strong: None,
             medium: None,
             fast: None,
+            strong_effort: None,
+            medium_effort: None,
+            fast_effort: None,
         }
     }
 }
@@ -638,6 +679,9 @@ pub struct GeminiSettings {
     pub strong: Option<String>,
     pub medium: Option<String>,
     pub fast: Option<String>,
+    pub strong_effort: Option<Effort>,
+    pub medium_effort: Option<Effort>,
+    pub fast_effort: Option<Effort>,
 }
 
 impl Default for GeminiSettings {
@@ -648,6 +692,9 @@ impl Default for GeminiSettings {
             strong: None,
             medium: None,
             fast: None,
+            strong_effort: None,
+            medium_effort: None,
+            fast_effort: None,
         }
     }
 }
@@ -712,9 +759,16 @@ pub enum StageProvider {
 /// The model an agent runs for each strength. Empty means the default.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct StrengthModels {
-    pub strong: String,
-    pub medium: String,
-    pub fast: String,
+    pub strong: StrengthChoice,
+    pub medium: StrengthChoice,
+    pub fast: StrengthChoice,
+}
+
+/// The model and optional effort displayed for one strength.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct StrengthChoice {
+    pub model: String,
+    pub effort: Option<Effort>,
 }
 
 impl Configuration {
@@ -741,30 +795,10 @@ impl Configuration {
                 .into_iter()
                 .map(|stage| configured_stage(stage, settings.stages.of(stage)))
                 .collect(),
-            claude: shown_models(
-                &settings.agents.claude.strong,
-                &settings.agents.claude.medium,
-                &settings.agents.claude.fast,
-                &ClaudeSettings::default(),
-            ),
-            codex: shown_models(
-                &settings.agents.codex.strong,
-                &settings.agents.codex.medium,
-                &settings.agents.codex.fast,
-                &CodexSettings::default(),
-            ),
-            grok: shown_models(
-                &settings.agents.grok.strong,
-                &settings.agents.grok.medium,
-                &settings.agents.grok.fast,
-                &GrokSettings::default(),
-            ),
-            gemini: shown_models(
-                &settings.agents.gemini.strong,
-                &settings.agents.gemini.medium,
-                &settings.agents.gemini.fast,
-                &GeminiSettings::default(),
-            ),
+            claude: shown_models(&settings.agents, Agent::Claude),
+            codex: shown_models(&settings.agents, Agent::Codex),
+            grok: shown_models(&settings.agents, Agent::Grok),
+            gemini: shown_models(&settings.agents, Agent::Gemini),
             editor: settings.open.editor.clone().unwrap_or_default(),
             terminal: settings.open.terminal.clone().unwrap_or_default(),
         }
@@ -810,78 +844,22 @@ fn among_names(among: Option<&[AgentName]>) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn shown_models(
-    strong: &Option<String>,
-    medium: &Option<String>,
-    fast: &Option<String>,
-    defaults: &impl StrengthDefaults,
-) -> StrengthModels {
+/// Presents unset models using the built-in choice for the strength, if any.
+fn shown_models(agents: &AgentSettings, agent: Agent) -> StrengthModels {
+    let defaults = AgentSettings::default();
+    let shown = |strength| {
+        let (model, effort) = agents.choice_for(agent, strength);
+        StrengthChoice {
+            model: model
+                .or_else(|| defaults.choice_for(agent, strength).0)
+                .unwrap_or_default(),
+            effort,
+        }
+    };
     StrengthModels {
-        strong: shown_model(strong, defaults.strong()),
-        medium: shown_model(medium, defaults.medium()),
-        fast: shown_model(fast, defaults.fast()),
-    }
-}
-
-fn shown_model(value: &Option<String>, default: Option<&str>) -> String {
-    value
-        .clone()
-        .or_else(|| default.map(str::to_string))
-        .unwrap_or_default()
-}
-
-/// The default model for each strength, so the screen and the file agree on what "empty" means.
-trait StrengthDefaults {
-    fn strong(&self) -> Option<&str>;
-    fn medium(&self) -> Option<&str>;
-    fn fast(&self) -> Option<&str>;
-}
-
-impl StrengthDefaults for ClaudeSettings {
-    fn strong(&self) -> Option<&str> {
-        self.strong.as_deref()
-    }
-    fn medium(&self) -> Option<&str> {
-        self.medium.as_deref()
-    }
-    fn fast(&self) -> Option<&str> {
-        self.fast.as_deref()
-    }
-}
-
-impl StrengthDefaults for CodexSettings {
-    fn strong(&self) -> Option<&str> {
-        self.strong.as_deref()
-    }
-    fn medium(&self) -> Option<&str> {
-        self.medium.as_deref()
-    }
-    fn fast(&self) -> Option<&str> {
-        self.fast.as_deref()
-    }
-}
-
-impl StrengthDefaults for GrokSettings {
-    fn strong(&self) -> Option<&str> {
-        self.strong.as_deref()
-    }
-    fn medium(&self) -> Option<&str> {
-        self.medium.as_deref()
-    }
-    fn fast(&self) -> Option<&str> {
-        self.fast.as_deref()
-    }
-}
-
-impl StrengthDefaults for GeminiSettings {
-    fn strong(&self) -> Option<&str> {
-        self.strong.as_deref()
-    }
-    fn medium(&self) -> Option<&str> {
-        self.medium.as_deref()
-    }
-    fn fast(&self) -> Option<&str> {
-        self.fast.as_deref()
+        strong: shown(Strength::Strong),
+        medium: shown(Strength::Medium),
+        fast: shown(Strength::Fast),
     }
 }
 
@@ -926,18 +904,32 @@ fn overlay(current: &Settings, draft: &Configuration) -> Result<Settings, String
     settings.workflows = workflows_of(draft)?;
     settings.stages = stages_of(draft)?;
     let claude = ClaudeSettings::default();
-    settings.agents.claude.strong = strength_value(&draft.claude.strong, claude.strong.as_deref());
-    settings.agents.claude.medium = strength_value(&draft.claude.medium, claude.medium.as_deref());
-    settings.agents.claude.fast = strength_value(&draft.claude.fast, claude.fast.as_deref());
-    settings.agents.codex.strong = strength_value(&draft.codex.strong, None);
-    settings.agents.codex.medium = strength_value(&draft.codex.medium, None);
-    settings.agents.codex.fast = strength_value(&draft.codex.fast, None);
-    settings.agents.grok.strong = strength_value(&draft.grok.strong, None);
-    settings.agents.grok.medium = strength_value(&draft.grok.medium, None);
-    settings.agents.grok.fast = strength_value(&draft.grok.fast, None);
-    settings.agents.gemini.strong = strength_value(&draft.gemini.strong, None);
-    settings.agents.gemini.medium = strength_value(&draft.gemini.medium, None);
-    settings.agents.gemini.fast = strength_value(&draft.gemini.fast, None);
+    settings.agents.claude.strong =
+        strength_value(&draft.claude.strong.model, claude.strong.as_deref());
+    settings.agents.claude.strong_effort = draft.claude.strong.effort;
+    settings.agents.claude.medium =
+        strength_value(&draft.claude.medium.model, claude.medium.as_deref());
+    settings.agents.claude.medium_effort = draft.claude.medium.effort;
+    settings.agents.claude.fast = strength_value(&draft.claude.fast.model, claude.fast.as_deref());
+    settings.agents.claude.fast_effort = draft.claude.fast.effort;
+    settings.agents.codex.strong = strength_value(&draft.codex.strong.model, None);
+    settings.agents.codex.strong_effort = draft.codex.strong.effort;
+    settings.agents.codex.medium = strength_value(&draft.codex.medium.model, None);
+    settings.agents.codex.medium_effort = draft.codex.medium.effort;
+    settings.agents.codex.fast = strength_value(&draft.codex.fast.model, None);
+    settings.agents.codex.fast_effort = draft.codex.fast.effort;
+    settings.agents.grok.strong = strength_value(&draft.grok.strong.model, None);
+    settings.agents.grok.strong_effort = draft.grok.strong.effort;
+    settings.agents.grok.medium = strength_value(&draft.grok.medium.model, None);
+    settings.agents.grok.medium_effort = draft.grok.medium.effort;
+    settings.agents.grok.fast = strength_value(&draft.grok.fast.model, None);
+    settings.agents.grok.fast_effort = draft.grok.fast.effort;
+    settings.agents.gemini.strong = strength_value(&draft.gemini.strong.model, None);
+    settings.agents.gemini.strong_effort = draft.gemini.strong.effort;
+    settings.agents.gemini.medium = strength_value(&draft.gemini.medium.model, None);
+    settings.agents.gemini.medium_effort = draft.gemini.medium.effort;
+    settings.agents.gemini.fast = strength_value(&draft.gemini.fast.model, None);
+    settings.agents.gemini.fast_effort = draft.gemini.fast.effort;
     settings.open.editor = blank_as_none(&draft.editor);
     settings.open.terminal = blank_as_none(&draft.terminal);
     Ok(settings)
@@ -1048,51 +1040,10 @@ fn patch(document: &mut DocumentMut, before: &Settings, next: &Settings) {
     patch_workflow_settings(document, &next.workflow);
     patch_workflows(document, before, next);
     patch_stages(document, &next.stages);
-    let claude = ClaudeSettings::default();
-    patch_strengths(
-        document,
-        "claude",
-        [
-            &next.agents.claude.strong,
-            &next.agents.claude.medium,
-            &next.agents.claude.fast,
-        ],
-        [
-            claude.strong.as_deref(),
-            claude.medium.as_deref(),
-            claude.fast.as_deref(),
-        ],
-    );
-    patch_strengths(
-        document,
-        "codex",
-        [
-            &next.agents.codex.strong,
-            &next.agents.codex.medium,
-            &next.agents.codex.fast,
-        ],
-        [None, None, None],
-    );
-    patch_strengths(
-        document,
-        "grok",
-        [
-            &next.agents.grok.strong,
-            &next.agents.grok.medium,
-            &next.agents.grok.fast,
-        ],
-        [None, None, None],
-    );
-    patch_strengths(
-        document,
-        "gemini",
-        [
-            &next.agents.gemini.strong,
-            &next.agents.gemini.medium,
-            &next.agents.gemini.fast,
-        ],
-        [None, None, None],
-    );
+    let defaults = AgentSettings::default();
+    for agent in Agent::ALL {
+        patch_strengths(document, agent, &next.agents, &defaults);
+    }
     patch_open(document, &next.open);
 }
 
@@ -1204,19 +1155,27 @@ fn provider_text(provider: ProviderChoice) -> String {
     }
 }
 
+/// Updates only the model and effort keys edited by the settings screen.
 fn patch_strengths(
     document: &mut DocumentMut,
-    agent: &str,
-    values: [&Option<String>; 3],
-    defaults: [Option<&str>; 3],
+    agent: Agent,
+    values: &AgentSettings,
+    defaults: &AgentSettings,
 ) {
-    patch_table(document, &["agents", agent], |table| {
-        for ((key, value), default) in ["strong", "medium", "fast"]
-            .into_iter()
-            .zip(values)
-            .zip(defaults)
-        {
-            set_or_clear_string(table, key, written_strength(value, default));
+    patch_table(document, &["agents", agent.name()], |table| {
+        for (strength, effort_key) in [
+            (Strength::Strong, "strong_effort"),
+            (Strength::Medium, "medium_effort"),
+            (Strength::Fast, "fast_effort"),
+        ] {
+            let (model, effort) = values.choice_for(agent, strength);
+            let default = defaults.choice_for(agent, strength).0;
+            set_or_clear_string(
+                table,
+                strength.name(),
+                written_strength(&model, default.as_deref()),
+            );
+            set_or_clear_string(table, effort_key, effort.map(Effort::name));
         }
     });
 }
@@ -1423,6 +1382,24 @@ mod tests {
     }
 
     lets_expect! {
+        story settings_round_trip_efforts_in_an_inline_table {
+            let source = "agents = { claude = { strong_effort = \"medium\", home = \"/test/claude\" }, grok = { fast_effort = \"low\" } } # preserve this comment";
+            let settings = parse_settings(source).unwrap();
+            let mut draft = Configuration::from_settings(&settings);
+            expect(draft.claude.strong.effort) to equal(Some(Effort::Medium))
+            draft.claude.strong.effort = Some(Effort::Xhigh);
+            draft.claude.medium.effort = Some(Effort::High);
+            draft.grok.fast.effort = None;
+            let saved = revise(source, &draft).unwrap();
+            expect(saved.contains("# preserve this comment")) to be_true
+            expect(saved.contains("home = \"/test/claude\"")) to be_true
+            expect(saved.contains("fast_effort")) to be_false
+            let restored = parse_settings(&saved).unwrap();
+            expect(restored.agents.choice_for(Agent::Claude, Strength::Strong)) to equal((Some("opus".to_string()), Some(Effort::Xhigh)))
+            expect(restored.agents.choice_for(Agent::Claude, Strength::Medium)) to equal((Some("sonnet".to_string()), Some(Effort::High)))
+            expect(parse_settings("[agents.codex]\nfast_effort = \"unknown\"").is_err()) to be_true
+        }
+
         expect(read(text)) {
             when(text = None) as there_is_no_file to give_the_defaults { equal(Ok(Settings::default())) }
             when(text = Some("")) as the_file_is_empty to give_the_defaults { equal(Ok(Settings::default())) }
@@ -1662,7 +1639,7 @@ stages = [\"talking\", \"implementing\", \"ready\", \"done\"]
                 to keep_the_comment { have(contains("# visual studio")) be_true }
                 to keep_the_new_command { have(contains("zed {path}")) be_true }
             }
-            when(text = "[agents.claude]\nprogram = \"/opt/claude\"\nfast = \"custom-haiku\"\n", changed = { let mut draft = draft_of("[agents.claude]\nprogram = \"/opt/claude\"\nfast = \"custom-haiku\"\n"); draft.claude.fast = "haiku".to_string(); draft }) as a_strength_put_back_to_the_default {
+            when(text = "[agents.claude]\nprogram = \"/opt/claude\"\nfast = \"custom-haiku\"\n", changed = { let mut draft = draft_of("[agents.claude]\nprogram = \"/opt/claude\"\nfast = \"custom-haiku\"\n"); draft.claude.fast.model = "haiku".to_string(); draft }) as a_strength_put_back_to_the_default {
                 to keep_the_program { have(contains("/opt/claude")) be_true }
                 to drop_the_strength { have(contains("custom-haiku")) be_false }
             }
@@ -1679,7 +1656,7 @@ stages = [\"talking\", \"implementing\", \"ready\", \"done\"]
                 to keep_the_description { have(contains("description = \"Notes\"")) be_true }
                 to write_the_editor { have(contains("zed {path}")) be_true }
             }
-            when(text = inline_agents(), changed = { let mut draft = draft_of(inline_agents()); draft.claude.fast = "custom-haiku".to_string(); draft }) as a_strength_written_into_an_inline_table {
+            when(text = inline_agents(), changed = { let mut draft = draft_of(inline_agents()); draft.claude.fast.model = "custom-haiku".to_string(); draft }) as a_strength_written_into_an_inline_table {
                 to keep_the_program { have(contains("/opt/claude")) be_true }
                 to keep_the_subscription_switch { have(contains("use_subscription = false")) be_true }
                 to keep_the_codex_home { have(contains("/opt/codex")) be_true }
@@ -1690,7 +1667,7 @@ stages = [\"talking\", \"implementing\", \"ready\", \"done\"]
                 to stay_inline { have(contains("claude = {")) be_true }
                 to write_the_strength { have(contains("custom-haiku")) be_true }
             }
-            when(text = inline_agents_root(), changed = { let mut draft = draft_of(inline_agents_root()); draft.claude.fast = "custom-haiku".to_string(); draft }) as a_strength_written_into_a_fully_inline_agents_table {
+            when(text = inline_agents_root(), changed = { let mut draft = draft_of(inline_agents_root()); draft.claude.fast.model = "custom-haiku".to_string(); draft }) as a_strength_written_into_a_fully_inline_agents_table {
                 to keep_the_program { have(contains("/opt/claude")) be_true }
                 to keep_the_subscription_switch { have(contains("use_subscription = false")) be_true }
                 to keep_the_codex_home { have(contains("/opt/codex")) be_true }

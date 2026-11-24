@@ -3,14 +3,18 @@ import {
   fromConfiguration,
   refusal,
   renameWorkflow,
+  setEffort,
+  setModel,
   setMode,
+  settingsView,
   toConfiguration,
   toggleWorkflowStage,
   unchanged,
   withWorkflow,
   withoutWorkflow,
 } from './settings.model';
-import { STAGES } from './workspace.model';
+import { modelOptionForTest as model } from './model.testing';
+import { NO_MODELS, STAGES } from './workspace.model';
 
 const SAVED: Configuration = {
   default_workflow: 'default',
@@ -29,10 +33,10 @@ const SAVED: Configuration = {
     },
   ],
   stages: STAGES.map((stage) => ({ stage, label: '', provider: null, strength: null })),
-  claude: { strong: 'opus', medium: 'sonnet', fast: 'haiku' },
-  codex: { strong: '', medium: '', fast: '' },
-  grok: { strong: '', medium: '', fast: '' },
-  gemini: { strong: '', medium: '', fast: '' },
+  claude: { strong: { model: 'opus', effort: null }, medium: { model: 'sonnet', effort: null }, fast: { model: 'haiku', effort: null } },
+  codex: { strong: { model: '', effort: null }, medium: { model: '', effort: null }, fast: { model: '', effort: null } },
+  grok: { strong: { model: '', effort: null }, medium: { model: '', effort: null }, fast: { model: '', effort: null } },
+  gemini: { strong: { model: '', effort: null }, medium: { model: '', effort: null }, fast: { model: '', effort: null } },
   editor: '',
   terminal: '',
 };
@@ -50,6 +54,21 @@ function withStages(name: string, stages: readonly Stage[]) {
 }
 
 describe('the settings draft', () => {
+  it('round-trips effort separately from the model and offers the catalog levels', () => {
+    const opus = model('claude-opus-5-5', 'Opus 5.5', ['low', 'medium', 'xhigh'], 'medium');
+    const models = { ...NO_MODELS, claude: [opus] };
+    const draft = setEffort(draftOf(), 'claude', 'strong', 'xhigh');
+    const strong = (state: typeof draft) => settingsView(state, SAVED, null, false, null, models).models[0].fields[0];
+    expect(strong(draft).suggestions[0].label).toBe('Opus 5.5');
+    expect(strong(draft).efforts.map((effort) => effort.label)).toEqual(['Low', 'Medium', 'Extra high']);
+    const custom = setModel(draft, 'claude', 'strong', 'custom-claude');
+    expect(strong(custom).efforts).toHaveLength(6);
+    expect(toConfiguration(custom).claude.strong).toEqual({ model: 'custom-claude', effort: 'xhigh' });
+    const unlisted = setEffort(draftOf(), 'claude', 'strong', 'ultra');
+    expect(strong(unlisted).efforts.map((effort) => effort.value)).toEqual(['low', 'medium', 'xhigh', 'ultra']);
+    expect(toConfiguration(setEffort(custom, 'claude', 'strong', null)).claude.strong.effort).toBeNull();
+  });
+
   it('saves an untouched screen as the choices it was given', () => {
     const draft = draftOf();
     expect(toConfiguration(draft)).toEqual(SAVED);

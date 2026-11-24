@@ -72,6 +72,9 @@ impl AgentDriver for ClaudeDriver {
         if let Some(model) = &turn.model {
             arguments.extend(["--model".to_string(), model.clone()]);
         }
+        if let Some(effort) = turn.effort {
+            arguments.extend(["--effort".to_string(), effort.name().to_string()]);
+        }
         self.model = turn.model.clone();
         // The snapshot is off so a later turn of the same conversation is
         // told the branch the project directory is on then, not the one it
@@ -249,6 +252,7 @@ fn result_entries(report: &Value) -> Vec<EntryDraft> {
 
 #[cfg(test)]
 mod tests {
+    use crate::agents::models::Effort;
     use std::path::PathBuf;
 
     use lets_expect::lets_expect;
@@ -284,6 +288,7 @@ mod tests {
             directory: PathBuf::from("/work/app"),
             writable_outside: Vec::new(),
             model: None,
+            effort: None,
         }
     }
 
@@ -395,7 +400,34 @@ mod tests {
         driver(true).interpret(&report.to_string())
     }
 
+    fn has_high_effort(
+        effort: Option<Effort>,
+        conversation: Option<&str>,
+        read_only: bool,
+    ) -> bool {
+        driver(true)
+            .invocation(&Turn {
+                effort,
+                ..turn("Think", conversation, None, read_only)
+            })
+            .arguments
+            .windows(2)
+            .any(|pair| pair[0] == "--effort" && pair[1] == "high")
+    }
+
     lets_expect! {
+        expect(has_high_effort(effort, conversation, read_only)) as effort_argument {
+            let conversation: Option<&str> = None;
+            let read_only = false;
+            let effort = None;
+
+            to omit_effort_without_a_choice { be_false }
+            when(effort = Some(Effort::High)) as a_new_turn to pass_effort { be_true }
+            when(effort = Some(Effort::High), conversation = Some("known")) as a_resumed_turn to pass_effort { be_true }
+            when(effort = Some(Effort::High), read_only = true) as a_review to pass_effort { be_true }
+
+        }
+
         expect(driver(use_subscription).invocation(&on_model(model, turn(message, conversation, brief, read_only)))) {
             let use_subscription = true;
             let message = "Fix the bug";

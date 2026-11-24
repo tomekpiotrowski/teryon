@@ -5,9 +5,9 @@
  * the screen itself cannot be unit tested until Vitest can load Ionic.
  */
 
-import type { PlanInfo, Question, RunEnd, Stage, Starting, Workflow, Workflows } from '../service/protocol';
+import type { Effort, ModelOption, PlanInfo, Question, RunEnd, Stage, Starting, Workflow, Workflows } from '../service/protocol';
 
-export type { PlanInfo, Stage, Starting, Workflow, Workflows };
+export type { Effort, ModelOption, PlanInfo, Stage, Starting, Workflow, Workflows };
 import type { Asked } from './questions.model';
 
 export type AgentName = 'claude' | 'codex' | 'grok' | 'gemini';
@@ -33,6 +33,7 @@ export interface Thread {
   readonly agent: AgentName;
   /** The model the agent runs on. Nothing leaves it to the agent program's own settings. */
   readonly model?: string | null;
+  readonly effort?: Effort | null;
   readonly status: 'idle' | 'running';
   /** Whether an agent stopped working here since the person last looked. */
   readonly unread: boolean;
@@ -165,6 +166,7 @@ export interface Reviewer {
   readonly agent: AgentName;
   /** The model the reviewer runs on. Nothing leaves it to the agent program's own settings. */
   readonly model?: string | null;
+  readonly effort?: Effort | null;
   /** Whether the turn running in the thread is the reviewer's. */
   readonly reviewing: boolean;
   /** What the last review found. Nothing until one has ended. */
@@ -207,10 +209,11 @@ export function reviewersFor(thread: Thread): AgentName[] {
 export interface Choice {
   readonly agent: AgentName;
   readonly model: string | null;
+  readonly effort: Effort | null;
 }
 
-/** The models each agent offers besides its default, as the service lists them. */
-export type ModelLists = Readonly<Record<AgentName, readonly string[]>>;
+/** The versioned models and efforts offered by each agent. */
+export type ModelLists = Readonly<Record<AgentName, readonly ModelOption[]>>;
 
 export const NO_MODELS: ModelLists = { claude: [], codex: [], grok: [], gemini: [] };
 
@@ -224,6 +227,7 @@ export const NO_MODELS: ModelLists = { claude: [], codex: [], grok: [], gemini: 
 export interface NewThreads {
   readonly agent: AgentName;
   readonly models: Readonly<Record<AgentName, string | null>>;
+  readonly efforts: Readonly<Record<string, Effort>>;
   /**
    * Whether the person picked the agent.
    *
@@ -236,6 +240,7 @@ export interface NewThreads {
 export const FIRST_NEW_THREADS: NewThreads = {
   agent: 'claude',
   models: { claude: null, codex: null, grok: null, gemini: null },
+  efforts: {},
   picked: false,
 };
 
@@ -246,7 +251,7 @@ export function startingChoice(newThreads: NewThreads): Choice | null {
 
 /** The agent and model a new thread would start with: the person's pick, otherwise what the service chose. */
 export function pendingChoice(newThreads: NewThreads, starting: Starting | null): Choice {
-  if (!newThreads.picked && starting?.type === 'provider') return { agent: starting.agent as AgentName, model: starting.model };
+  if (!newThreads.picked && starting?.type === 'provider') return { agent: starting.agent as AgentName, model: starting.model, effort: starting.effort };
   return chosen(newThreads);
 }
 
@@ -258,57 +263,167 @@ export function firstStageChooses(workflows: Workflows): boolean {
 
 /** The agent and model a new thread starts with. */
 export function chosen(newThreads: NewThreads): Choice {
-  return { agent: newThreads.agent, model: newThreads.models[newThreads.agent] };
+  return rememberedChoice(newThreads, newThreads.agent);
 }
 
-/** New threads after picking a choice: its agent, with its model remembered for that agent. */
+/** The effort words displayed next to a model. */
+export const EFFORT_LABELS: Readonly<Record<Effort, string>> = {
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  xhigh: 'Extra high',
+  max: 'Max',
+  ultra: 'Ultra',
+};
+
+/** The display name for a supported effort. */
+export function effortLabel(effort: Effort): string {
+  return EFFORT_LABELS[effort];
+}
+
+/** Checks a stored or reported effort before displaying it. */
+export function isEffort(value: unknown): value is Effort {
+  return typeof value === 'string' && Object.hasOwn(EFFORT_LABELS, value);
+}
+
+/** The storage key for one model's effort, scoped to its provider. */
+function effortKey(agent: AgentName, model: string): string {
+  return `${agent}:${model}`;
+}
+
+/** The last choice for an agent, or the remembered effort for a particular model. */
+export function rememberedChoice(
+  remembered: NewThreads,
+  agent: AgentName,
+  model: string | null = remembered.models[agent],
+): Choice {
+  return { agent, model, effort: model ? remembered.efforts[effortKey(agent, model)] ?? null : null };
+}
+
+/** Remembers the chosen model per agent and the effort per model. */
 export function choosing(newThreads: NewThreads, choice: Choice): NewThreads {
-  return { agent: choice.agent, models: { ...newThreads.models, [choice.agent]: choice.model }, picked: true };
+  const efforts = { ...newThreads.efforts };
+  if (choice.model) {
+    const key = effortKey(choice.agent, choice.model);
+    if (choice.effort) efforts[key] = choice.effort;
+    else delete efforts[key];
+  }
+  return { agent: choice.agent, models: { ...newThreads.models, [choice.agent]: choice.model }, efforts, picked: true };
 }
 
-/** Reads what was remembered of the choice for new threads, ignoring anything this version does not write. */
+/** Reads the stored choice, dropping malformed values and the old storage shape. */
 export function readNewThreads(stored: string | null): NewThreads {
   if (!stored) return FIRST_NEW_THREADS;
   try {
     const value: unknown = JSON.parse(stored);
     if (typeof value !== 'object' || value === null) return FIRST_NEW_THREADS;
-    const { agent, models, picked } = value as Record<string, unknown>;
+    const { agent, models, efforts, picked } = value as Record<string, unknown>;
     if (typeof agent !== 'string' || !(AGENTS as readonly string[]).includes(agent) || typeof picked !== 'boolean') return FIRST_NEW_THREADS;
-    const remembered = typeof models === 'object' && models !== null ? (models as Record<string, unknown>) : {};
-    const model = (name: AgentName): string | null => (typeof remembered[name] === 'string' ? (remembered[name] as string) : null);
+    if (!efforts || typeof efforts !== 'object' || Array.isArray(efforts)) return FIRST_NEW_THREADS;
+    const remembered = models && typeof models === 'object' ? models as Record<string, unknown> : {};
+    const model = (name: AgentName): string | null => {
+      const id = remembered[name];
+      return typeof id === 'string' && /^[^-\s]\S*$/.test(id) ? id : null;
+    };
     return {
       agent: agent as AgentName,
       picked,
       models: { claude: model('claude'), codex: model('codex'), grok: model('grok'), gemini: model('gemini') },
+      efforts: Object.fromEntries(Object.entries(efforts).filter(([key, effort]) =>
+        /^(claude|codex|grok|gemini):[^-\s]\S*$/.test(key) && isEffort(effort))),
     };
   } catch {
     return FIRST_NEW_THREADS;
   }
 }
 
-/** Every choice an agent offers: its default first, then its models. */
-export function choicesOf(agent: AgentName, models: ModelLists): Choice[] {
-  return [null, ...models[agent]].map((model) => ({ agent, model }));
+/** The model the provider marks as usual, or the first one it offers. */
+export function defaultModelOption(agent: AgentName, models: ModelLists): ModelOption | undefined {
+  return models[agent].find((option) => option.is_default) ?? models[agent][0];
 }
 
-/** Every choice of every agent, in the order agents are offered. */
-export function allChoices(models: ModelLists): Choice[] {
-  return AGENTS.flatMap((agent) => choicesOf(agent, models));
+/** Effort suffixes Antigravity uses on grouped Gemini variants when no catalog is loaded yet. */
+const GEMINI_EFFORT_SUFFIXES: readonly Effort[] = ['low', 'medium', 'high', 'xhigh'];
+
+/** Finds a versioned entry, including aliases used in workflow settings. */
+export function modelOption(agent: AgentName, model: string | null, models: ModelLists): ModelOption | undefined {
+  if (model === null) return defaultModelOption(agent, models);
+  const exact = models[agent].find((option) => option.id === model);
+  if (exact) return exact;
+  if (agent === 'gemini') {
+    const [base] = geminiChoice(model, models.gemini);
+    return models.gemini.find((option) => option.id === base && option.efforts.length > 0);
+  }
+  return agent === 'claude' && !model.includes('-')
+    ? models.claude.find((option) => option.id.startsWith(`claude-${model}-`))
+    : undefined;
+}
+
+/** Separates a concrete Antigravity suffix from the display model without cutting standalone model names. */
+function geminiChoice(id: string, catalog: readonly ModelOption[]): [string, Effort | null] {
+  if (catalog.some((option) => option.id === id)) return [id, null];
+  const end = id.lastIndexOf('-');
+  const suffix = id.slice(end + 1).toLowerCase();
+  if (end >= 0 && isEffort(suffix)) {
+    const base = id.slice(0, end);
+    const grouped = catalog.find((option) => option.id === base);
+    if (grouped) return grouped.efforts.length ? [base, suffix] : [id, null];
+    if (GEMINI_EFFORT_SUFFIXES.includes(suffix)) return [base, suffix];
+  }
+  return [id, null];
+}
+
+/** Fills display defaults and resolves aliases to their catalog identifiers. */
+export function resolveChoice(choice: Choice, models: ModelLists): Choice {
+  const option = modelOption(choice.agent, choice.model, models);
+  const suffix = choice.agent === 'gemini' && choice.model ? geminiChoice(choice.model, models.gemini)[1] : null;
+  return {
+    agent: choice.agent,
+    model: option?.id ?? choice.model,
+    effort: choice.effort ?? suffix ?? option?.default_effort ?? null,
+  };
+}
+
+/** The concrete model commands, with a single provider choice when discovery has no list. */
+export function choicesOf(agent: AgentName, models: ModelLists, remembered: NewThreads = FIRST_NEW_THREADS): Choice[] {
+  if (!models[agent].length) return [{ agent, model: null, effort: null }];
+  return models[agent].map((option) => {
+    const effort = rememberedChoice(remembered, agent, option.id).effort;
+    return { agent, model: option.id, effort: effort && option.efforts.includes(effort) ? effort : option.default_effort };
+  });
+}
+
+/** Every agent's model choices in the order the service offers them. */
+export function allChoices(models: ModelLists, remembered: NewThreads = FIRST_NEW_THREADS): Choice[] {
+  return AGENTS.flatMap((agent) => choicesOf(agent, models, remembered));
 }
 
 export function sameChoice(first: Choice, second: Choice): boolean {
-  return first.agent === second.agent && first.model === second.model;
+  return first.agent === second.agent && first.model === second.model && first.effort === second.effort;
 }
 
-/** The choice a thread's agent, or its reviewer, runs on. Nothing when the thread has no reviewer. */
+/** The choice a thread's agent, or its reviewer, runs on. */
 export function threadChoice(thread: Thread, voice: Voice): Choice | null {
-  if (voice === 'author') return { agent: thread.agent, model: thread.model ?? null };
-  return thread.reviewer ? { agent: thread.reviewer.agent, model: thread.reviewer.model ?? null } : null;
+  const speaker = voice === 'author' ? thread : thread.reviewer;
+  return speaker ? { agent: speaker.agent, model: speaker.model ?? null, effort: speaker.effort ?? null } : null;
 }
 
-/** For example "Claude · Opus" or "Codex · default". */
-export function choiceLabel(choice: Choice): string {
-  return `${agentLabel(choice.agent)} · ${choice.model === null ? 'default' : modelLabel(choice.model)}`;
+/** The agents that can take the next turn for this voice. */
+export function allowedThreadAgents(thread: Thread, voice: Voice): AgentName[] {
+  const current = threadChoice(thread, voice)?.agent;
+  const other = threadChoice(thread, voice === 'author' ? 'reviewer' : 'author')?.agent;
+  return AGENTS.filter((agent) => agent !== other && (thread.status !== 'running' || agent === current));
+}
+
+/** Formats the versioned model and effort next to the agent's name. */
+export function choiceLabel(choice: Choice, models: ModelLists = NO_MODELS): string {
+  const resolved = resolveChoice(choice, models);
+  const option = modelOption(choice.agent, choice.model, models);
+  return [
+    agentLabel(choice.agent),
+    option?.label ?? (resolved.model ? modelLabel(resolved.model) : null),
+    resolved.effort ? effortLabel(resolved.effort) : null,
+  ].filter(Boolean).join(' · ');
 }
 
 /**
@@ -317,7 +432,7 @@ export function choiceLabel(choice: Choice): string {
  * A rule rather than a table, so that a model released after this Teryon
  * still reads well: drop a leading `claude-`, join numbers that follow each
  * other with a dot, turn the remaining dashes into spaces, capitalise the
- * first word, and write `gpt` as `GPT`. Several models, as a turn that used
+ * words, and write `gpt` as `GPT`. Several models, as a turn that used
  * more than one reports them, are each read that way.
  */
 export function modelLabel(name: string): string {
@@ -327,11 +442,12 @@ export function modelLabel(name: string): string {
       const words = single
         .trim()
         .replace(/^claude-/, '')
+        .replace(/^(gemini-.*)-(low|medium|high|xhigh)$/i, '$1')
         .replace(/(\d)-(?=\d)/g, '$1.')
         .split('-')
         .filter(Boolean)
         .map((word) => (word.toLowerCase() === 'gpt' ? 'GPT' : word));
-      return words.map((word, index) => (index === 0 ? word.charAt(0).toUpperCase() + word.slice(1) : word)).join(' ');
+      return words.map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ').replace(/^GPT (?=\d)/, 'GPT-');
     })
     .join(' + ');
 }
@@ -906,6 +1022,8 @@ export function summaryText(body: Readonly<Record<string, unknown>>): string {
   const parts = [typeof duration === 'number' ? `Done in ${durationText(duration)}` : 'Done'];
   const model = body['model'];
   if (typeof model === 'string' && model.trim()) parts.push(modelLabel(model));
+  const effort = body['effort'];
+  if (isEffort(effort)) parts.push(effortLabel(effort));
   const read = tokens?.['read'];
   const written = tokens?.['written'];
   if (typeof read === 'number' && typeof written === 'number') {

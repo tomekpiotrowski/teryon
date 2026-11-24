@@ -9,7 +9,7 @@
 
 import { expect, test as base, type Locator, type Page } from "@playwright/test";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
@@ -38,6 +38,9 @@ interface Service {
 async function startService(origin: string, more: string): Promise<Service> {
   const home = mkdtempSync(join(tmpdir(), "teryon-e2e-"));
   mkdirSync(join(home, "config"), { recursive: true });
+  const catalog = join(home, "claude", "cache", "model-catalog");
+  mkdirSync(catalog, { recursive: true });
+  copyFileSync(join(samples, "claude-model-catalog.json"), join(catalog, "test.json"));
   writeFileSync(
     join(home, "config", "config.toml"),
     [
@@ -50,6 +53,7 @@ async function startService(origin: string, more: string): Promise<Service> {
       "",
       "[agents.claude]",
       `program = "${join(samples, "fake-claude.sh")}"`,
+      `home = "${join(home, "claude")}"`,
       "",
       "[agents.codex]",
       `program = "${join(samples, "fake-codex.sh")}"`,
@@ -110,33 +114,43 @@ const projectsFolder = join(tmpdir(), "teryon-e2e-projects");
  */
 export async function addProject(page: Page, name: string, prepare?: (directory: string) => void): Promise<string> {
   mkdirSync(projectsFolder, { recursive: true });
-  const directory = mkdtempSync(join(projectsFolder, "e2e-"));
+  const directory = realpathSync(mkdtempSync(join(projectsFolder, "e2e-")));
   prepare?.(directory);
 
   await choose(page, "New project");
+  const picker = page.getByLabel("Project directory");
+  await expect(picker).not.toHaveValue("");
+  await picker.fill(directory);
+  await expect(picker).toHaveValue(directory);
   await page.getByLabel("Project name").fill(name);
-  await page.getByLabel("Project directory").fill(directory);
   await page.getByRole("button", { name: "Add project" }).click();
   await expect(page.getByLabel("New thread")).toBeVisible();
   return directory;
 }
 
-/** The button that shows the agent and model selected for new threads on Home. */
-export function agentChooser(page: Page): Locator {
-  return page.locator("app-home .home-agent");
+/** The chooser trigger on Home, or in the message bar of an open thread. */
+export function agentChooser(page: Page, inThread = false): Locator {
+  return page.locator(`${inThread ? ".thread-meta" : "app-home"} app-agent-chooser .agent-trigger`);
 }
 
-/** Selects an agent and, when it has a model list, a model from Home's dropdown. */
-export async function chooseAgent(page: Page, agent: string, model = "Default"): Promise<void> {
-  await agentChooser(page).click();
+/** Picks a provider, its model, and the requested effort when the model supports effort. */
+export async function chooseAgent(page: Page, agent: string, model?: string, effort?: string, inThread = false): Promise<void> {
+  await agentChooser(page, inThread).click();
   await page.getByRole("listbox", { name: "Agent", exact: true }).getByRole("option", { name: agent, exact: true }).click();
   const models = page.getByRole("listbox", { name: "Model", exact: true });
-  // An agent with only a default may already have been selected.
-  if (model === "Default") {
-    await expect(models.or(agentChooser(page).and(page.locator('[aria-expanded="false"]')))).toBeVisible();
-    if (!(await models.isVisible())) return;
+  const modelRow = model ? models.getByRole("option", { name: model, exact: true }) : models.getByRole("option").first();
+  const hasEffort = await modelRow.getAttribute("data-next") === "true";
+  await modelRow.click();
+  if (hasEffort) {
+    const efforts = page.getByRole("listbox", { name: "Effort", exact: true });
+    await expect(efforts).toBeVisible();
+    if (effort) {
+      await efforts.getByRole("option", { name: effort, exact: true }).click();
+      return;
+    }
+    const selected = efforts.locator('[aria-selected="true"]');
+    await (await selected.count() ? selected : efforts.getByRole("option").first()).click();
   }
-  await models.getByRole("option", { name: model, exact: true }).click();
 }
 
 /**

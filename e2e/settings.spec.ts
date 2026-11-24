@@ -11,13 +11,9 @@ import { addProject, commit, expect, git, menu, openWorkspace, put, test } from 
 
 test.beforeEach(openWorkspace);
 
-/** Opens settings with its key. A focused field would take the letter as text, so the focus is dropped first. */
+/** Opens Settings from the workspace toolbar. */
 async function openSettings(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    const active = document.activeElement;
-    if (active instanceof HTMLElement) active.blur();
-  });
-  await page.keyboard.press("s");
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
   await expect(page.locator("app-settings")).toBeVisible();
 }
 
@@ -47,8 +43,9 @@ test("saved choices come back, and the thread's stage button uses the new label"
   await implementing.getByLabel("Agent").selectOption("grok");
   await implementing.getByLabel("Strength").selectOption("fast");
 
-  await settings.getByRole("group", { name: "Claude" }).getByLabel("Strong").fill("opus-test");
-  await settings.getByRole("group", { name: "Grok" }).getByLabel("Fast").fill("grok-test");
+  await settings.getByRole("group", { name: "Claude" }).getByLabel("Strong", { exact: true }).fill("opus-test");
+  await settings.getByRole("group", { name: "Grok" }).getByLabel("Fast", { exact: true }).fill("grok-test");
+  await settings.getByRole("group", { name: "Grok" }).getByLabel("Fast effort").selectOption({ label: "Extra high" });
   await settings.getByLabel("Editor").fill("code {path}");
   await settings.getByLabel("Terminal").fill("alacritty --working-directory {path}");
 
@@ -67,8 +64,9 @@ test("saved choices come back, and the thread's stage button uses the new label"
   await expect(implementing.getByLabel("Who works")).toHaveValue("only");
   await expect(implementing.getByLabel("Agent")).toHaveValue("grok");
   await expect(implementing.getByLabel("Strength")).toHaveValue("fast");
-  await expect(settings.getByRole("group", { name: "Claude" }).getByLabel("Strong")).toHaveValue("opus-test");
-  await expect(settings.getByRole("group", { name: "Grok" }).getByLabel("Fast")).toHaveValue("grok-test");
+  await expect(settings.getByRole("group", { name: "Claude" }).getByLabel("Strong", { exact: true })).toHaveValue("opus-test");
+  await expect(settings.getByRole("group", { name: "Grok" }).getByLabel("Fast", { exact: true })).toHaveValue("grok-test");
+  await expect(settings.getByRole("group", { name: "Grok" }).getByLabel("Fast effort")).toHaveValue("xhigh");
   await expect(settings.getByLabel("Editor")).toHaveValue("code {path}");
   await expect(settings.getByLabel("Terminal")).toHaveValue("alacritty --working-directory {path}");
 });

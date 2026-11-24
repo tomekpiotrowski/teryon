@@ -13,7 +13,7 @@ test("the usage screen shows an agent's limits and the day's tokens after a turn
   await addProject(page, "Sample");
   await page.getByLabel("New thread").fill("hello");
   await page.getByRole("button", { name: "Run ↵" }).click();
-  await expect(page.getByText(/^Done in \d+s · Fable 5\.2 · 25k tokens read, 4 written$/)).toBeVisible();
+  await expect(page.getByText(/^Done in \d+s · Fable 5\.2 · Medium · 25k tokens read, 4 written$/)).toBeVisible();
 
   await page.keyboard.press("Escape");
   await page.keyboard.press("u");

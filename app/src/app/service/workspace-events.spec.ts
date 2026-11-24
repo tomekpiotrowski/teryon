@@ -1,3 +1,4 @@
+import { modelOptionForTest as model } from '../workspace/model.testing';
 import type { Event } from './protocol';
 import { applyEvent, NO_LISTS, withEntries, type WorkspaceLists } from './workspace-events';
 import { NO_WORKFLOWS, type Project, type Starting, type Thread, type ThreadEntry, type Workflows } from '../workspace/workspace.model';
@@ -30,13 +31,13 @@ const lists: WorkspaceLists = {
   projects: [project('a'), project('b')],
   threads: [thread('t1', 'a'), thread('t2', 'b')],
   opens: { editor: false, terminal: false },
-  models: { claude: ['opus'], codex: [], grok: [], gemini: [] },
+  models: { claude: ['opus'].map((id) => model(id)), codex: [], grok: [], gemini: [] },
   workflows: NO_WORKFLOWS,
   starting: null,
   installed: [],
 };
 
-const STARTING: Starting = { type: 'provider', agent: 'claude', model: 'sonnet' };
+const STARTING: Starting = { type: 'provider', agent: 'claude', model: 'sonnet', effort: null };
 
 const SMALL_ONLY: Workflows = { ...NO_WORKFLOWS, default: 'small', workflows: [{ name: 'small', description: '', stages: ['talking', 'ready', 'done'] }] };
 
@@ -46,13 +47,13 @@ function apply(event: unknown): WorkspaceLists {
 
 describe('applyEvent', () => {
   it('replaces everything with a snapshot, including what copies can be opened in', () => {
-    const models = { claude: ['sonnet'], codex: ['gpt-6-astra'], grok: [], gemini: [] };
+    const models = { claude: ['sonnet'].map((id) => model(id)), codex: ['gpt-6-astra'].map((id) => model(id)), grok: [], gemini: [] };
     const fresh = apply({ type: 'snapshot', projects: [project('c')], threads: [], opens: { editor: true, terminal: false }, models, workflows: SMALL_ONLY, starting: STARTING, installed: ['claude', 'grok'] });
     expect(fresh).toEqual({ projects: [project('c')], threads: [], opens: { editor: true, terminal: false }, models, workflows: SMALL_ONLY, starting: STARTING, installed: ['claude', 'grok'] });
   });
 
   it('replaces only the models when they change, as when Grok has listed its own', () => {
-    const models = { claude: ['opus'], codex: [], grok: ['grok-4.6'], gemini: ['gemini-4-neon-high'] };
+    const models = { claude: ['opus'].map((id) => model(id)), codex: [], grok: ['grok-4.6'].map((id) => model(id)), gemini: ['gemini-4-neon-high'].map((id) => model(id)) };
     expect(apply({ type: 'models_changed', models })).toEqual({ ...lists, models });
   });
 

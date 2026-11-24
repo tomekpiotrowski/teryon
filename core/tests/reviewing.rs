@@ -17,6 +17,7 @@ use tempfile::TempDir;
 use common::{
     commit, fake_agents, git, invocations, noted_turn, project_folder, put, thread_file, Scene,
 };
+use teryon_core::agents::models::Effort;
 use teryon_core::agents::Voice;
 use teryon_core::protocol::ProjectView;
 use teryon_core::settings::{AgentSettings, GrokSettings};
@@ -89,7 +90,7 @@ impl Project {
 
     /// Asks a given agent to review, and waits for it.
     async fn review_by(&self, thread: &Thread, agent: &str) -> Result<(), String> {
-        self.review_on(thread, agent, None).await
+        self.review_on(thread, agent, None, None).await
     }
 
     /// Asks a given agent to review on a given model, and waits for it.
@@ -98,10 +99,11 @@ impl Project {
         thread: &Thread,
         agent: &str,
         model: Option<&str>,
+        effort: Option<Effort>,
     ) -> Result<(), String> {
         self.scene
             .workspace
-            .review_change(thread.id, agent, model)
+            .review_change(thread.id, agent, model, effort)
             .map_err(|problem| problem.to_string())?;
         self.scene.wait_until_idle(thread).await;
         Ok(())
@@ -222,12 +224,14 @@ lets_expect! { #tokio_test
         let project = project();
         let (thread, _) = project.changed("claude").await;
 
-        project.review_on(&thread, "grok", Some("grok-4.6")).await.unwrap();
+        project.review_on(&thread, "grok", Some("grok-4.6"), Some(Effort::High)).await.unwrap();
         let reviewer = project.scene.thread_now(&thread).reviewer.expect("a reviewer");
         expect(reviewer.model.clone()) to equal(Some("grok-4.6".to_string()))
-        expect(project.invocations().last().cloned().unwrap_or_default().contains("-m grok-4.6")) to be_true
+        expect(reviewer.effort) to equal(Some(Effort::High))
+        expect(project.invocations().last().cloned().unwrap_or_default().contains("-m grok-4.6 --reasoning-effort high")) to be_true
         let summary = project.scene.entries(&thread).into_iter().rev().find(|entry| entry.kind == "turn_summary").unwrap();
         expect(summary.body["reviewer"].clone()) to equal(Value::Bool(true))
+        expect(summary.body["effort"].as_str()) to equal(Some("high"))
         expect(summary.body["model"].clone()) to equal(Value::String("grok-4.7-build".to_string()))
     }
 
@@ -235,11 +239,11 @@ lets_expect! { #tokio_test
     story a_review_again_on_another_model_continues {
         let project = project();
         let (thread, _) = project.changed("claude").await;
-        project.review_on(&thread, "grok", Some("grok-4.6")).await.unwrap();
+        project.review_on(&thread, "grok", Some("grok-4.6"), None).await.unwrap();
         project.scene.say(&thread, "fix what the review found").unwrap();
         project.scene.wait_until_idle(&thread).await;
 
-        project.review_on(&thread, "grok", None).await.unwrap();
+        project.review_on(&thread, "grok", None, None).await.unwrap();
         let reviewer = project.scene.thread_now(&thread).reviewer.expect("a reviewer");
         expect(reviewer.model.clone()) to equal(None)
         let started = project.invocations().last().cloned().unwrap_or_default();
@@ -253,7 +257,7 @@ lets_expect! { #tokio_test
         let (thread, _) = project.changed("claude").await;
         project.review(&thread).await.unwrap();
 
-        project.scene.workspace.change_agent(thread.id, Voice::Reviewer, "grok", Some("grok-4.5")).unwrap();
+        project.scene.workspace.change_agent(thread.id, Voice::Reviewer, "grok", Some("grok-4.5"), None).unwrap();
         project.scene.ask_reviewer(&thread, "is the second one real?").unwrap();
         project.scene.wait_until_idle(&thread).await;
 
@@ -269,7 +273,7 @@ lets_expect! { #tokio_test
         let (thread, _) = project.changed("claude").await;
         project.review(&thread).await.unwrap();
 
-        let changed = project.scene.workspace.change_agent(thread.id, Voice::Reviewer, "codex", None).unwrap();
+        let changed = project.scene.workspace.change_agent(thread.id, Voice::Reviewer, "codex", None, None).unwrap();
         let reviewer = changed.reviewer.clone().expect("a reviewer");
         expect(reviewer.agent.clone()) to equal("codex".to_string())
         expect(reviewer.conversation.clone()) to equal(None)
@@ -294,9 +298,9 @@ lets_expect! { #tokio_test
         let (thread, _) = project.changed("claude").await;
         project.review(&thread).await.unwrap();
 
-        let author = project.scene.workspace.change_agent(thread.id, Voice::Author, "grok", None).map_err(|problem| problem.to_string());
+        let author = project.scene.workspace.change_agent(thread.id, Voice::Author, "grok", None, None).map_err(|problem| problem.to_string());
         expect(author.err()) to equal(Some("Grok reviews this thread, so it cannot also write it. Choose another reviewer first.".to_string()))
-        let reviewer = project.scene.workspace.change_agent(thread.id, Voice::Reviewer, "claude", None).map_err(|problem| problem.to_string());
+        let reviewer = project.scene.workspace.change_agent(thread.id, Voice::Reviewer, "claude", None, None).map_err(|problem| problem.to_string());
         expect(reviewer.err()) to equal(Some("Claude wrote this change, so another agent has to review it.".to_string()))
         let now = project.scene.thread_now(&thread);
         expect(now.agent.clone()) to equal("claude".to_string())
@@ -448,7 +452,7 @@ lets_expect! { #tokio_test
         project.scene.wait_until_idle(&thread).await;
 
         write(project.folder.path().join(".fake-reviewer-slow"), "").unwrap();
-        project.scene.workspace.review_change(thread.id, "grok", None).unwrap();
+        project.scene.workspace.review_change(thread.id, "grok", None, None).unwrap();
         project.scene.wait_until_reporting(&thread).await;
         project.scene.workspace.stop(thread.id).unwrap();
         project.scene.wait_until_idle(&thread).await;

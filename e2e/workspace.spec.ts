@@ -103,8 +103,9 @@ test("an agent works in a project and the thread fills in live", async ({ page }
 
   await expect(page.getByLabel("Thread").getByText("hello", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Thread").getByText("ready", { exact: true })).toBeVisible();
-  await expect(page.getByText(/^Done in \d+s · Fable 5\.2 · 25k tokens read, 4 written$/)).toBeVisible();
-  await expect(page.locator(".top-bar")).toContainText("Sample · hello");
+  await expect(page.getByText(/^Done in \d+s · Fable 5\.2 · Medium · 25k tokens read, 4 written$/)).toBeVisible();
+  await expect(page.locator(".top-mark")).toHaveText("Sample");
+  await expect(page.locator(".top-scope")).toHaveText("hello");
 
   await page.getByLabel("Reply").fill("use tools");
   await page.getByRole("button", { name: "send ↵" }).click();
@@ -130,7 +131,7 @@ test("an agent's change shows where it stands, and its copy can be found", async
   await expect(thread.getByText("ready", { exact: true })).toBeVisible();
   const line = changeLine(page);
   // Ready to apply goes without a label: the button says so.
-  await expect(line.getByRole("button")).toHaveText(["Ask Codex · default to review", "Apply to the project", "more"]);
+  await expect(line.getByRole("button")).toHaveText(["Ask Codex · GPT-6 Astra · Medium to review", "Apply to the project", "more"]);
   await expect(line.getByRole("status")).toHaveCount(0);
   await expect(line).toContainText("1 file changed");
   await expect(page.getByText("fix-login", { exact: true })).toHaveCount(0);
@@ -179,7 +180,7 @@ test("another agent reviews a change in the same thread, and its findings go bac
   await page.getByLabel("New thread").fill("start a change fix-login");
   await page.getByRole("button", { name: "Run ↵" }).click();
   const line = changeLine(page);
-  await line.getByRole("button", { name: "Ask Codex · default to review" }).click();
+  await line.getByRole("button", { name: "Ask Codex · GPT-6 Astra · Medium to review" }).click();
 
   // The review is part of the thread, set apart, and counted on the line.
   const thread = page.getByLabel("Thread");
@@ -189,7 +190,7 @@ test("another agent reviews a change in the same thread, and its findings go bac
   await expect(line.getByRole("status")).toHaveText("2 findings");
   await expect(line).toContainText("from Codex");
   await expect(page.getByText("The change could not be reviewed.")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Who the message goes to" })).toHaveText("to Claude · default ▾");
+  await expect(page.getByRole("button", { name: "Who the message goes to" })).toHaveText("to author ▾");
 
   // The person can ask the reviewer, which leaves the count alone.
   await page.getByRole("button", { name: "Who the message goes to" }).click();
@@ -202,14 +203,14 @@ test("another agent reviews a change in the same thread, and its findings go bac
 
   // Passing the findings drafts them for the author, without the count.
   await line.getByRole("button", { name: "Pass findings to Claude" }).click();
-  await expect(page.getByRole("button", { name: "Who the message goes to" })).toHaveText("to Claude · default ▾");
+  await expect(page.getByRole("button", { name: "Who the message goes to" })).toHaveText("to author ▾");
   const reply = page.getByLabel("Reply");
   await expect(reply).toHaveValue(/^A reviewer looked at the change and found:\n\n1\. `fix-login\.txt` has no test\.\n2\. The redirect is not checked\.\n\nFix what/);
   await reply.press("Enter");
-  await expect(line.getByRole("button", { name: "Ask Codex · default to review again" })).toBeVisible();
+  await expect(line.getByRole("button", { name: "Ask Codex · GPT-6 Astra · Medium to review again" })).toBeVisible();
 
   // A second review finds nothing.
-  await line.getByRole("button", { name: "Ask Codex · default to review again" }).click();
+  await line.getByRole("button", { name: "Ask Codex · GPT-6 Astra · Medium to review again" }).click();
   await expect(line.getByRole("status")).toHaveText("Reviewed");
   await expect(line).toContainText("Codex found nothing");
   await expect(thread.locator(".review-divider")).toHaveCount(2);
@@ -330,26 +331,24 @@ test("a thread can be started with Codex", async ({ page }) => {
 
   await expect(page.getByText("shell  git worktree add ../sample-project--edit -b edit")).toBeVisible();
   await expect(page.getByText("edit  /work/sample-project--edit/a.txt")).toBeVisible();
-  await expect(page.getByText(/^Done in \d+s · 105k tokens read, 587 written$/)).toBeVisible();
-  await expect(page.locator(".thread-meta").getByText("Codex")).toBeVisible();
+  await expect(page.getByText(/^Done in \d+s · GPT-6 Astra · Medium · 105k tokens read, 587 written$/)).toBeVisible();
+  await expect(agentChooser(page, true)).toBeVisible();
 });
 
-test("Codex models appear when searching from Codex default", async ({ page }) => {
+test("the Codex effort command updates Home and the next turn", async ({ page }) => {
   await addProject(page, "Sample");
   await chooseAgent(page, "Codex");
-  await expect(agentChooser(page)).toHaveAccessibleName("Codex · default");
+  await expect(agentChooser(page)).toHaveAccessibleName("Codex · GPT-6 Astra · Medium");
 
-  await page.getByLabel("New thread").press("/");
-  await page.getByRole("combobox", { name: "Search the menu" }).fill("codex");
-  await menu(page).getByRole("option", { name: "Use Codex · GPT 6 astra for new threads", exact: true }).click();
-  await expect(agentChooser(page)).toHaveAccessibleName("Codex · GPT 6 astra");
+  await choose(page, "Use High effort for new threads");
+  await expect(agentChooser(page)).toHaveAccessibleName("Codex · GPT-6 Astra · High");
   await page.getByLabel("New thread").fill("hello");
   await page.getByRole("button", { name: "Run ↵" }).click();
-  await expect(page.locator(".thread-meta")).toContainText("Codex · GPT 6 astra");
-  await expect(page.getByText(/^Done in \d+s · GPT 6 astra ·/)).toBeVisible();
+  await expect(agentChooser(page, true)).toHaveAccessibleName("Codex · GPT-6 Astra · High");
+  await expect(page.getByText(/^Done in \d+s · GPT-6 Astra · High ·/)).toBeVisible();
 
-  await choose(page, "Use Codex · GPT 6 sol in this thread");
-  await expect(page.locator(".thread-meta")).toContainText("Codex · GPT 6 sol");
+  await choose(page, "Use Codex · GPT-6 Sol · High in this thread");
+  await expect(agentChooser(page, true)).toHaveAccessibleName("Codex · GPT-6 Sol · High");
 });
 
 test("a thread runs on the model chosen for it, and each turn says which model ran", async ({ page }) => {
@@ -357,22 +356,26 @@ test("a thread runs on the model chosen for it, and each turn says which model r
 
   // Grok's models come from the program once the service has asked it.
   await page.keyboard.press("Control+k");
-  await expect(menu(page).getByRole("option", { name: /^Use Grok · Grok 4\.6 for new threads/ })).toBeVisible();
+  await expect(menu(page).getByRole("option", { name: /^Use Grok · Grok 4\.6 · Medium for new threads/ })).toBeVisible();
   await page.keyboard.press("Escape");
 
-  await choose(page, "Use Claude · Sonnet for new threads");
-  await expect(agentChooser(page)).toHaveAccessibleName("Claude · Sonnet");
+  await choose(page, "Use Claude · Sonnet 5\\.5 · Medium for new threads");
+  await expect(agentChooser(page)).toHaveAccessibleName("Claude · Sonnet 5.5 · Medium");
   await page.getByLabel("New thread").fill("hello");
   await page.getByRole("button", { name: "Run ↵" }).click();
 
   // The recording names the model that ran, which is what the summary shows.
-  const summary = page.getByText(/^Done in \d+s · Fable 5\.2 · 25k tokens read, 4 written$/);
+  const summary = page.getByText(/^Done in \d+s · Fable 5\.2 · Medium · 25k tokens read, 4 written$/);
   await expect(summary).toBeVisible();
   await expect(summary).toHaveAttribute("title", "claude-fable-5-2");
-  await expect(page.locator(".thread-meta")).toContainText("Claude · Sonnet");
+  await expect(page.locator(".thread-meta")).toContainText("Claude · Sonnet 5.5 · Medium");
 
-  await choose(page, "Use Claude · Opus in this thread");
-  await expect(page.locator(".thread-meta")).toContainText("Claude · Opus");
+  await page.getByLabel("Reply").fill("keep this reply");
+  await chooseAgent(page, "Claude", "Opus 5.5", "Extra high", true);
+  await expect(agentChooser(page, true)).toHaveAccessibleName("Claude · Opus 5.5 · Extra high");
+  await expect(page.getByLabel("Reply")).toHaveValue("keep this reply");
+  await choose(page, "Use High effort in this thread");
+  await expect(agentChooser(page, true)).toHaveAccessibleName("Claude · Opus 5.5 · High");
 });
 
 test("a thread moves to another agent, which carries on in it", async ({ page }) => {
@@ -381,9 +384,9 @@ test("a thread moves to another agent, which carries on in it", async ({ page })
   await page.getByRole("button", { name: "Run ↵" }).click();
   await expect(page.getByText(/^Done in \d+s · Fable 5\.2/)).toBeVisible();
 
-  await choose(page, "Use Codex · default in this thread");
+  await choose(page, "Use Codex · GPT-6 Astra · Medium in this thread");
   await expect(page.getByText("Codex takes over from Claude.")).toBeVisible();
-  await expect(page.locator(".thread-meta")).toContainText("Codex · default");
+  await expect(page.locator(".thread-meta")).toContainText("Codex · GPT-6 Astra · Medium");
 
   await page.getByLabel("Reply").fill("go on");
   await page.getByLabel("Reply").press("Enter");
@@ -399,26 +402,26 @@ test("a thread can be started with Grok", async ({ page }) => {
 
   await expect(page.getByText("run_terminal_command  Count bytes in note.txt")).toBeVisible();
   await expect(page.getByText(/Auto mode blocked this action/)).toBeVisible();
-  await expect(page.locator(".thread-meta").getByText("Grok")).toBeVisible();
+  await expect(agentChooser(page, true)).toBeVisible();
 });
 
 test("a thread can be started with Gemini on a discovered model", async ({ page }) => {
   await addProject(page, "Sample");
 
   await page.keyboard.press("Control+k");
-  await expect(menu(page).getByRole("option", { name: /^Use Gemini · Gemini 4 neon high for new threads/ })).toBeVisible();
-  await menu(page).getByRole("option", { name: /^Use Gemini · Gemini 4 neon high for new threads/ }).click();
-  await expect(agentChooser(page)).toHaveAccessibleName("Gemini · Gemini 4 neon high");
+  await expect(menu(page).getByRole("option", { name: /^Use Gemini · Gemini 4 Neon · High for new threads/ })).toBeVisible();
+  await menu(page).getByRole("option", { name: /^Use Gemini · Gemini 4 Neon · High for new threads/ }).click();
+  await expect(agentChooser(page)).toHaveAccessibleName("Gemini · Gemini 4 Neon · High");
 
   await page.getByLabel("New thread").fill("use tools");
   await page.getByRole("button", { name: "Run ↵" }).click();
 
   await expect(page.getByText("write_file  /work/sample-project/note.txt")).toBeVisible();
   await expect(page.getByText("run_command  wc -c note.txt")).toBeVisible();
-  const summary = page.getByText(/^Done in \d+s · Gemini 3\.8 flash low · 22k tokens read, 82 written$/);
+  const summary = page.getByText(/^Done in \d+s · Gemini 3\.8 Flash · Low · 22k tokens read, 82 written$/);
   await expect(summary).toBeVisible();
-  await expect(summary).toHaveAttribute("title", "gemini-3.8-flash-low");
-  await expect(page.locator(".thread-meta")).toContainText("Gemini · Gemini 4 neon high");
+  await expect(summary).toHaveAttribute("title", "gemini-3.8-flash");
+  await expect(page.locator(".thread-meta")).toContainText("Gemini · Gemini 4 Neon · High");
 });
 
 test("a running agent can be stopped", async ({ page }) => {
@@ -588,7 +591,8 @@ test("the menu lists threads, projects and actions, and typing narrows them", as
   // Enter opens the marked thread, ready for a reply.
   await page.keyboard.press("Enter");
   await expect(menu(page)).toHaveCount(0);
-  await expect(page.locator(".top-bar")).toContainText("Sample · hello");
+  await expect(page.locator(".top-mark")).toHaveText("Sample");
+  await expect(page.locator(".top-scope")).toHaveText("hello");
   await expect(page.getByLabel("Reply")).toBeFocused();
 
   // Escape leaves the message box, and the letters run their commands again.
@@ -640,8 +644,8 @@ test("the keys and the menu start a new thread and show the running agents", asy
   await expect(page.getByLabel("New thread")).toBeVisible();
 
   // The agent for new threads is changed from the menu too.
-  await choose(page, "Use Grok · default for new threads");
-  await expect(agentChooser(page)).toHaveAccessibleName("Grok · default");
+  await choose(page, "Use Grok · Grok 4.7 · Medium for new threads");
+  await expect(agentChooser(page)).toHaveAccessibleName("Grok · Grok 4.7 · Medium");
 });
 
 test("a thread whose agent stopped while it was out of sight waits to be looked at", async ({ page }) => {
@@ -813,7 +817,8 @@ test("the phone layout brings the menu up from the bottom, to be tapped", async 
   await expect(page.getByText(/^Done in/)).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
 
-  await expect(page.locator(".top-bar")).toContainText("Sample · hello");
+  await expect(page.locator(".top-mark")).toHaveText("Sample");
+  await expect(page.locator(".top-scope")).toHaveText("hello");
   await page.getByRole("button", { name: "Open menu" }).click();
 
   const sheet = menu(page);

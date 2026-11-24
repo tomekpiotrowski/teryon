@@ -153,10 +153,18 @@
                     (input)="model(group.agent, field.strength, $event)"
                   />
                   <datalist [id]="field.listId + '-list'">
-                    @for (name of field.suggestions; track name) {
-                      <option [value]="name"></option>
+                    @for (model of field.suggestions; track model.id) {
+                      <option [value]="model.id" [label]="model.label"></option>
                     }
                   </datalist>
+                  <label [attr.for]="field.listId + '-effort'">{{ field.label }} effort</label>
+                  <select [id]="field.listId + '-effort'" [disabled]="view.saving"
+                    (change)="effort(group.agent, field.strength, $event)">
+                    <option value="" [selected]="field.effort === null">Provider default</option>
+                    @for (effort of field.efforts; track effort.value) {
+                      <option [value]="effort.value" [selected]="field.effort === effort.value">{{ effort.label }}</option>
+                    }
+                  </select>
                 </div>
               }
             </fieldset>

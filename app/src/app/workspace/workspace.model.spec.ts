@@ -1,3 +1,4 @@
+import { modelOptionForTest as model } from './model.testing';
 import {
   AGENTS,
   agentLabel,
@@ -318,7 +319,7 @@ describe('entryLine', () => {
   });
 
   it('shows the model of a turn, with its full name on hover', () => {
-    expect(entryLine(entry('turn_summary', { duration_ms: 2000, model: 'claude-opus-5-5' }))).toEqual({
+    expect(entryLine(entry('turn_summary', { duration_ms: 2000, model: 'claude-opus-5-5', effort: null }))).toEqual({
       kind: 'summary',
       text: 'Done in 2s · Opus 5.5',
       reviewer: false,
@@ -403,15 +404,15 @@ describe('summaryText', () => {
   });
 
   it('names the model that ran after the duration', () => {
-    expect(summaryText({ duration_ms: 72_000, model: 'claude-opus-5-5', tokens: { read: 86_322, written: 229 } })).toBe(
-      'Done in 1m 12s · Opus 5.5 · 86k tokens read, 229 written',
+    expect(summaryText({ duration_ms: 72_000, model: 'claude-opus-5-5', effort: 'xhigh', tokens: { read: 86_322, written: 229 } })).toBe(
+      'Done in 1m 12s · Opus 5.5 · Extra high · 86k tokens read, 229 written',
     );
-    expect(summaryText({ model: 'grok-4.7-build + grok-4.7-build-fast' })).toBe('Done · Grok 4.7 build + Grok 4.7 build fast');
+    expect(summaryText({ model: 'grok-4.7-build + grok-4.7-build-fast', effort: null })).toBe('Done · Grok 4.7 Build + Grok 4.7 Build Fast');
   });
 
   it('leaves out a model that is missing, empty or not a name', () => {
-    expect(summaryText({ duration_ms: 3000, model: null })).toBe('Done in 3s');
-    expect(summaryText({ duration_ms: 3000, model: ' ' })).toBe('Done in 3s');
+    expect(summaryText({ duration_ms: 3000, model: null, effort: null })).toBe('Done in 3s');
+    expect(summaryText({ duration_ms: 3000, model: ' ', effort: null })).toBe('Done in 3s');
     expect(summaryText({ duration_ms: 3000, model: 5 })).toBe('Done in 3s');
   });
 });
@@ -421,57 +422,61 @@ describe('modelLabel', () => {
     ['claude-opus-5-5', 'Opus 5.5'],
     ['claude-fable-5-2', 'Fable 5.2'],
     ['opus', 'Opus'],
-    ['grok-4.7-build-fast', 'Grok 4.7 build fast'],
-    ['gemini-4-neon-high', 'Gemini 4 neon high'],
-    ['gemini-3.8-flash-medium', 'Gemini 3.8 flash medium'],
-    ['gpt-6-astra', 'GPT 6 astra'],
-    ['gpt-6.2-sol', 'GPT 6.2 sol'],
+    ['grok-4.7-build-fast', 'Grok 4.7 Build Fast'],
+    ['gemini-4-neon-high', 'Gemini 4 Neon'],
+    ['gemini-3.8-flash-medium', 'Gemini 3.8 Flash'],
+    ['gemini-4-ultra', 'Gemini 4 Ultra'],
+    ['gpt-6-astra', 'GPT-6 Astra'],
+    ['gpt-6.2-sol', 'GPT-6.2 Sol'],
     ['claude-haiku-4-5-1', 'Haiku 4.5.1'],
     ['5-5', '5.5'],
     ['', ''],
-    ['grok-4.7-build + grok-4.7-build-fast', 'Grok 4.7 build + Grok 4.7 build fast'],
+    ['grok-4.7-build + grok-4.7-build-fast', 'Grok 4.7 Build + Grok 4.7 Build Fast'],
   ])('reads %s as "%s"', (name, label) => {
     expect(modelLabel(name)).toBe(label);
   });
 });
 
 describe('choices', () => {
-  const models = { claude: ['opus', 'sonnet'], codex: [], grok: ['grok-4.6'], gemini: ['gemini-4-neon-high'] };
+  const models = { claude: ['opus', 'sonnet'].map((id) => model(id)), codex: [], grok: ['grok-4.6'].map((id) => model(id)), gemini: [model('gemini-4-neon', 'Gemini 4 Neon', ['high'], 'high')] };
 
   it('labels an agent and its model, or its default', () => {
-    expect(choiceLabel({ agent: 'claude', model: 'claude-opus-5-5' })).toBe('Claude · Opus 5.5');
-    expect(choiceLabel({ agent: 'codex', model: null })).toBe('Codex · default');
-    expect(choiceLabel({ agent: 'gemini', model: 'gemini-4-neon-high' })).toBe('Gemini · Gemini 4 neon high');
+    expect(choiceLabel({ agent: 'claude', model: 'claude-opus-5-5', effort: null })).toBe('Claude · Opus 5.5');
+    expect(choiceLabel({ agent: 'codex', model: null, effort: null })).toBe('Codex');
+    expect(choiceLabel({ agent: 'gemini', model: 'gemini-4-neon-high', effort: null })).toBe('Gemini · Gemini 4 Neon · High');
+    expect(choiceLabel({ agent: 'gemini', model: 'gemini-4-ultra', effort: null })).toBe('Gemini · Gemini 4 Ultra');
+    const withUltra = { ...models, gemini: [...models.gemini, model('gemini-4-ultra', 'Gemini 4 Ultra')] };
+    expect(choiceLabel({ agent: 'gemini', model: 'gemini-4-ultra', effort: null }, withUltra)).toBe('Gemini · Gemini 4 Ultra');
+    expect(choiceLabel({ agent: 'gemini', model: 'gemini-4-neon-high', effort: 'high' }, withUltra)).toBe('Gemini · Gemini 4 Neon · High');
   });
 
-  it('offers an agent\'s default first, then its models', () => {
+  it('offers each concrete model and a provider-only choice for an empty catalog', () => {
     expect(choicesOf('claude', models)).toEqual([
-      { agent: 'claude', model: null },
-      { agent: 'claude', model: 'opus' },
-      { agent: 'claude', model: 'sonnet' },
+      { agent: 'claude', model: 'opus', effort: null },
+      { agent: 'claude', model: 'sonnet', effort: null },
     ]);
-    expect(choicesOf('codex', models)).toEqual([{ agent: 'codex', model: null }]);
+    expect(choicesOf('codex', models)).toEqual([{ agent: 'codex', model: null, effort: null }]);
   });
 
   it('offers every agent\'s choices in the order agents are offered', () => {
-    expect(allChoices(models).map(choiceLabel)).toEqual([
-      'Claude · default', 'Claude · Opus', 'Claude · Sonnet', 'Codex · default', 'Grok · default', 'Grok · Grok 4.6', 'Gemini · default', 'Gemini · Gemini 4 neon high',
+    expect(allChoices(models).map((choice) => choiceLabel(choice, models))).toEqual([
+      'Claude · Opus', 'Claude · Sonnet', 'Codex', 'Grok · Grok 4.6', 'Gemini · Gemini 4 Neon · High',
     ]);
   });
 
   it('tells choices apart by agent and model', () => {
-    expect(sameChoice({ agent: 'claude', model: null }, { agent: 'claude', model: null })).toBe(true);
-    expect(sameChoice({ agent: 'claude', model: null }, { agent: 'claude', model: 'opus' })).toBe(false);
-    expect(sameChoice({ agent: 'claude', model: null }, { agent: 'codex', model: null })).toBe(false);
+    expect(sameChoice({ agent: 'claude', model: null, effort: null }, { agent: 'claude', model: null, effort: null })).toBe(true);
+    expect(sameChoice({ agent: 'claude', model: null, effort: null }, { agent: 'claude', model: 'opus', effort: null })).toBe(false);
+    expect(sameChoice({ agent: 'claude', model: null, effort: null }, { agent: 'codex', model: null, effort: null })).toBe(false);
   });
 
   it('starts new threads on Claude\'s default', () => {
-    expect(chosen(FIRST_NEW_THREADS)).toEqual({ agent: 'claude', model: null });
+    expect(chosen(FIRST_NEW_THREADS)).toEqual({ agent: 'claude', model: null, effort: null });
   });
 
   it('lets the first stage choose for new threads until the person picks', () => {
     expect(startingChoice(FIRST_NEW_THREADS)).toBeNull();
-    expect(startingChoice(choosing(FIRST_NEW_THREADS, { agent: 'codex', model: null }))).toEqual({ agent: 'codex', model: null });
+    expect(startingChoice(choosing(FIRST_NEW_THREADS, { agent: 'codex', model: null, effort: null }))).toEqual({ agent: 'codex', model: null, effort: null });
   });
 
   it('says what new threads start with: the first stage\'s choice until the person picks', () => {
@@ -479,23 +484,23 @@ describe('choices', () => {
       ...STAGE_DEFAULTS,
       labels: STAGE_DEFAULTS.labels.map((label) => (label.stage === 'talking' ? { ...label, chooses: 'Prefer Claude · strong' } : label)),
     };
-    const sonnet: Starting = { type: 'provider', agent: 'claude', model: 'claude-sonnet-5-5' };
-    expect(pendingChoice(FIRST_NEW_THREADS, sonnet)).toEqual({ agent: 'claude', model: 'claude-sonnet-5-5' });
-    expect(pendingChoice(FIRST_NEW_THREADS, { type: 'unavailable', problem: 'x' })).toEqual({ agent: 'claude', model: null });
+    const sonnet: Starting = { type: 'provider', agent: 'claude', model: 'claude-sonnet-5-5', effort: null };
+    expect(pendingChoice(FIRST_NEW_THREADS, sonnet)).toEqual({ agent: 'claude', model: 'claude-sonnet-5-5', effort: null });
+    expect(pendingChoice(FIRST_NEW_THREADS, { type: 'unavailable', problem: 'x' })).toEqual({ agent: 'claude', model: null, effort: null });
     expect(firstStageChooses(choosingTalk)).toBe(true);
     expect(firstStageChooses(STAGE_DEFAULTS)).toBe(false);
   });
 
   it('updates the selected agent’s model and keeps the previous agent’s model', () => {
-    const codex = choosing(FIRST_NEW_THREADS, { agent: 'codex', model: 'gpt-6-astra' });
-    const grok = choosing(codex, { agent: 'grok', model: 'grok-4.6' });
-    const defaultGrok = choosing(grok, { agent: 'grok', model: null });
-    expect(startingChoice(defaultGrok)).toEqual({ agent: 'grok', model: null });
+    const codex = choosing(FIRST_NEW_THREADS, { agent: 'codex', model: 'gpt-6-astra', effort: null });
+    const grok = choosing(codex, { agent: 'grok', model: 'grok-4.6', effort: null });
+    const defaultGrok = choosing(grok, { agent: 'grok', model: null, effort: null });
+    expect(startingChoice(defaultGrok)).toEqual({ agent: 'grok', model: null, effort: null });
     expect(defaultGrok.models).toEqual({ ...FIRST_NEW_THREADS.models, codex: 'gpt-6-astra' });
   });
 
   it('reads what was remembered of the choice for new threads', () => {
-    const remembered = choosing(FIRST_NEW_THREADS, { agent: 'codex', model: 'gpt-6-astra' });
+    const remembered = choosing(FIRST_NEW_THREADS, { agent: 'codex', model: 'gpt-6-astra', effort: null });
     expect(readNewThreads(JSON.stringify(remembered))).toEqual(remembered);
   });
 
@@ -503,31 +508,41 @@ describe('choices', () => {
     expect(readNewThreads(stored)).toEqual(FIRST_NEW_THREADS);
   });
 
-  it('keeps only the models that are text', () => {
-    expect(readNewThreads('{"agent":"grok","picked":false,"models":{"grok":"g","claude":4}}')).toEqual({
+  it('keeps only valid model and effort values', () => {
+    expect(readNewThreads('{"agent":"grok","picked":false,"models":{"grok":"g","claude":4},"efforts":{"grok:g":"xhigh","claude:opus":"invented","invalid":"low"}}')).toEqual({
       agent: 'grok',
       picked: false,
       models: { claude: null, codex: null, grok: 'g', gemini: null },
+      efforts: { 'grok:g': 'xhigh' },
     });
   });
 
   it('remembers the model chosen for each agent, across switching agents', () => {
-    const onOpus = choosing(FIRST_NEW_THREADS, { agent: 'claude', model: 'opus' });
-    const onCodex = choosing(onOpus, { agent: 'codex', model: null });
-    expect(chosen(onCodex)).toEqual({ agent: 'codex', model: null });
+    const onOpus = choosing(FIRST_NEW_THREADS, { agent: 'claude', model: 'opus', effort: null });
+    const onCodex = choosing(onOpus, { agent: 'codex', model: null, effort: null });
+    expect(chosen(onCodex)).toEqual({ agent: 'codex', model: null, effort: null });
     const back = { ...onCodex, agent: 'claude' as const };
-    expect(chosen(back)).toEqual({ agent: 'claude', model: 'opus' });
-    const grokked = choosing(back, { agent: 'grok', model: 'grok-4.6' });
+    expect(chosen(back)).toEqual({ agent: 'claude', model: 'opus', effort: null });
+    const grokked = choosing(back, { agent: 'grok', model: 'grok-4.6', effort: null });
     expect(grokked.models).toEqual({ claude: 'opus', codex: null, grok: 'grok-4.6', gemini: null });
+  });
+
+  it('remembers different efforts for models of the same provider across reload', () => {
+    const first = choosing(FIRST_NEW_THREADS, { agent: 'claude', model: 'opus', effort: 'max' });
+    const second = choosing(first, { agent: 'claude', model: 'sonnet', effort: 'low' });
+    const restored = readNewThreads(JSON.stringify(second));
+    expect(chosen(restored)).toEqual({ agent: 'claude', model: 'sonnet', effort: 'low' });
+    expect(chosen({ ...restored, models: { ...restored.models, claude: 'opus' } })).toEqual({ agent: 'claude', model: 'opus', effort: 'max' });
+    expect(readNewThreads(JSON.stringify({ agent: 'claude', models: first.models, picked: true }))).toEqual(FIRST_NEW_THREADS);
   });
 
   it('reads the choice of a thread\'s agent and of its reviewer', () => {
     const plain = thread('t', 'a', '2026-11-03T10:00:00');
     const reviewed = { ...plain, model: 'opus', reviewer: { agent: 'grok' as const, model: 'grok-4.6', reviewing: false, verdict: null } };
-    expect(threadChoice(plain, 'author')).toEqual({ agent: 'claude', model: null });
+    expect(threadChoice(plain, 'author')).toEqual({ agent: 'claude', model: null, effort: null });
     expect(threadChoice(plain, 'reviewer')).toBeNull();
-    expect(threadChoice(reviewed, 'author')).toEqual({ agent: 'claude', model: 'opus' });
-    expect(threadChoice(reviewed, 'reviewer')).toEqual({ agent: 'grok', model: 'grok-4.6' });
+    expect(threadChoice(reviewed, 'author')).toEqual({ agent: 'claude', model: 'opus', effort: null });
+    expect(threadChoice(reviewed, 'reviewer')).toEqual({ agent: 'grok', model: 'grok-4.6', effort: null });
   });
 });
 

@@ -44,7 +44,8 @@ import {
   headerScope,
   coversThread,
   type Choice,
-  choiceLabel,
+  allowedThreadAgents,
+  FIRST_NEW_THREADS,
   choosing,
   type NewThreads,
   threadChoice,
@@ -178,7 +179,8 @@ export class WorkspacePage implements OnDestroy {
   readonly headerName = headerName;
   readonly headerScope = headerScope;
   readonly agentLabel = agentLabel;
-  readonly choiceLabel = choiceLabel;
+  readonly allowedThreadAgents = allowedThreadAgents;
+  readonly firstNewThreads = FIRST_NEW_THREADS;
   readonly threadChoice = threadChoice;
   readonly coversThread = coversThread;
   readonly runningCount = runningCount;
@@ -299,19 +301,23 @@ export class WorkspacePage implements OnDestroy {
     toObservable(this.theme.theme),
     this.store.opens$,
     this.models$,
+    this.installed$,
+    this.starting$,
     this.target$,
     this.store.workflows$,
     combineLatest([this.pending$, this.putAway$]).pipe(map(([pending, putAway]) => pending !== null && pending.id === putAway)),
     this.screen$,
     this.boardEvery$,
   ]).pipe(
-    map(([view, newThreads, theme, opens, models, to, workflows, questionsPutAway, screen, everyProject]) =>
+    map(([view, newThreads, theme, opens, models, installed, starting, to, workflows, questionsPutAway, screen, everyProject]) =>
       commandList({
         ...view,
         newThreads,
         theme,
         opens,
         models,
+        installed,
+        starting,
         to,
         workflows,
         questionsPutAway,
@@ -716,7 +722,6 @@ export class WorkspacePage implements OnDestroy {
     });
   }
 
-  /** Switches a thread's agent, or its reviewer, to another agent or model, from the next message on. */
   /** Opens the open thread's plan. */
   showPlan(): void {
     this.screen$.next('plan');
@@ -741,6 +746,7 @@ export class WorkspacePage implements OnDestroy {
     this.screen$.next('thread');
   }
 
+  /** Switches a thread's agent, or its reviewer, to another agent, model, or effort, from the next message on. */
   changeAgent(thread: Thread, to: Voice, choice: Choice): void {
     this.api.changeAgent(thread.id, to, choice).subscribe({
       error: (failure: unknown) => this.alerts.error(refusalText(failure, 'The agent could not be changed.')),
@@ -825,7 +831,7 @@ export class WorkspacePage implements OnDestroy {
     if (this.sending$.value) return;
     this.sending$.next(true);
     this.api
-      .createThread(request.projectId, startingChoice(this.newThreads$.value), request.workflow)
+      .createThread(request.projectId, request.choice, request.workflow)
       .pipe(
         tap((thread) => this.selection$.next({ projectId: thread.project_id, threadId: thread.id })),
         switchMap((thread) => this.api.sendMessage(thread.id, request.text, 'author')),

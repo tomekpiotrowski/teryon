@@ -32,6 +32,7 @@ pub fn fake_agents() -> AgentSettings {
         stop_grace_seconds: 1,
         claude: ClaudeSettings {
             program: "tests/samples/fake-claude.sh".to_string(),
+            home: Some(PathBuf::from("tests/samples/no-claude-home")),
             ..ClaudeSettings::default()
         },
         codex: CodexSettings {

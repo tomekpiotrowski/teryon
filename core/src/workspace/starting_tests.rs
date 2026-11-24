@@ -161,7 +161,7 @@ fn saving_workspace() -> (Workspace, TempDir, TempDir) {
 fn model_while_starting(workspace: &Workspace) -> (Option<String>, Option<String>) {
     let medium = |workspace: &Workspace| workspace.inner.setup().agents.claude.medium.clone();
     let mut configuration = workspace.configuration();
-    configuration.claude.medium = "saved-model".to_string();
+    configuration.claude.medium.model = "saved-model".to_string();
     let held = workspace.inner.starting();
     let saving = workspace.clone();
     let save = std::thread::spawn(move || saving.save_configuration(&configuration).unwrap());

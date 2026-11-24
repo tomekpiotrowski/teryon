@@ -9,8 +9,8 @@
  * whether the screen or the file caught it.
  */
 
-import type { Configuration, ConfiguredStage, Stage, StageProvider, Strength, StrengthModels } from '../service/protocol';
-import { AGENTS, type AgentName, agentLabel, type ModelLists, STAGES, usualStageLabel } from './workspace.model';
+import type { Configuration, ConfiguredStage, Effort, ModelOption, Stage, StageProvider, Strength, StrengthModels } from '../service/protocol';
+import { AGENTS, type AgentName, agentLabel, EFFORT_LABELS, effortLabel, type ModelLists, modelOption, STAGES, usualStageLabel } from './workspace.model';
 
 /** How a stage picks who works. Keep leaves the thread's agent as it is. */
 export type ProviderMode = 'keep' | 'any' | 'prefer' | 'only';
@@ -103,7 +103,7 @@ export interface StageRow {
 export interface ModelGroup {
   readonly agent: AgentName;
   readonly title: string;
-  readonly fields: readonly { readonly strength: Strength; readonly label: string; readonly value: string; readonly placeholder: string; readonly suggestions: readonly string[]; readonly listId: string }[];
+  readonly fields: readonly { readonly strength: Strength; readonly label: string; readonly value: string; readonly placeholder: string; readonly suggestions: readonly ModelOption[]; readonly listId: string; readonly effort: Effort | null; readonly efforts: readonly { value: Effort; label: string }[] }[];
 }
 
 /** What the settings screen draws. */
@@ -287,7 +287,12 @@ export function setStrength(draft: SettingsDraft, stage: Stage, strength: Streng
 
 /** Sets the model an agent runs for a strength. Empty means the default again. */
 export function setModel(draft: SettingsDraft, agent: AgentName, strength: Strength, value: string): SettingsDraft {
-  return { ...draft, [agent]: { ...draft[agent], [strength]: value } };
+  return { ...draft, [agent]: { ...draft[agent], [strength]: { ...draft[agent][strength], model: value } } };
+}
+
+/** Sets the effort a strength runs, or leaves the choice to the provider. */
+export function setEffort(draft: SettingsDraft, agent: AgentName, strength: Strength, effort: Effort | null): SettingsDraft {
+  return { ...draft, [agent]: { ...draft[agent], [strength]: { ...draft[agent][strength], effort } } };
 }
 
 /** Sets the command that opens a copy in an editor. Empty means the menu does not offer it. */
@@ -352,7 +357,7 @@ export function settingsView(
       })),
     })),
     stages: draft.stages.map((stage) => stageRow(stage)),
-    models: AGENTS.map((agent) => modelGroup(agent, draft[agent], models[agent])),
+    models: AGENTS.map((agent) => modelGroup(agent, draft[agent], models)),
     editor: draft.editor,
     terminal: draft.terminal,
   };
@@ -490,17 +495,26 @@ function stageRow(stage: StageDraft): StageRow {
   };
 }
 
-function modelGroup(agent: AgentName, models: StrengthModels, suggestions: readonly string[]): ModelGroup {
+/** Presents each strength with the efforts supported by the model it names. */
+function modelGroup(agent: AgentName, choices: StrengthModels, models: ModelLists): ModelGroup {
   return {
     agent,
     title: agentLabel(agent),
-    fields: STRENGTHS.map((strength) => ({
-      strength,
-      label: STRENGTH_LABELS[strength],
-      value: models[strength],
-      placeholder: agent === 'claude' ? CLAUDE_PLACEHOLDERS[strength] : 'Program default',
-      suggestions,
-      listId: `settings-model-${agent}-${strength}`,
-    })),
+    fields: STRENGTHS.map((strength) => {
+      const choice = choices[strength];
+      const option = modelOption(agent, choice.model.trim() || null, models);
+      const supported = option?.efforts ?? Object.keys(EFFORT_LABELS) as Effort[];
+      const efforts = choice.effort && !supported.includes(choice.effort) ? [...supported, choice.effort] : supported;
+      return {
+        strength,
+        label: STRENGTH_LABELS[strength],
+        value: choice.model,
+        placeholder: agent === 'claude' ? CLAUDE_PLACEHOLDERS[strength] : 'Program default',
+        suggestions: models[agent],
+        listId: `settings-model-${agent}-${strength}`,
+        effort: choice.effort,
+        efforts: efforts.map((effort) => ({ value: effort, label: effortLabel(effort) })),
+      };
+    }),
   };
 }

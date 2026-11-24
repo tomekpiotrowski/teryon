@@ -1,3 +1,5 @@
+import { modelOptionForTest as model } from './model.testing';
+import { NO_MODELS } from './workspace.model';
 import { BOARD_START, boardCard, boardColumns, cardAt, cursorOn, movedCursor, rememberedFinishes, settledCursor, type BoardColumn, type SeenFinish } from './board.model';
 import { NO_WORKFLOWS, type Project, type Stage, type Thread, type Workflows } from './workspace.model';
 
@@ -155,8 +157,9 @@ describe('boardCard', () => {
 
   it('shows the reviewer while a review runs', () => {
     const reviewer = { agent: 'grok' as const, model: null, reviewing: true, verdict: null };
-    expect(boardCard(thread('t', { status: 'running', reviewer }), '').choice).toBe('Grok · default');
-    expect(boardCard(thread('t', { reviewer }), '').choice).toBe('Claude · default');
+    const catalog = { ...NO_MODELS, grok: [model('grok-4.7', 'Grok 4.7', ['medium', 'xhigh'], 'medium')] };
+    expect(boardCard(thread('t', { status: 'running', reviewer: { ...reviewer, effort: 'xhigh' } }), '', catalog).choice).toBe('Grok · Grok 4.7 · Extra high');
+    expect(boardCard(thread('t', { reviewer }), '', catalog).choice).toBe('Claude');
   });
 
   it('shows the change’s name and how many files it changed', () => {

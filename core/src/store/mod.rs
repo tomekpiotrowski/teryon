@@ -13,6 +13,7 @@
 pub mod projects;
 pub mod threads;
 
+use crate::agents::models::Effort;
 use std::collections::BTreeMap;
 use std::fs::{rename, write};
 use std::io::Error as IoError;
@@ -120,6 +121,9 @@ pub struct Thread {
     /// Can change between messages; each turn's summary says which model did that turn.
     #[serde(default)]
     pub model: Option<String>,
+    #[serde(default)]
+    /// The requested effort, or the provider setting when absent.
+    pub effort: Option<Effort>,
     /// The identifier the agent program gave this conversation.
     ///
     /// Nothing until the program has started it: the program makes the
@@ -237,6 +241,9 @@ pub struct Reviewer {
     /// The model the reviewer runs on. Nothing leaves it to the agent program's own settings.
     #[serde(default)]
     pub model: Option<String>,
+    #[serde(default)]
+    /// The requested effort, or the provider setting when absent.
+    pub effort: Option<Effort>,
     /// The identifier the agent program gave the reviewer's conversation. Nothing until it has started it.
     #[serde(default)]
     pub conversation: Option<String>,

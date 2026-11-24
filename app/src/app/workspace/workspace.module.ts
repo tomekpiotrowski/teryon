@@ -2,6 +2,7 @@ import { CommonModule } from '@angular/common';
 import { NgModule } from '@angular/core';
 import { RouterModule } from '@angular/router';
 import { IonContent } from '@ionic/angular/ion-content';
+import { AgentChooserComponent } from './agent-chooser.component';
 import { BoardComponent } from './board.component';
 import { PlanComponent } from './plan.component';
 import { CommandMenuComponent } from './command-menu.component';
@@ -20,7 +21,7 @@ import { WorkspacePage } from './workspace.page';
 
 /** The signed-in part of Teryon: the workspace screen with its menu, its file browser, its history, the board, the usage and the settings. */
 @NgModule({
-  declarations: [WorkspacePage, HomeComponent, TopBarComponent, BoardComponent, PlanComponent, CommandMenuComponent, NewProjectComponent, FilesComponent, HistoryComponent, RepositoryBarComponent, UsageComponent, SettingsComponent, ShortcutsComponent, QuestionsComponent, MarkdownPipe],
+  declarations: [WorkspacePage, AgentChooserComponent, HomeComponent, TopBarComponent, BoardComponent, PlanComponent, CommandMenuComponent, NewProjectComponent, FilesComponent, HistoryComponent, RepositoryBarComponent, UsageComponent, SettingsComponent, ShortcutsComponent, QuestionsComponent, MarkdownPipe],
   imports: [CommonModule, IonContent, RouterModule.forChild([{ path: '', component: WorkspacePage }])],
 })
 export class WorkspaceModule {}

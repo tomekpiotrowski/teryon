@@ -11,6 +11,7 @@ import {
   renameWorkflow,
   setAgent,
   setEditor,
+  setEffort,
   setLabel,
   setMode,
   setModel,
@@ -27,7 +28,7 @@ import {
   withoutWorkflow,
 } from './settings.model';
 import { WorkspaceApi } from './workspace.api';
-import { headerName, type AgentName, refusalText } from './workspace.model';
+import { headerName, type AgentName, isEffort, refusalText } from './workspace.model';
 import { WorkspaceStore } from './workspace.store';
 
 /** The draft on screen, the last one the service confirmed, and why the last save was refused. */
@@ -172,6 +173,12 @@ export class SettingsComponent {
 
   model(agent: AgentName, strength: Strength, event: Event): void {
     this.patch((draft) => setModel(draft, agent, strength, valueOf(event)));
+  }
+
+  /** Applies the effort chosen for this provider and strength. */
+  effort(agent: AgentName, strength: Strength, event: Event): void {
+    const value = valueOf(event);
+    this.patch((draft) => setEffort(draft, agent, strength, isEffort(value) ? value : null));
   }
 
   editorCommand(event: Event): void {

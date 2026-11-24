@@ -11,6 +11,8 @@
 
 import {
   choiceLabel,
+  type ModelLists,
+  NO_MODELS,
   type Project,
   stageLabel,
   stageOf,
@@ -79,6 +81,7 @@ export function boardColumns(
   projects: readonly Project[],
   workflows: Workflows,
   projectId: string | null,
+  models: ModelLists = NO_MODELS,
 ): BoardColumn[] {
   const inScope = threads.filter((thread) => projectId === null || thread.project_id === projectId);
   const used = new Set<Stage>(
@@ -91,7 +94,7 @@ export function boardColumns(
       const cards = inScope
         .filter((thread) => onBoard(thread) && stageOf(thread) === stage)
         .sort((a, b) => sinceOf(b).localeCompare(sinceOf(a)))
-        .map((thread) => boardCard(thread, projectId === null ? (names.get(thread.project_id) ?? '') : ''));
+        .map((thread) => boardCard(thread, projectId === null ? (names.get(thread.project_id) ?? '') : '', models));
       return { stage, label: stageLabel(workflows, stage), cards };
     })
     .filter((column) => column.stage !== 'done' || column.cards.length > 0);
@@ -139,9 +142,9 @@ function sinceOf(thread: Thread): string {
   return thread.stage_since ?? thread.created_at;
 }
 
-export function boardCard(thread: Thread, project: string): BoardCard {
+export function boardCard(thread: Thread, project: string, models: ModelLists = NO_MODELS): BoardCard {
   const reviewing = thread.status === 'running' && thread.reviewer?.reviewing === true;
-  const choice = threadChoice(thread, reviewing ? 'reviewer' : 'author') ?? { agent: thread.agent, model: null };
+  const choice = threadChoice(thread, reviewing ? 'reviewer' : 'author') ?? { agent: thread.agent, model: null, effort: null };
   const change = thread.change;
   const files = change?.state?.files_changed;
   const verdict = thread.reviewer?.verdict;
@@ -150,7 +153,7 @@ export function boardCard(thread: Thread, project: string): BoardCard {
     thread,
     title: threadLabel(thread),
     project,
-    choice: choiceLabel(choice),
+    choice: choiceLabel(choice, models),
     live: thread.status === 'running',
     asking: thread.status === 'idle' && thread.asking === true,
     change: change ? [change.name, files === undefined ? '' : files === 1 ? '1 file' : `${files} files`].filter(Boolean).join(' · ') : '',

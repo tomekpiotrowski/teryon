@@ -38,7 +38,7 @@ export class WorkspaceApi {
    * The thread follows the named workflow, or the default one without a name.
    */
   createThread(projectId: string, choice: Choice | null, workflow: string | null = null): Observable<Thread> {
-    return this.ask({ type: 'start_thread', project_id: projectId, agent: choice?.agent ?? null, model: choice?.model ?? null, title: '', workflow }, (answer) =>
+    return this.ask({ type: 'start_thread', project_id: projectId, agent: choice?.agent ?? null, model: choice?.model ?? null, effort: choice?.effort ?? null, title: '', workflow }, (answer) =>
       answer.type === 'thread' ? (answer.thread as Thread) : undefined,
     );
   }
@@ -56,7 +56,7 @@ export class WorkspaceApi {
    * Answers with the line that starts the review.
    */
   reviewChange(threadId: string, choice: Choice): Observable<ThreadEntry> {
-    return this.ask({ type: 'review_change', thread_id: threadId, agent: choice.agent, model: choice.model }, (answer) =>
+    return this.ask({ type: 'review_change', thread_id: threadId, agent: choice.agent, model: choice.model, effort: choice.effort }, (answer) =>
       answer.type === 'entry' ? (answer.entry as ThreadEntry) : undefined,
     );
   }
@@ -70,7 +70,7 @@ export class WorkspaceApi {
 
   /** Switches a thread's agent, or its reviewer, to another agent or model, from the next message on. */
   changeAgent(threadId: string, to: Voice, choice: Choice): Observable<Thread> {
-    return this.ask({ type: 'change_agent', thread_id: threadId, to, agent: choice.agent, model: choice.model }, (answer) =>
+    return this.ask({ type: 'change_agent', thread_id: threadId, to, agent: choice.agent, model: choice.model, effort: choice.effort }, (answer) =>
       answer.type === 'thread' ? (answer.thread as Thread) : undefined,
     );
   }

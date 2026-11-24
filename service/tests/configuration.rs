@@ -17,6 +17,7 @@ use tokio::time::sleep;
 use common::{project_id, repository, scene, wait_for};
 use teryon::client::{Client, ClientError};
 use teryon::session::{Origin, Session};
+use teryon_core::agents::models::Effort;
 use teryon_core::agents::Voice;
 use teryon_core::paths::Folders;
 use teryon_core::protocol::{Answer, Event, Request};
@@ -59,6 +60,7 @@ async fn started(
             project_id: project,
             agent: agent.map(str::to_string),
             model: model.map(str::to_string),
+            effort: None,
             title: String::new(),
             workflow: None,
         })
@@ -157,13 +159,15 @@ lets_expect! { #tokio_test
                 stage.strength = Some(Strength::Fast);
             }
         }
-        configuration.grok.fast = "grok-test".to_string();
+        configuration.grok.fast.model = "grok-test".to_string();
+        configuration.grok.fast.effort = Some(Effort::Xhigh);
         client.call(Request::SaveConfiguration { configuration: Box::new(configuration) }).await.unwrap();
 
         let thread = started(&mut client, &repository(), None, None).await;
 
         expect(thread.agent) to equal("grok".to_string())
         expect(thread.model) to equal(Some("grok-test".to_string()))
+        expect(thread.effort) to equal(Some(Effort::Xhigh))
     }
 
     // requirement: a turn already running stays running through a save, then finishes with the model it was started with
@@ -175,7 +179,7 @@ lets_expect! { #tokio_test
         client.call(Request::SendMessage { thread_id: thread, text: "remember the turn and wait".to_string(), to: Voice::Author }).await.unwrap();
         written_by_agent(&folder, ".fake-agent-turn").await;
         let mut configuration = shown(&mut client).await;
-        configuration.claude.strong = "later-model".to_string();
+        configuration.claude.strong.model = "later-model".to_string();
 
         client.call(Request::SaveConfiguration { configuration: Box::new(configuration) }).await.unwrap();
         let mut other = scene.client().await;

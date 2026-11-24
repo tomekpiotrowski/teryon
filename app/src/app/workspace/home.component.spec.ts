@@ -1,8 +1,11 @@
+import { CommonModule } from '@angular/common';
+import { AgentChooserComponent } from './agent-chooser.component';
+import { modelOptionForTest as model } from './model.testing';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { vi } from 'vitest';
 
 import { HomeComponent, type StartRequest } from './home.component';
-import { type Choice, groupThreads, type ModelLists, type NewThreads, NO_MODELS, NO_WORKFLOWS, type Project, type Starting, type Thread, type Workflows } from './workspace.model';
+import { type Choice, groupThreads, type ModelLists, NO_MODELS, NO_WORKFLOWS, type Project, type Starting, type Thread, type Workflows } from './workspace.model';
 
 const project = (id: string): Project => ({ id, name: `Project ${id}`, directory: `/work/${id}`, created_at: '2026-11-01T10:00:00' });
 
@@ -48,7 +51,6 @@ interface SceneInputs {
   starting?: Starting | null;
   models?: ModelLists;
   pickedChoice?: Choice;
-  rememberedModels?: NewThreads['models'];
 }
 
 /** Home on projects `a` and `b`, with the given threads, and a record of what it emits. */
@@ -66,10 +68,9 @@ function scene(threads: Thread[] = [], inputs: SceneInputs = {}): Scene {
   home.groups = groupThreads([project('a'), project('b')], threads);
   home.installed = inputs.installed ?? ['claude', 'codex', 'grok'];
   home.workflows = inputs.workflows ?? TEST_WORKFLOWS;
-  home.starting = inputs.starting === undefined ? { type: 'provider', agent: 'claude', model: null } : inputs.starting;
+  home.starting = inputs.starting === undefined ? { type: 'provider', agent: 'claude', model: null, effort: null } : inputs.starting;
   home.models = inputs.models ?? NO_MODELS;
   home.pickedChoice = inputs.pickedChoice ?? null;
-  home.rememberedModels = inputs.rememberedModels ?? null;
   home.project = project('a');
   if (inputs.text !== undefined) home.text = inputs.text;
   fixture.detectChanges();
@@ -103,7 +104,7 @@ function button(of: Scene, text: string): HTMLButtonElement {
 }
 
 function agentChooser(of: Scene): HTMLButtonElement {
-  return of.element.querySelector<HTMLButtonElement>('.home-agent')!;
+  return of.element.querySelector<HTMLButtonElement>('.agent-trigger')!;
 }
 
 function clickButton(of: Scene, label: string): void {
@@ -129,7 +130,7 @@ function stubStorage(): void {
 describe('HomeComponent', () => {
   beforeEach(() => {
     stubStorage();
-    TestBed.configureTestingModule({ declarations: [HomeComponent] });
+    TestBed.configureTestingModule({ imports: [CommonModule], declarations: [HomeComponent, AgentChooserComponent] });
   });
 
   afterEach(() => {
@@ -157,7 +158,7 @@ describe('HomeComponent', () => {
       const one = scene([thread({ id: '1', asking: true })]);
       expect(rows(one)[0].querySelectorAll('.home-dim')).toHaveLength(0);
       TestBed.resetTestingModule();
-      TestBed.configureTestingModule({ declarations: [HomeComponent] });
+      TestBed.configureTestingModule({ imports: [CommonModule], declarations: [HomeComponent, AgentChooserComponent] });
       const several = scene([thread({ id: '1', asking: true }), thread({ id: '2', asking: true, project_id: 'b' })]);
       expect(rows(several).map((row) => row.querySelectorAll('.home-dim').length)).toEqual([1, 1]);
     });
@@ -196,7 +197,7 @@ describe('HomeComponent', () => {
       const empty = scene([]);
       expect(key(empty, prompt(empty), 'Tab').defaultPrevented).toBe(false);
       TestBed.resetTestingModule();
-      TestBed.configureTestingModule({ declarations: [HomeComponent] });
+      TestBed.configureTestingModule({ imports: [CommonModule], declarations: [HomeComponent, AgentChooserComponent] });
       const home = scene(waiting);
       expect(key(home, prompt(home), 'Tab', { shiftKey: true }).defaultPrevented).toBe(false);
     });
@@ -249,7 +250,7 @@ describe('HomeComponent', () => {
       const home = scene();
       type(home, ' Fix the parser ');
       key(home, prompt(home), 'Enter');
-      expect(home.started).toEqual([{ projectId: 'a', workflow: 'default', text: 'Fix the parser' }]);
+      expect(home.started).toEqual([{ projectId: 'a', workflow: 'default', text: 'Fix the parser', choice: { agent: 'claude', model: null, effort: null } }]);
     });
 
     it('keeps the text, so a refused request loses nothing', () => {
@@ -268,7 +269,7 @@ describe('HomeComponent', () => {
       clickButton(home, 'Project b');
       type(home, 'hello');
       button(home, 'Run').click();
-      expect(home.started).toEqual([{ projectId: 'b', workflow: 'default', text: 'hello' }]);
+      expect(home.started).toEqual([{ projectId: 'b', workflow: 'default', text: 'hello', choice: { agent: 'claude', model: null, effort: null } }]);
     });
 
     it('sends the workflow it names after a rename too', () => {
@@ -279,35 +280,9 @@ describe('HomeComponent', () => {
     });
 
     it('shows the default workflow stage model', () => {
-      const home = scene([], { starting: { type: 'provider', agent: 'grok', model: 'grok-4.6' } });
+      const home = scene([], { starting: { type: 'provider', agent: 'grok', model: 'grok-4.6', effort: null } });
       expect(agentChooser(home).textContent?.trim()).toBe('Grok · Grok 4.6');
       expect(home.element.querySelector('[aria-label="Workflow"]')).toBeNull();
-    });
-
-    it('closes the model chooser for an outside click or Escape and keeps the choice and draft', async () => {
-      const home = scene([], { text: 'keep this', models: { ...NO_MODELS, codex: ['gpt-6-astra'] } });
-      const trigger = agentChooser(home);
-      const outside = home.element.querySelector<HTMLElement>('.home-nothing')!;
-      const openModels = async () => {
-        clickButton(home, 'Claude · default');
-        clickButton(home, 'Codex');
-        await home.fixture.whenStable();
-        expect(trigger.getAttribute('aria-expanded')).toBe('true');
-      };
-
-      await openModels();
-      outside.click();
-      home.fixture.detectChanges();
-      expect(trigger.getAttribute('aria-expanded')).toBe('false');
-      expect(document.activeElement).toBe(trigger);
-
-      await openModels();
-      expect(key(home, button(home, 'Default'), 'Escape').defaultPrevented).toBe(true);
-      expect(trigger.getAttribute('aria-expanded')).toBe('false');
-      expect(document.activeElement).toBe(trigger);
-      expect(home.chosen).toEqual([]);
-      expect(trigger.textContent?.trim()).toBe('Claude · default');
-      expect(prompt(home).value).toBe('keep this');
     });
 
     it('closes the project chooser on outside click or Escape and keeps the draft', () => {
@@ -348,7 +323,7 @@ describe('HomeComponent', () => {
       expect(button(home, 'Project b')).toBeDefined();
       type(home, 'hello');
       key(home, prompt(home), 'Enter');
-      expect(home.started).toEqual([{ projectId: 'b', workflow: 'default', text: 'hello' }]);
+      expect(home.started).toEqual([{ projectId: 'b', workflow: 'default', text: 'hello', choice: { agent: 'claude', model: null, effort: null } }]);
     });
 
     it('shows text the workspace puts in the prompt', () => {
@@ -357,103 +332,25 @@ describe('HomeComponent', () => {
     });
   });
 
-  describe('the agent and model chooser', () => {
-    const models = { ...NO_MODELS, codex: ['gpt-6-astra', 'gpt-6-sol'] };
-    const goToModels = (home: Scene) => {
+  describe('the agent chooser', () => {
+    const models = { ...NO_MODELS, codex: [model('gpt-6-astra', 'GPT-6 Astra', ['low', 'high'], 'low')] };
+
+    it('offers model and effort for an installed agent and preserves the draft', () => {
+      const home = scene([], { models, text: 'keep this' });
       agentChooser(home).click();
       home.fixture.detectChanges();
       clickButton(home, 'Codex');
-    };
-    const options = (home: Scene, list: string) =>
-      Array.from(home.element.querySelectorAll(`[aria-label="${list}"] [role="option"]`));
-
-    it('lists the installed agents first, then names and versions for the chosen agent', () => {
-      const home = scene([], { models, rememberedModels: { claude: null, codex: 'gpt-6-sol', grok: null, gemini: null } });
-      clickButton(home, 'Claude · default');
-      expect(options(home, 'Agent').map((option) => [option.textContent?.trim(), option.getAttribute('aria-selected')])).toEqual([
-        ['Claude', 'true'],
-        ['Codex', 'false'],
-        ['Grok', 'false'],
-      ]);
-      clickButton(home, 'Codex');
-      expect(options(home, 'Agent')).toHaveLength(0);
-      expect(options(home, 'Model').map((option) => [option.textContent?.trim(), option.getAttribute('aria-selected'), option.getAttribute('title')])).toEqual([
-        ['Default', 'false', null],
-        ['GPT 6 astra', 'false', 'gpt-6-astra'],
-        ['GPT 6 sol', 'true', 'gpt-6-sol'],
-      ]);
-      expect(home.chosen).toEqual([]);
-      expect(agentChooser(home).textContent?.trim()).toBe('Claude · default');
-      clickButton(home, '‹ Agents');
-      expect(options(home, 'Agent')).toHaveLength(3);
-      expect(options(home, 'Model')).toHaveLength(0);
-      expect(home.chosen).toEqual([]);
+      clickButton(home, 'GPT-6 Astra');
+      clickButton(home, 'High');
+      expect(home.chosen).toEqual([{ agent: 'codex', model: 'gpt-6-astra', effort: 'high' }]);
+      expect(prompt(home).value).toBe('keep this');
     });
 
-    it.each([
-      ['GPT 6 astra', 'gpt-6-astra', 'GPT 6 astra'],
-      ['Default', null, 'default'],
-    ] as const)('emits the exact choice for %s, closes the list and returns focus', async (label, model, shown) => {
-      const home = scene([], { models });
-      goToModels(home);
-      await home.fixture.whenStable();
-      clickButton(home, label);
-      const choice = { agent: 'codex' as const, model };
-      expect(home.chosen).toEqual([choice]);
-      expect(agentChooser(home).getAttribute('aria-expanded')).toBe('false');
-      expect(document.activeElement).toBe(agentChooser(home));
-
-      home.fixture.componentInstance.pickedChoice = choice;
-      home.fixture.detectChanges();
-      expect(agentChooser(home).textContent?.trim()).toBe(`Codex · ${shown}`);
-    });
-
-    it('marks the service model for the current agent while discovery updates the open list', () => {
-      const home = scene([], { models, starting: { type: 'provider', agent: 'codex', model: 'gpt-6-other' } });
-      expect(agentChooser(home).textContent?.trim()).toBe('Codex · GPT 6 other');
-      goToModels(home);
-      expect(options(home, 'Model').every((option) => option.getAttribute('aria-selected') === 'false')).toBe(true);
-
-      home.fixture.componentInstance.models = { ...NO_MODELS, codex: ['gpt-6-sol', 'gpt-6-other'] };
-      home.fixture.detectChanges();
-      expect(options(home, 'Model').map((option) => option.textContent?.trim())).toEqual(['Default', 'GPT 6 sol', 'GPT 6 other']);
-      expect(button(home, 'GPT 6 other').getAttribute('aria-selected')).toBe('true');
-      expect(home.chosen).toEqual([]);
-    });
-
-    it('moves with arrows in both lists and goes back with Left or Backspace', async () => {
-      const home = scene([], { models });
-      key(home, agentChooser(home), 'ArrowDown');
-      await home.fixture.whenStable();
-      expect(document.activeElement).toBe(button(home, 'Claude'));
-      key(home, button(home, 'Claude'), 'ArrowDown');
-      expect(document.activeElement).toBe(button(home, 'Codex'));
-      clickButton(home, 'Codex');
-      await home.fixture.whenStable();
-      expect(document.activeElement).toBe(button(home, 'Default'));
-      key(home, button(home, 'Default'), 'ArrowUp');
-      expect(document.activeElement).toBe(button(home, '‹ Agents'));
-      key(home, button(home, '‹ Agents'), 'ArrowDown');
-      key(home, button(home, 'Default'), 'ArrowDown');
-      expect(document.activeElement).toBe(button(home, 'GPT 6 astra'));
-      expect(key(home, button(home, 'GPT 6 astra'), 'ArrowLeft').defaultPrevented).toBe(true);
-      await home.fixture.whenStable();
-      expect(document.activeElement).toBe(button(home, 'Claude'));
-      clickButton(home, 'Codex');
-      expect(key(home, button(home, 'Default'), 'Backspace').defaultPrevented).toBe(true);
-      expect(options(home, 'Agent')).toHaveLength(3);
-      expect(home.chosen).toEqual([]);
-    });
-
-    it('selects an agent with only its default immediately', () => {
-      const home = scene([], { installed: ['codex'], starting: null });
-      expect(button(home, 'Project a').textContent?.trim()).toBe('Project a');
-      expect(agentChooser(home).textContent?.trim()).toBe('Codex · default');
-      clickButton(home, 'Codex · default');
-      expect(options(home, 'Agent').map((option) => option.textContent?.trim())).toEqual(['Codex']);
-      clickButton(home, 'Codex');
-      expect(home.chosen).toEqual([{ agent: 'codex', model: null }]);
-      expect(agentChooser(home).getAttribute('aria-expanded')).toBe('false');
+    it('passes the discovered default model and effort when starting a thread', () => {
+      const home = scene([], { installed: ['codex'], models, starting: null, text: 'hello' });
+      expect(agentChooser(home).textContent?.trim()).toBe('Codex · GPT-6 Astra · Low');
+      button(home, 'Run').click();
+      expect(home.started[0].choice).toEqual({ agent: 'codex', model: 'gpt-6-astra', effort: 'low' });
     });
 
     it('disables the chooser when no agent is installed', () => {
@@ -467,7 +364,7 @@ describe('HomeComponent', () => {
     const home = scene([thread({ title: 'Existing thread' })]);
     type(home, '@existing');
     key(home, prompt(home), 'Enter');
-    expect(home.started).toEqual([{ projectId: 'a', workflow: 'default', text: '@existing' }]);
+    expect(home.started).toEqual([{ projectId: 'a', workflow: 'default', text: '@existing', choice: { agent: 'claude', model: null, effort: null } }]);
     expect(home.element.querySelector('[aria-label="Threads to continue"]')).toBeNull();
     expect(home.element.querySelector('.home-keys')?.textContent).not.toContain('continue a thread');
   });

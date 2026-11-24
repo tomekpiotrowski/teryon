@@ -7,7 +7,7 @@
 
 import type { Page } from "@playwright/test";
 
-import { addProject, choose, commit, expect, git, menu, openWorkspace, put, test } from "./support";
+import { addProject, agentChooser, choose, commit, expect, git, menu, openWorkspace, put, test } from "./support";
 
 test.beforeEach(openWorkspace);
 
@@ -17,14 +17,22 @@ test.describe("with an agent set for implementing", () => {
   test("the next stage's agent starts by itself on its own model", async ({ page }) => {
     await addProject(page, "Sample");
 
-    await page.getByLabel("New thread").fill("report stage implementing");
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    const claude = page.getByRole("group", { name: "Claude", exact: true });
+    await claude.getByLabel("Fast effort").selectOption("high");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Save", exact: true })).toBeDisabled();
+    await page.keyboard.press("Escape");
+    await expect(page.locator("app-settings")).toHaveCount(0);
+
+    await page.getByLabel("New thread", { exact: true }).fill("report stage implementing");
     await page.getByRole("button", { name: "Run ↵" }).click();
 
     const thread = page.getByLabel("Thread");
     await expect(thread.getByText("◇ Talking → Implementing · by Claude")).toBeVisible();
-    await expect(thread.getByText("Claude · haiku takes Implementing (only Claude).")).toBeVisible();
+    await expect(thread.getByText("Claude · haiku · High takes Implementing (only Claude).")).toBeVisible();
     await expect(thread.getByText("Implement what was discussed above.")).toBeVisible();
-    await expect(page.locator(".thread-choice")).toHaveText("Claude · Haiku");
+    await expect(agentChooser(page, true)).toHaveAccessibleName("Claude · Haiku 5.5 · High");
     await expect(page.locator(".thread-stage")).toContainText("Implementing");
   });
 });
@@ -38,7 +46,7 @@ test("the board shows each thread in the column of its stage, and follows it", a
   await page.getByLabel("Reply").press("Escape");
   await page.keyboard.press("b");
   const board = page.locator("app-board");
-  await expect(board.getByText("board · Sample")).toBeVisible();
+  await expect(board.getByRole("region", { name: "Talking" })).toBeVisible();
   await expect(board.getByRole("region", { name: "Planning" }).getByRole("button", { name: /report stage planning/ })).toBeVisible();
 
   // `h` and `l` move between columns here, rather than opening the history.
