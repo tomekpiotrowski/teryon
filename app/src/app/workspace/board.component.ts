@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, EventEmitter, HostListener, Input, Output, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, EventEmitter, HostListener, Input, Output, inject } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { BehaviorSubject, combineLatest, distinctUntilChanged, map, type Observable, shareReplay } from 'rxjs';
 import { type BoardColumn, type BoardCursor, boardColumns, cardAt, cursorOn, movedCursor, settledCursor } from './board.model';
@@ -28,8 +28,10 @@ interface BoardView {
   standalone: false,
 })
 export class BoardComponent {
+  private readonly host: ElementRef<HTMLElement> = inject(ElementRef);
   @Output() readonly opened = new EventEmitter<Thread>();
   @Output() readonly menuOpened = new EventEmitter<void>();
+  @Output() readonly shortcutsOpened = new EventEmitter<void>();
 
   private readonly store = inject(WorkspaceStore);
   private readonly projectId$ = new BehaviorSubject<string | null>(null);
@@ -84,6 +86,7 @@ export class BoardComponent {
 
   @HostListener('document:keydown', ['$event'])
   handleKey(event: KeyboardEvent): void {
+    if (this.host.nativeElement.closest('[inert]')) return;
     const target = event.target instanceof HTMLElement ? event.target : null;
     if (event.ctrlKey || event.metaKey || event.altKey || !this.current) return;
     if (target && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable)) return;

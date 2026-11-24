@@ -100,6 +100,38 @@ describe('WorkspacePage', () => {
 
   afterEach(() => page.ngOnDestroy());
 
+  describe('Shortcuts', () => {
+    it.each(['Escape', '?'])('opens with ? and closes with %s without leaving the screen', (key) => {
+      TestBed.tick();
+      page.screen$.next('board');
+      page.handleShortcut(new KeyboardEvent('keydown', { key: '?' }));
+      expect(page.shortcutsOpen$.value).toBe(true);
+
+      page.handleShortcut(new KeyboardEvent('keydown', { key }));
+      expect(page.shortcutsOpen$.value).toBe(false);
+      expect(page.screen$.value).toBe('board');
+    });
+
+    it.each(['textarea', 'input'])('leaves ? to the %s used for typing', (tag) => {
+      TestBed.tick();
+      const target = document.createElement(tag);
+      if (tag === 'input') target.className = 'home-input';
+      const event = new KeyboardEvent('keydown', { key: '?', cancelable: true });
+      target.addEventListener('keydown', () => page.handleShortcut(event));
+      target.dispatchEvent(event);
+
+      expect(page.shortcutsOpen$.value).toBe(false);
+      expect(event.defaultPrevented).toBe(false);
+    });
+
+    it.each([{ key: '/' }, { key: 'k', ctrlKey: true }])('switches from shortcuts to the menu with %j', (press) => {
+      page.openShortcuts();
+      page.handleShortcut(new KeyboardEvent('keydown', press));
+      expect(page.shortcutsOpen$.value).toBe(false);
+      expect(page.menuOpen$.value).toBe(true);
+    });
+  });
+
   describe('Escape', () => {
     const screens: readonly Screen[] = ['files', 'history', 'usage'];
 

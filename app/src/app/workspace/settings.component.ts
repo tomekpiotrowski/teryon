@@ -57,6 +57,7 @@ const EMPTY_EDITOR: EditorState = { draft: null, saved: null, problem: null, sav
 export class SettingsComponent {
   @Output() readonly closed = new EventEmitter<void>();
   @Output() readonly menuOpened = new EventEmitter<void>();
+  @Output() readonly shortcutsOpened = new EventEmitter<void>();
 
   private readonly api = inject(WorkspaceApi);
   private readonly store = inject(WorkspaceStore);

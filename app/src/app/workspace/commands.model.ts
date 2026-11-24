@@ -45,6 +45,7 @@ export type CommandAction =
   | { readonly kind: 'openProject'; readonly project: Project }
   /** Home: the prompt and the threads that need the person. */
   | { readonly kind: 'showHome' }
+  | { readonly kind: 'showShortcuts' }
   | { readonly kind: 'showScreen'; readonly screen: 'files' | 'history' | 'usage' | 'plan' | 'settings' }
   /** The board of the open project, or of every project. */
   | { readonly kind: 'showBoard'; readonly everyProject: boolean }
@@ -112,6 +113,8 @@ export interface MenuRow {
   readonly command: Command;
   readonly heading: string | null;
 }
+
+export const SHORTCUTS_KEY = '?';
 
 const HEADINGS: Readonly<Record<CommandGroup, string>> = {
   attention: 'Waiting for you',
@@ -188,6 +191,7 @@ export function commandList(situation: Situation): Command[] {
   actions.push(
     command('action:usage', 'Usage', 'action', { kind: 'showScreen', screen: 'usage' }, { detail: 'every agent', key: 'u' }),
     command('action:settings', 'Settings', 'action', { kind: 'showScreen', screen: 'settings' }, { detail: 'this machine', key: 's' }),
+    command('action:shortcuts', 'Shortcuts', 'action', { kind: 'showShortcuts' }, { key: SHORTCUTS_KEY }),
   );
   if (thread) {
     const current = workflowOf(situation.workflows, thread).name;
@@ -399,13 +403,24 @@ function offeredNames(situation: Situation, agent: AgentName): readonly string[]
  * Equal fits keep their listed order.
  */
 export function matching(commands: readonly Command[], typed: string): Command[] {
+  return rankedMatches(commands, typed, (candidate) => candidate);
+}
+
+/** Ranks a list by its primary and secondary text, as in the command menu. */
+export function rankedMatches<T>(
+  candidates: readonly T[],
+  typed: string,
+  textOf: (candidate: T) => { readonly title: string; readonly detail: string },
+): T[] {
   const query = typed.trim().toLowerCase();
-  if (!query) return [...commands];
-  return commands
-    .map((candidate, index) => ({ candidate, index, fit: fitOf(candidate, query) }))
-    .filter((scored) => scored.fit !== null)
-    .sort((a, b) => (a.fit as number) - (b.fit as number) || a.index - b.index)
-    .map((scored) => scored.candidate);
+  if (!query) return [...candidates];
+  return candidates
+    .flatMap((candidate) => {
+      const fit = fitOf(textOf(candidate), query);
+      return fit === null ? [] : [{ candidate, fit }];
+    })
+    .sort((a, b) => a.fit - b.fit)
+    .map(({ candidate }) => candidate);
 }
 
 /** The lines of the menu. Sections are only named while nothing is typed, because a search mixes them. */
@@ -510,7 +525,7 @@ function command(
 }
 
 /** How well a command fits a query: lower is better, nothing when it does not fit at all. */
-function fitOf(candidate: Command, query: string): number | null {
+function fitOf(candidate: { readonly title: string; readonly detail: string }, query: string): number | null {
   const title = textFit(candidate.title.toLowerCase(), query);
   if (title !== null) return title;
   const detail = textFit(candidate.detail.toLowerCase(), query);

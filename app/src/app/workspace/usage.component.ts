@@ -1,6 +1,6 @@
-import { ChangeDetectionStrategy, Component, EventEmitter, HostListener, inject, Output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, EventEmitter, HostListener, inject, Output } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { BehaviorSubject, catchError, combineLatest, map, type Observable, of, scan, shareReplay, startWith, switchMap, timer } from 'rxjs';
+import { BehaviorSubject, catchError, combineLatest, distinctUntilChanged, map, type Observable, of, scan, shareReplay, startWith, switchMap, timer } from 'rxjs';
 import { ServiceConnection } from '../service/service-connection';
 import {
   agentsWithTurns,
@@ -66,7 +66,9 @@ interface UsageView {
 export class UsageComponent {
   @Output() readonly closed = new EventEmitter<void>();
   @Output() readonly menuOpened = new EventEmitter<void>();
+  @Output() readonly shortcutsOpened = new EventEmitter<void>();
 
+  private readonly host: ElementRef<HTMLElement> = inject(ElementRef);
   private readonly api = inject(WorkspaceApi);
   private readonly connection = inject(ServiceConnection);
 
@@ -116,6 +118,7 @@ export class UsageComponent {
 
   /** The agents with turns, in the order their number keys choose them. */
   private readonly agents$ = this.state$.pipe(map((state) => agentsWithTurns(state.report?.lines ?? [])));
+  readonly agentCount$ = this.agents$.pipe(map((agents) => agents.length), distinctUntilChanged());
   private agents: readonly AgentName[] = [];
 
   constructor() {
@@ -125,6 +128,7 @@ export class UsageComponent {
   /** `1`, `2` and `3` choose the agent the chart shows, as the hints on its buttons say. */
   @HostListener('document:keydown', ['$event'])
   handleKey(event: KeyboardEvent): void {
+    if (this.host.nativeElement.closest('[inert]')) return;
     const target = event.target instanceof HTMLElement ? event.target : null;
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (target && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable)) return;

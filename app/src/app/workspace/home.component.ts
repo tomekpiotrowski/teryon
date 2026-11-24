@@ -87,6 +87,7 @@ export class HomeComponent {
   @Output() readonly boardOpened = new EventEmitter<void>();
   @Output() readonly historyOpened = new EventEmitter<void>();
   @Output() readonly menuOpened = new EventEmitter<void>();
+  @Output() readonly shortcutsOpened = new EventEmitter<void>();
   /** An agent's button was pressed. */
   @Output() readonly agentPressed = new EventEmitter<AgentName>();
   /** The prompt's text changed by typing, or by Home itself when it sends or clears it. */

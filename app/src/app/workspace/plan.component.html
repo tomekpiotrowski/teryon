@@ -16,6 +16,8 @@
         <div class="markdown" [innerHTML]="view.text | markdown"></div>
       }
     </main>
-    <footer class="board-hints files-muted"><kbd>Esc</kbd> back</footer>
+    <footer class="board-hints files-muted">
+      <kbd>Esc</kbd> back · <button type="button" class="code-link shortcuts-link" aria-keyshortcuts="?" (click)="shortcutsOpened.emit()"><kbd>?</kbd>all shortcuts</button>
+    </footer>
   </div>
 }

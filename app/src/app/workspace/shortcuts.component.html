@@ -1,0 +1,45 @@
+<div class="menu-backdrop" role="presentation" (click)="closed.emit()">
+  <section class="menu shortcuts blueprint" role="dialog" aria-modal="true" aria-label="Shortcuts" tabindex="-1" (click)="$event.stopPropagation()">
+    <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+    <div class="menu-search">
+      <span aria-hidden="true">?</span>
+      <input
+        type="text"
+        aria-label="Filter shortcuts"
+        placeholder="Filter shortcuts"
+        autocomplete="off"
+        spellcheck="false"
+        (input)="search($event)"
+      />
+      <button type="button" class="shortcuts-close" aria-label="Close shortcuts" (click)="closed.emit()">×</button>
+    </div>
+    @if (filtered$ | async; as sections) {
+      <div class="menu-list shortcuts-sections">
+        @for (section of sections; track section.heading) {
+          <section class="shortcuts-section" [class.shortcuts-here]="section.heading.startsWith('Here · ')">
+            <h2 class="menu-heading">{{ section.heading }}</h2>
+            <ul>
+              @for (row of section.rows; track $index) {
+                <li>
+                  <span class="shortcuts-keys">
+                    @for (key of row.keys; track key) { <kbd>{{ key }}</kbd> }
+                  </span>
+                  <span>{{ row.text }}</span>
+                </li>
+              }
+            </ul>
+          </section>
+        } @empty {
+          <p class="menu-nothing" role="status">Nothing matches.</p>
+        }
+      </div>
+    }
+    <footer class="shortcuts-note">
+      <span>Same key, same meaning on every screen.</span>
+      @for (row of sharedKeys; track row.text) {
+        @if (!$first) { <span aria-hidden="true">·</span> }
+        <span><kbd>{{ row.keys[0] }}</kbd> {{ row.text }}</span>
+      }
+    </footer>
+  </section>
+</div>

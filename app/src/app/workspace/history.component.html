@@ -189,6 +189,8 @@
           <span class="files-spacer"></span>
           <button type="button" class="code-link" aria-keyshortcuts="/" (click)="menuOpened.emit()">menu <kbd>/</kbd></button>
           <span aria-hidden="true">·</span>
+          <button type="button" class="code-link shortcuts-link" aria-keyshortcuts="?" (click)="shortcutsOpened.emit()"><kbd>?</kbd>all shortcuts</button>
+          <span aria-hidden="true">·</span>
           <button type="button" class="code-link" aria-current="page" aria-keyshortcuts="h" (click)="closed.emit()">history <kbd>H</kbd></button>
           <span aria-hidden="true">·</span>
           <button type="button" class="code-link" aria-keyshortcuts="c" (click)="filesOpened.emit()">code <kbd>C</kbd></button>

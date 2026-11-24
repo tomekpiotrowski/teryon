@@ -173,6 +173,7 @@ export class FilesComponent {
   @Output() readonly closed = new EventEmitter<void>();
   /** Asked for the menu, which belongs to the page. */
   @Output() readonly menuOpened = new EventEmitter<void>();
+  @Output() readonly shortcutsOpened = new EventEmitter<void>();
   /** The person asked for the history. */
   @Output() readonly historyOpened = new EventEmitter<void>();
   /** The person picked a branch, or what was shown is gone and the directory as it is should be. */

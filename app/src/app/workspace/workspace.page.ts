@@ -28,12 +28,14 @@ import {
 import { ThemeService } from '../theme.service';
 import { type NewProject } from './command-menu.component';
 import type { Opener } from '../service/protocol';
-import { type Command, type CommandGroup, commandList, keyHint, keyOutcome, menuAsked } from './commands.model';
+import { type Command, type CommandGroup, commandList, keyHint, keyOutcome, menuAsked, SHORTCUTS_KEY } from './commands.model';
 import { askDraft } from './files.model';
 import { homeList } from './home.model';
 import type { ContinueRequest, StartRequest } from './home.component';
 import { type Asked, isRecommended } from './questions.model';
 import { type Commit, revertDraft } from './history.model';
+import { shortcutSections } from './shortcuts.model';
+import { UsageComponent } from './usage.component';
 import { WorkspaceApi } from './workspace.api';
 import {
   agentLabel,
@@ -47,6 +49,7 @@ import {
   CATCH_UP_REQUEST,
   type ChangeCard,
   changeCard,
+  changeBadge,
   codePlace,
   copyPlace,
   discardWarning,
@@ -195,6 +198,7 @@ export class WorkspacePage implements OnDestroy {
   /** Who the default workflow's first stage chooses for new threads. */
   readonly starting$ = this.store.starting$;
   readonly menuOpen$ = new BehaviorSubject(false);
+  readonly shortcutsOpen$ = new BehaviorSubject(false);
   /** The one section the menu was opened on, such as the thread's changes. Nothing for the whole menu. */
   readonly menuSection$ = new BehaviorSubject<CommandGroup | null>(null);
   /** Which of the open thread's agents the message box writes to. */
@@ -325,6 +329,26 @@ export class WorkspacePage implements OnDestroy {
     map(([commands, section]) => (section ? commands.filter((command) => command.group === section) : commands)),
   );
 
+  /** The number keys offered by Usage, while that screen is present. */
+  private readonly usageAgentCounts$ = new BehaviorSubject<Observable<number>>(of(0));
+
+  @ViewChild(UsageComponent) private set usage(usage: UsageComponent | undefined) {
+    this.usageAgentCounts$.next(usage?.agentCount$ ?? of(0));
+  }
+
+  readonly shortcuts$ = combineLatest([
+    this.commands$,
+    this.view$,
+    this.screen$,
+    this.usageAgentCounts$.pipe(switchMap((count$) => count$)),
+  ]).pipe(
+    map(([commands, view, screen, usageAgents]) => {
+      const place = coversThread(screen, view.project) ? screen : view.thread ? 'thread' : 'home';
+      const badge = view.thread ? changeBadge(view.thread) : '';
+      return shortcutSections(commands, place, badge, { waitingThreads: view.needing > 0, usageAgents });
+    }),
+  );
+
   /** The commands as last offered, for a key press, which has to be answered at once. */
   private commands: readonly Command[] = [];
   private readonly offering: Subscription = this.commands$.subscribe((commands) => (this.commands = commands));
@@ -383,6 +407,7 @@ export class WorkspacePage implements OnDestroy {
 
   /** Whether the menu was opened from the keyboard, so that closing it goes back to typing. */
   private menuOpenedByKey = false;
+  private shortcutTrigger: HTMLElement | null = null;
 
   @ViewChild('thread') private thread?: ElementRef<HTMLElement>;
 
@@ -423,7 +448,8 @@ export class WorkspacePage implements OnDestroy {
    * letter runs the command bound to it, as the hints on screen say, or
    * waits for a second one when it leads a family, such as `w` for the
    * thread's change. While the menu is open the letters are left alone.
-   * With the menu closed, Escape returns from any other screen to the thread,
+   * `?` opens the shortcuts list and leaves typing to its filter. With both
+   * dialogs closed, Escape returns from any other screen to the thread,
    * including when a filter has focus. Escape is left to confirmations,
    * text composition, and any control that has already handled the key.
    */
@@ -440,6 +466,21 @@ export class WorkspacePage implements OnDestroy {
       editable: target?.isContentEditable ?? false,
       messageBox: target?.matches('textarea, input.home-input') ?? false,
     };
+
+    if (this.shortcutsOpen$.value) {
+      if (event.isComposing) return;
+      const typed = this.host.nativeElement.querySelector<HTMLInputElement>('app-shortcuts input')?.value ?? '';
+      const bare = !event.ctrlKey && !event.metaKey && !event.altKey;
+      if (event.key === 'Escape' || (event.key === SHORTCUTS_KEY && bare && !typed)) {
+        event.preventDefault();
+        return this.closeShortcuts();
+      }
+      if ((event.key === '/' && bare && !typed) || (event.key.toLowerCase() === 'k' && menuAsked(press, ''))) {
+        event.preventDefault();
+        return this.openMenu(true);
+      }
+      return;
+    }
 
     if (this.menuOpen$.value) {
       const closing = event.key === 'Escape' || (press.key.toLowerCase() === 'k' && menuAsked(press, ''));
@@ -463,6 +504,7 @@ export class WorkspacePage implements OnDestroy {
       event.preventDefault();
       return this.openMenu(true);
     }
+    if (event.key === SHORTCUTS_KEY && (event.defaultPrevented || event.isComposing)) return;
     const outcome = keyOutcome(press, this.commands, this.leader$.value);
     if (!outcome) return;
     event.preventDefault();
@@ -478,21 +520,44 @@ export class WorkspacePage implements OnDestroy {
    */
   openMenu(byKey = false, section: CommandGroup | null = null): void {
     this.leader$.next(null);
+    this.closeShortcuts(false);
     this.menuSection$.next(section);
     this.menuOpenedByKey = byKey;
     this.menuOpen$.next(true);
   }
 
   /** Closes the menu. Someone who opened it from the keyboard goes back to the message box. */
-  closeMenu(): void {
+  closeMenu(restoreFocus = true): void {
     this.menuOpen$.next(false);
-    if (this.menuOpenedByKey) this.focusMessageBox();
+    if (restoreFocus && this.menuOpenedByKey) this.focusMessageBox();
     this.menuOpenedByKey = false;
+  }
+
+  openShortcuts(): void {
+    if (this.shortcutsOpen$.value) return;
+    const focused = document.activeElement;
+    this.shortcutTrigger = focused instanceof HTMLElement && focused.closest('.workspace-layers') ? focused : null;
+    this.leader$.next(null);
+    this.closeMenu(false);
+    this.shortcutsOpen$.next(true);
+  }
+
+  closeShortcuts(restoreFocus = true): void {
+    if (!this.shortcutsOpen$.value) return;
+    this.shortcutsOpen$.next(false);
+    const trigger = this.shortcutTrigger;
+    this.shortcutTrigger = null;
+    if (restoreFocus && trigger) {
+      requestAnimationFrame(() => {
+        if (!this.shortcutsOpen$.value && !this.menuOpen$.value) trigger.focus();
+      });
+    }
   }
 
   /** Carries out a command chosen in the menu or asked for with its key. */
   run(command: Command): void {
     const action = command.action;
+    if (action.kind === 'showShortcuts') return this.openShortcuts();
     this.closeMenu();
     switch (action.kind) {
       case 'openThread':

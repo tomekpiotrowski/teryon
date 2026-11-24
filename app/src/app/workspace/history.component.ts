@@ -248,6 +248,7 @@ export class HistoryComponent {
   @Output() readonly closed = new EventEmitter<void>();
   /** Asked for the menu, which belongs to the page. */
   @Output() readonly menuOpened = new EventEmitter<void>();
+  @Output() readonly shortcutsOpened = new EventEmitter<void>();
   /** The person asked for the files. */
   @Output() readonly filesOpened = new EventEmitter<void>();
   /** The person picked a branch, or the one shown is gone and the directory's own should be. */
@@ -457,6 +458,7 @@ export class HistoryComponent {
   /** `J` and `K` move down and up the commits, as the hint under the list says. */
   @HostListener('document:keydown', ['$event'])
   handleKey(event: KeyboardEvent): void {
+    if (this.host.nativeElement.closest('[inert]')) return;
     const target = event.target instanceof HTMLElement ? event.target : null;
     const step = moveStep({
       key: event.key,

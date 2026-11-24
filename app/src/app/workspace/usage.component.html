@@ -90,6 +90,8 @@
       <span class="files-spacer"></span>
       <button type="button" class="code-link" aria-keyshortcuts="/" (click)="menuOpened.emit()">menu <kbd>/</kbd></button>
       <span aria-hidden="true">·</span>
+      <button type="button" class="code-link shortcuts-link" aria-keyshortcuts="?" (click)="shortcutsOpened.emit()"><kbd>?</kbd>all shortcuts</button>
+      <span aria-hidden="true">·</span>
       <button type="button" class="code-link" aria-current="page" aria-keyshortcuts="u" (click)="closed.emit()">usage <kbd>U</kbd></button>
     </footer>
   </div>

@@ -25,6 +25,7 @@ interface PlanView {
 })
 export class PlanComponent {
   @Output() readonly menuOpened = new EventEmitter<void>();
+  @Output() readonly shortcutsOpened = new EventEmitter<void>();
 
   private readonly api = inject(WorkspaceApi);
   private readonly thread$ = new BehaviorSubject<Thread | null>(null);

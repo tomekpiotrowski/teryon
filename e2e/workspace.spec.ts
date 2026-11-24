@@ -575,7 +575,7 @@ test("the menu lists threads, projects and actions, and typing narrows them", as
 
   // Typing narrows the list, and the arrows move through what is left, going round at the end.
   await expect(page.getByLabel("Search the menu")).toBeFocused();
-  await page.keyboard.type("sam");
+  await page.keyboard.type("sample");
   await expect(options).toHaveText([/^\W*Sample/, /hello\s*Sample/]);
   await expect(menu(page).locator(".menu-heading")).toHaveCount(0);
   await page.keyboard.press("ArrowDown");
@@ -589,6 +589,7 @@ test("the menu lists threads, projects and actions, and typing narrows them", as
   await page.keyboard.press("Enter");
   await expect(menu(page)).toHaveCount(0);
   await expect(page.locator(".top-bar")).toContainText("Sample · hello");
+  await expect(page.getByLabel("Reply")).toBeFocused();
 
   // Escape leaves the message box, and the letters run their commands again.
   await page.keyboard.press("h");

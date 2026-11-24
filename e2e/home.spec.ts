@@ -46,6 +46,47 @@ test("with nothing waiting Home says so and offers only the prompt", async ({ pa
   await expect(page.getByLabel("New thread")).toHaveAttribute("placeholder", "Start a thread — or type @ to continue one");
 });
 
+test("Home opens searchable shortcuts from the keyboard, the bottom bar and the menu", async ({ page }) => {
+  await addProject(page, "Sample");
+  const prompt = page.getByLabel("New thread");
+  const dialog = page.getByRole("dialog", { name: "Shortcuts" });
+  const filter = dialog.getByRole("textbox", { name: "Filter shortcuts" });
+
+  await prompt.press("?");
+  await expect(prompt).toHaveValue("?");
+  await expect(dialog).toBeHidden();
+  await prompt.blur();
+  await page.keyboard.press("?");
+  await expect(dialog.getByRole("heading")).toHaveText(["Here · Home", "Everywhere", "Go to"]);
+  await expect(filter).toBeFocused();
+  await filter.fill("settings");
+  await expect(dialog.getByRole("heading")).toHaveText(["Go to"]);
+  await expect(dialog.getByText("Settings", { exact: true })).toBeVisible();
+  await filter.press("?");
+  await expect(filter).toHaveValue("settings?");
+  await expect(dialog.getByText("Nothing matches.")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+
+  const button = home(page).getByRole("button", { name: /all shortcuts/ });
+  await button.click();
+  await expect(filter).toHaveValue("");
+  await filter.press("/");
+  await expect(dialog).toBeHidden();
+  const option = menu(page).getByRole("option", { name: /Shortcuts/ });
+  await expect(option).toContainText("?");
+  await option.click();
+  await expect(dialog).toBeVisible();
+  await page.locator(".menu-backdrop").click({ position: { x: 10, y: 10 } });
+  await expect(dialog).toBeHidden();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await button.click();
+  await dialog.getByRole("button", { name: "Close shortcuts" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(button).toBeFocused();
+});
+
 test("a thread starts with the agent and workflow pressed on Home", async ({ page }) => {
   await addProject(page, "Sample");
 

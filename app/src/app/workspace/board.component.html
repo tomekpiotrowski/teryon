@@ -35,7 +35,7 @@
     <footer class="board-hints files-muted">
       <kbd>H</kbd> <kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd> move · <kbd>↵</kbd> open
       @if (view.scope !== 'every project' || view.everyProject) { · <kbd>A</kbd> {{ view.everyProject ? 'this project' : 'every project' }} }
-      · <kbd>Esc</kbd> back
+      · <kbd>Esc</kbd> back · <button type="button" class="code-link shortcuts-link" aria-keyshortcuts="?" (click)="shortcutsOpened.emit()"><kbd>?</kbd>all shortcuts</button>
     </footer>
   </div>
 }

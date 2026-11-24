@@ -98,12 +98,23 @@ function ids(commands: readonly Command[]): string[] {
 }
 
 describe('commandList', () => {
+  it.each([{}, { project: first }, { project: first, thread: changedThread }])('offers exactly one ? shortcut in %j', (context) => {
+    const commands = commandList(situation(context));
+    expect(commands.filter((command) => command.key === '?' || command.leader === '?').map((command) => command.id)).toEqual(['action:shortcuts']);
+    expect(keyOutcome(press({ key: '?' }), commands, null)).toMatchObject({
+      kind: 'run',
+      command: { id: 'action:shortcuts', title: 'Shortcuts', action: { kind: 'showShortcuts' } },
+    });
+    expect(keyHint(commands.find((command) => command.id === 'action:shortcuts')!)).toBe('?');
+  });
+
   it('offers only what needs no project when there is none', () => {
     expect(ids(commandList(situation()))).toEqual([
       'action:home',
       'action:board',
       'action:usage',
       'action:settings',
+      'action:shortcuts',
       'action:use:codex:default',
       'action:use:grok:default',
       'action:use:gemini:default',
@@ -127,6 +138,7 @@ describe('commandList', () => {
       'action:boardEvery',
       'action:usage',
       'action:settings',
+      'action:shortcuts',
       'action:use:codex:default',
       'action:use:grok:default',
       'action:use:gemini:default',
@@ -239,7 +251,7 @@ describe('commandList', () => {
       action: { kind: 'stopAgent', thread: newest },
     });
     expect(ids(running).indexOf('action:settings')).toBe(ids(running).indexOf('action:usage') + 1);
-    expect(ids(running).indexOf('action:stopAgent')).toBe(ids(running).indexOf('action:settings') + 1);
+    expect(ids(running).indexOf('action:stopAgent')).toBe(ids(running).indexOf('action:shortcuts') + 1);
   });
 
   describe('the agent commands', () => {
@@ -792,6 +804,7 @@ describe('the commands for a thread\'s change', () => {
       'action:boardEvery',
       'action:usage',
       'action:settings',
+      'action:shortcuts',
       'action:useInThread:codex:default',
       'action:useInThread:grok:default',
       'action:useInThread:gemini:default',
