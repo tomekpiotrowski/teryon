@@ -1414,6 +1414,7 @@ app-repository-bar {
   white-space: nowrap;
   font: 700 15px/1 var(--font-heading);
   letter-spacing: 0.22em;
+  text-transform: uppercase;
 }
 
 .files-project {
@@ -2590,7 +2591,7 @@ ion-alert {
 .top-icon:hover { color: var(--t-text) !important; }
 .top-icon svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.4; }
 
-.top-mark { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 13px/1 var(--t-mono); letter-spacing: 0.24em; }
+.top-mark { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 13px/1 var(--t-mono); letter-spacing: 0.24em; text-transform: uppercase; }
 .top-scope { min-width: 0; overflow: hidden; color: var(--t-dim); text-overflow: ellipsis; white-space: nowrap; }
 .top-spacer { flex: 1; }
 .top-leader { color: var(--t-blue); font: 400 11.5px/1 var(--t-mono); }

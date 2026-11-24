@@ -14,9 +14,9 @@ import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output } from 
   standalone: false,
 })
 export class TopBarComponent {
-  /** Where the person is: `all projects` on Home, otherwise the thread label. */
-  @Input() scope = 'all projects';
-  /** The selected project, or Teryon when there is none. */
+  /** The open thread's label. Empty with no thread open. */
+  @Input() scope = '';
+  /** The selected project, or `ALL PROJECTS` when there is none. */
   @Input({ required: true }) projectName!: string;
   /** How many agents are running. */
   @Input() running = 0;

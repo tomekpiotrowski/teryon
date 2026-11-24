@@ -773,16 +773,15 @@ describe('isBareLetter', () => {
 });
 
 describe('workspace header', () => {
-  it('names the project only for a project view', () => {
-    expect(headerName('My project', true)).toBe('My project');
-    expect(headerName('My project', false)).toBe('TERYON');
-    expect(headerName(null, true)).toBe('TERYON');
-    expect(headerName(undefined, true)).toBe('TERYON');
-    expect(headerName('', true)).toBe('TERYON');
+  it('names the project, or all projects when there is none', () => {
+    expect(headerName('My project')).toBe('My project');
+    expect(headerName(null)).toBe('ALL PROJECTS');
+    expect(headerName(undefined)).toBe('ALL PROJECTS');
+    expect(headerName('')).toBe('ALL PROJECTS');
   });
 
-  it('shows the thread label or all projects as the scope', () => {
-    expect(headerScope(null)).toBe('all projects');
+  it('shows the thread label as the scope, or nothing with no thread open', () => {
+    expect(headerScope(null)).toBe('');
     expect(headerScope({ ...thread('t', 'a', '2026-11-03T10:00:00'), title: 'Fix the parser' })).toBe('Fix the parser');
     expect(headerScope(thread('t', 'a', '2026-11-03T10:00:00'))).toBe('New thread');
   });

@@ -946,14 +946,25 @@ function presentCopy(projectId: string, thread: Thread | null): Change | null {
   return change;
 }
 
-/** The heading for a project view, or Teryon for a view across projects. */
-export function headerName(projectName: string | null | undefined, projectScoped: boolean): string {
-  return projectScoped && projectName ? projectName : 'TERYON';
+/**
+ * The mark in the top-left corner: the project's name, or `ALL PROJECTS`.
+ *
+ * The corner always says what the screen covers, never the product's name.
+ * Screens across every project, and those belonging to none, pass nothing.
+ *
+ * Styles show the mark in uppercase; the name stays as typed.
+ */
+export function headerName(projectName: string | null | undefined): string {
+  return projectName || 'ALL PROJECTS';
 }
 
-/** The part of the workspace shown beside its heading. */
+/**
+ * The part of the workspace shown beside its mark: the open thread's label.
+ *
+ * Empty with no thread open, since the mark already says what the screen covers.
+ */
 export function headerScope(thread: Thread | null): string {
-  return thread ? threadLabel(thread) : 'all projects';
+  return thread ? threadLabel(thread) : '';
 }
 
 /** How many agents are working, across every project. */

@@ -84,7 +84,7 @@ export class BoardComponent implements OnDestroy {
         columns,
         cursor: cursor === null ? cursorOn(columns, startOn) : settledCursor(columns, cursor),
         everyProject: every,
-        heading: headerName(projectName, !every),
+        heading: headerName(every ? null : projectName),
         threads,
         quiet: scoped.filter(isQuiet).length,
       };
