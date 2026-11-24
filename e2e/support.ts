@@ -117,8 +117,26 @@ export async function addProject(page: Page, name: string, prepare?: (directory:
   await page.getByLabel("Project name").fill(name);
   await page.getByLabel("Project directory").fill(directory);
   await page.getByRole("button", { name: "Add project" }).click();
-  await expect(page.getByPlaceholder(`What should Claude do in ${name}?`)).toBeVisible();
+  await expect(page.getByLabel("New thread")).toBeVisible();
   return directory;
+}
+
+/** The button for an agent beside Home's prompt. It is pressed while new threads start with that agent. */
+export function agentButton(page: Page, agent: string): Locator {
+  return page.locator(".home-agent", { hasText: agent });
+}
+
+/**
+ * Presses a key that runs a command, with the keys not held by Home's prompt.
+ *
+ * Adding a project or closing the menu puts the cursor in the prompt a moment
+ * later, where a letter would be typed as text. So this waits for the cursor
+ * to arrive, if it is coming, and leaves the prompt first.
+ */
+export async function pressAway(page: Page, key: string): Promise<void> {
+  await expect(page.getByLabel("New thread")).toBeFocused({ timeout: 2000 }).catch(() => undefined);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press(key);
 }
 
 /** The menu, which is how a person gets around the workspace. */

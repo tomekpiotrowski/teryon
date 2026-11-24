@@ -43,6 +43,8 @@ export type CommandGroup = 'attention' | 'thread' | 'project' | 'change' | 'acti
 export type CommandAction =
   | { readonly kind: 'openThread'; readonly thread: Thread }
   | { readonly kind: 'openProject'; readonly project: Project }
+  /** Home: the prompt and the threads that need the person. */
+  | { readonly kind: 'showHome' }
   | { readonly kind: 'showScreen'; readonly screen: 'files' | 'history' | 'usage' | 'plan' | 'settings' }
   /** The board of the open project, or of every project. */
   | { readonly kind: 'showBoard'; readonly everyProject: boolean }
@@ -163,6 +165,8 @@ export function commandList(situation: Situation): Command[] {
   if (thread && situation.questionsPutAway) {
     actions.push(command('action:answerQuestions', 'Answer the agent’s questions', 'action', { kind: 'answerQuestions' }, { detail: threadLabel(thread), key: 'q' }));
   }
+  // `g` then `h`, for "go home": a bare `h` is the history's.
+  actions.push(command('action:home', 'Home', 'action', { kind: 'showHome' }, { detail: 'all projects', key: 'h', leader: 'g' }));
   if (project) {
     actions.push(
       command('action:newThread', 'New thread', 'action', { kind: 'openProject', project }, { detail: project.name, key: 'n' }),
@@ -426,7 +430,7 @@ export function menuAsked(press: KeyPress, draft: string): boolean {
   if (press.key.toLowerCase() === 'k') return press.ctrlKey !== press.metaKey;
   if (press.key !== '/' || press.ctrlKey || press.metaKey) return false;
   if (isBareLetter(press, '/')) return true;
-  return press.element.toUpperCase() === 'TEXTAREA' && !draft.trim();
+  return (press.element.toUpperCase() === 'TEXTAREA' || press.messageBox === true) && !draft.trim();
 }
 
 /** What a key press does with the keys bound to commands. */

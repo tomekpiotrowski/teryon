@@ -17,15 +17,17 @@ export interface WorkspaceLists {
   readonly workflows: Workflows;
   /** Who the next new thread starts with, when the workflow's first stage chooses. */
   readonly starting: Starting | null;
+  /** The agents whose programs are on the service's machine. */
+  readonly installed: readonly string[];
 }
 
-export const NO_LISTS: WorkspaceLists = { projects: [], threads: [], opens: NO_OPENS, models: NO_MODELS, workflows: NO_WORKFLOWS, starting: null };
+export const NO_LISTS: WorkspaceLists = { projects: [], threads: [], opens: NO_OPENS, models: NO_MODELS, workflows: NO_WORKFLOWS, starting: null, installed: [] };
 
 /** The lists after one event. A snapshot replaces everything; changes replace or add one item. */
 export function applyEvent(lists: WorkspaceLists, event: Event): WorkspaceLists {
   switch (event.type) {
     case 'snapshot':
-      return { projects: event.projects as Project[], threads: event.threads as Thread[], opens: event.opens, models: event.models, workflows: event.workflows, starting: event.starting };
+      return { projects: event.projects as Project[], threads: event.threads as Thread[], opens: event.opens, models: event.models, workflows: event.workflows, starting: event.starting, installed: event.installed };
     case 'starting_changed':
       return { ...lists, starting: event.starting };
     case 'models_changed':

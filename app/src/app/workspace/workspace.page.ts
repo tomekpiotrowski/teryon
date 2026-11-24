@@ -15,6 +15,7 @@ import {
   type Observable,
   of,
   shareReplay,
+  skip,
   startWith,
   Subject,
   Subscription,
@@ -29,6 +30,8 @@ import { type NewProject } from './command-menu.component';
 import type { Opener } from '../service/protocol';
 import { type Command, type CommandGroup, commandList, keyHint, keyOutcome, menuAsked } from './commands.model';
 import { askDraft } from './files.model';
+import { homeList } from './home.model';
+import type { ContinueRequest, StartRequest } from './home.component';
 import { type Asked, isRecommended } from './questions.model';
 import { type Commit, revertDraft } from './history.model';
 import { WorkspaceApi } from './workspace.api';
@@ -39,9 +42,7 @@ import {
   type Choice,
   choiceLabel,
   choosing,
-  FIRST_NEW_THREADS,
   type NewThreads,
-  switchingAgent,
   threadChoice,
   CATCH_UP_REQUEST,
   type ChangeCard,
@@ -55,6 +56,7 @@ import {
   threadLines,
   groupThreads,
   NO_PLACE,
+  NO_WORKFLOWS,
   NOTHING_SELECTED,
   type Place,
   placeIn,
@@ -65,26 +67,45 @@ import {
   connectionText,
   offersRestart,
   resolveSelection,
-  runningText,
+  runningCount,
   type Screen,
   screenAfter,
   type Selection,
+  type AgentName,
   seenNow,
+  pressingAgent,
+  readNewThreads,
   startingChoice,
-  newThreadLabel,
-  pendingChoice,
-  firstStageChooses,
   stageLabel,
   stageOf,
   type Thread,
   threadLabel,
   type Voice,
-  waitingText,
   findingsDraft,
   reviewerLabel,
   reviewerOf,
 } from './workspace.model';
 import { WorkspaceStore } from './workspace.store';
+
+/** Where the browser remembers who new threads start with. */
+const NEW_THREADS_KEY = 'teryon.newThreads';
+
+/** What the browser remembers of who new threads start with. Nothing where there is no storage, or nothing was kept. */
+function rememberedNewThreads(): string | null {
+  try {
+    return localStorage.getItem(NEW_THREADS_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function rememberNewThreads(newThreads: NewThreads): void {
+  try {
+    localStorage.setItem(NEW_THREADS_KEY, JSON.stringify(newThreads));
+  } catch {
+    // The choice only lasts for this visit.
+  }
+}
 
 /** Everything the template needs about the workspace at one moment. */
 /** The keys the board answers itself. */
@@ -98,6 +119,8 @@ interface WorkspaceView {
   readonly running: boolean;
   /** How many agents are running in the selected project. */
   readonly liveAgents: number;
+  /** How many threads need the person, for the bar and Home. */
+  readonly needing: number;
   /** The selected project's threads, for the history to name where a commit came from. */
   readonly projectThreads: readonly Thread[];
   /** The part of the selected project's repository the files and the history show. */
@@ -152,23 +175,25 @@ export class WorkspacePage implements OnDestroy {
   readonly threadChoice = threadChoice;
   readonly barTitle = barTitle;
   readonly coversThread = coversThread;
-  readonly runningText = runningText;
-  readonly waitingText = waitingText;
+  readonly runningCount = runningCount;
+  readonly installed$ = this.store.installed$;
+  readonly workflows$ = this.store.workflows$;
+  readonly emptyWorkflows = NO_WORKFLOWS;
   readonly connectionText = connectionText;
   readonly offersRestart = offersRestart;
 
   readonly selection$ = new BehaviorSubject<Selection>(NOTHING_SELECTED);
   readonly draft$ = new BehaviorSubject('');
   /** The agent and model new threads start with, and the model remembered for each agent. */
-  readonly newThreads$ = new BehaviorSubject<NewThreads>(FIRST_NEW_THREADS);
-  /** The agent and model a new thread would start with, for the button beside the message box. */
-  readonly choice$: Observable<Choice> = combineLatest([this.newThreads$, this.store.starting$]).pipe(
-    map(([newThreads, starting]) => pendingChoice(newThreads, starting)),
+  readonly newThreads$ = new BehaviorSubject<NewThreads>(readNewThreads(rememberedNewThreads()));
+  private readonly remembering: Subscription = this.newThreads$.pipe(skip(1)).subscribe(rememberNewThreads);
+  /** The agent the person picked for new threads, on Home or in the menu. Nothing while the first stage chooses. */
+  readonly pickedAgent$: Observable<AgentName | null> = this.newThreads$.pipe(
+    map((newThreads) => (newThreads.picked ? newThreads.agent : null)),
+    distinctUntilChanged(),
   );
-  /** What the button beside the message box says about new threads: the first stage's choice until the person picks. */
-  readonly newThreadLabel$: Observable<string> = combineLatest([this.newThreads$, this.store.starting$]).pipe(
-    map(([newThreads, starting]) => newThreadLabel(newThreads, starting)),
-  );
+  /** Who the default workflow's first stage chooses for new threads. */
+  readonly starting$ = this.store.starting$;
   readonly menuOpen$ = new BehaviorSubject(false);
   /** The one section the menu was opened on, such as the thread's changes. Nothing for the whole menu. */
   readonly menuSection$ = new BehaviorSubject<CommandGroup | null>(null);
@@ -218,6 +243,7 @@ export class WorkspacePage implements OnDestroy {
           lines: threadLines(entries),
           running: thread?.status === 'running',
           liveAgents: projectThreads.filter((candidate) => candidate.status === 'running').length,
+          needing: homeList(groups).total,
           projectThreads,
           place: project ? placeIn(place, project.id) : NO_PLACE,
           change: thread ? changeCard(thread, project) : null,
@@ -348,7 +374,7 @@ export class WorkspacePage implements OnDestroy {
     )
     .subscribe(() =>
       requestAnimationFrame(() => {
-        const boxes = Array.from(this.host.nativeElement.querySelectorAll('textarea'));
+        const boxes = Array.from(this.host.nativeElement.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('textarea, input.home-input'));
         const box = boxes.find((candidate) => !candidate.closest('[inert]'));
         box?.focus();
         box?.setSelectionRange(box.value.length, box.value.length);
@@ -384,6 +410,7 @@ export class WorkspacePage implements OnDestroy {
 
   ngOnDestroy(): void {
     this.following.unsubscribe();
+    this.remembering.unsubscribe();
     this.offering.unsubscribe();
     this.typing.unsubscribe();
     this.seeing.unsubscribe();
@@ -411,6 +438,7 @@ export class WorkspacePage implements OnDestroy {
       altKey: event.altKey,
       element: target?.tagName ?? '',
       editable: target?.isContentEditable ?? false,
+      messageBox: target?.matches('textarea, input.home-input') ?? false,
     };
 
     if (this.menuOpen$.value) {
@@ -424,8 +452,13 @@ export class WorkspacePage implements OnDestroy {
       this.leader$.next(null);
       return this.screen$.next('thread');
     }
+    // With a thread open and nothing else, Escape goes back to Home, where the prompt and the waiting threads are.
+    if (event.key === 'Escape' && this.screen$.value === 'thread' && this.selection$.value.threadId && !press.editable && !['INPUT', 'TEXTAREA', 'SELECT'].includes(press.element.toUpperCase())) {
+      event.preventDefault();
+      return this.openHome();
+    }
     // The board moves between cards with these, see `BoardComponent`; `h` would otherwise open the history.
-    if (this.screen$.value === 'board' && BOARD_KEYS.includes(event.key)) return;
+    if (this.screen$.value === 'board' && this.leader$.value === null && BOARD_KEYS.includes(event.key)) return;
     if (menuAsked(press, this.draft$.value)) {
       event.preventDefault();
       return this.openMenu(true);
@@ -467,6 +500,8 @@ export class WorkspacePage implements OnDestroy {
       case 'openProject':
         this.selectProject(action.project);
         return this.screen$.next('thread');
+      case 'showHome':
+        return this.openHome();
       case 'showBoard':
         return this.showBoard(action.everyProject);
       case 'chooseWorkflow':
@@ -630,13 +665,6 @@ export class WorkspacePage implements OnDestroy {
     });
   }
 
-  /** Moves new threads on to the next agent, on the model last chosen for it, for the button beside the message box. */
-  switchAgent(): void {
-    this.store.workflows$.pipe(take(1)).subscribe((workflows) =>
-      this.newThreads$.next(switchingAgent(this.newThreads$.value, firstStageChooses(workflows))),
-    );
-  }
-
   updateDraft(event: Event): void {
     this.draft$.next((event.target as HTMLTextAreaElement).value);
   }
@@ -674,20 +702,15 @@ export class WorkspacePage implements OnDestroy {
     this.focusMessageBox();
   }
 
-  /** Sends what was typed: to the open thread, or as the first message of a new one. */
+  /** Sends what was typed in the open thread's message box to the agent, or to the reviewer when it was picked. */
   send(view: WorkspaceView): void {
     const text = this.draft$.value.trim();
-    if (!text || !view.project || view.running || this.sending$.value) return;
-
-    const thread$ = view.thread
-      ? of(view.thread)
-      : this.api.createThread(view.project.id, startingChoice(this.newThreads$.value)).pipe(
-          tap((thread) => this.selection$.next({ projectId: thread.project_id, threadId: thread.id })),
-        );
+    const thread = view.thread;
+    if (!text || !thread || view.running || this.sending$.value) return;
 
     this.sending$.next(true);
-    const to = view.thread?.reviewer ? this.to$.value : 'author';
-    thread$.pipe(switchMap((thread) => this.api.sendMessage(thread.id, text, to))).subscribe({
+    const to = thread.reviewer ? this.to$.value : 'author';
+    this.api.sendMessage(thread.id, text, to).subscribe({
       next: () => {
         this.draft$.next('');
         this.sending$.next(false);
@@ -697,6 +720,66 @@ export class WorkspacePage implements OnDestroy {
         this.alerts.error(refusalText(failure, 'The message could not be sent.'));
       },
     });
+  }
+
+  /**
+   * Starts a thread from Home with its first message, and opens it.
+   *
+   * The agent is the one picked for new threads, here or in the menu, or
+   * else the workflow's first stage chooses. What was typed stays in the
+   * message box until the message is sent, so a refusal loses nothing: if
+   * the thread was made but the message was refused, it is in the new
+   * thread's message box to send again.
+   */
+  startThread(request: StartRequest): void {
+    if (this.sending$.value) return;
+    this.sending$.next(true);
+    this.api
+      .createThread(request.projectId, startingChoice(this.newThreads$.value), request.workflow)
+      .pipe(
+        tap((thread) => this.selection$.next({ projectId: thread.project_id, threadId: thread.id })),
+        switchMap((thread) => this.api.sendMessage(thread.id, request.text, 'author')),
+      )
+      .subscribe({
+        next: () => {
+          this.draft$.next('');
+          this.sending$.next(false);
+        },
+        error: (failure: unknown) => {
+          this.sending$.next(false);
+          this.alerts.error(refusalText(failure, 'The thread could not be started.'));
+        },
+      });
+  }
+
+  /** Sends Home's text to a thread chosen with `@`, and opens it. A refusal leaves the text and the chosen thread on Home. */
+  continueThread({ thread, text }: ContinueRequest): void {
+    if (this.sending$.value) return;
+    this.sending$.next(true);
+    this.api.sendMessage(thread.id, text, 'author').subscribe({
+      next: () => {
+        this.draft$.next('');
+        this.sending$.next(false);
+        this.openThread(thread);
+      },
+      error: (failure: unknown) => {
+        this.sending$.next(false);
+        this.alerts.error(refusalText(failure, 'The message could not be sent.'));
+      },
+    });
+  }
+
+  /** Presses an agent's button on Home: picks it for new threads, or lifts the pick when it was the picked one. */
+  pressAgent(agent: AgentName): void {
+    this.newThreads$.next(pressingAgent(this.newThreads$.value, agent));
+  }
+
+  /** Goes to Home: no thread open, every project's waiting threads and the prompt. */
+  openHome(): void {
+    this.leader$.next(null);
+    this.selection$.next({ projectId: this.selection$.value.projectId, threadId: null });
+    this.draft$.next('');
+    this.screen$.next('thread');
   }
 
   stop(thread: Thread): void {

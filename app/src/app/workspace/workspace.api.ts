@@ -32,9 +32,13 @@ export class WorkspaceApi {
     return this.ask({ type: 'remove_project', project_id: projectId }, () => undefined as void);
   }
 
-  /** Starts a thread on an agent and model, or, without a choice, on what the workflow's first stage chooses. */
-  createThread(projectId: string, choice: Choice | null): Observable<Thread> {
-    return this.ask({ type: 'start_thread', project_id: projectId, agent: choice?.agent ?? null, model: choice?.model ?? null, title: '' }, (answer) =>
+  /**
+   * Starts a thread on an agent and model, or, without a choice, on what the workflow's first stage chooses.
+   *
+   * The thread follows the named workflow, or the default one without a name.
+   */
+  createThread(projectId: string, choice: Choice | null, workflow: string | null = null): Observable<Thread> {
+    return this.ask({ type: 'start_thread', project_id: projectId, agent: choice?.agent ?? null, model: choice?.model ?? null, title: '', workflow }, (answer) =>
       answer.type === 'thread' ? (answer.thread as Thread) : undefined,
     );
   }

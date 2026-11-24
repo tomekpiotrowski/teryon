@@ -252,7 +252,7 @@ lets_expect! { #tokio_test
         let check_4 = matches!(added, Event::ProjectAdded { project: ref added } if added.id == project);
         expect(check_4) to be_true
 
-        let thread = thread_id(client.call(Request::StartThread { project_id: project, agent: Some("claude".to_string()), model: None, title: String::new() }).await.unwrap());
+        let thread = thread_id(client.call(Request::StartThread { project_id: project, agent: Some("claude".to_string()), model: None, title: String::new(), workflow: None }).await.unwrap());
         let followed = client.call(Request::FollowThread { thread_id: thread }).await.unwrap();
         expect(followed) to equal(no_entries())
 
@@ -309,7 +309,7 @@ lets_expect! { #tokio_test
         expect(gemini.first().cloned()) to equal(Some("gemini-4-neon-high".to_string()))
 
         let project = project_id(client.call(Request::AddProject { name: "Sample".to_string(), directory: folder.path().to_string_lossy().into_owned() }).await.unwrap());
-        let started = client.call(Request::StartThread { project_id: project, agent: Some("claude".to_string()), model: Some("sonnet".to_string()), title: String::new() }).await.unwrap();
+        let started = client.call(Request::StartThread { project_id: project, agent: Some("claude".to_string()), model: Some("sonnet".to_string()), title: String::new(), workflow: None }).await.unwrap();
         let thread = match started { Answer::Thread { thread } => thread, _ => panic!("a thread") };
         expect(thread.model.clone()) to equal(Some("sonnet".to_string()))
 
@@ -326,7 +326,7 @@ lets_expect! { #tokio_test
         let folder = tempdir().unwrap();
         let mut client = scene.client().await;
         let project = project_id(client.call(Request::AddProject { name: "Sample".to_string(), directory: folder.path().to_string_lossy().into_owned() }).await.unwrap());
-        let thread = thread_id(client.call(Request::StartThread { project_id: project, agent: Some("claude".to_string()), model: None, title: String::new() }).await.unwrap());
+        let thread = thread_id(client.call(Request::StartThread { project_id: project, agent: Some("claude".to_string()), model: None, title: String::new(), workflow: None }).await.unwrap());
 
         client.call(Request::SendMessage { thread_id: thread, text: "hello".to_string(), to: Voice::Author }).await.unwrap();
         wait_for(&mut client, |event| matches!(event, Event::ThreadChanged { thread: changed } if changed.status == Status::Idle)).await;

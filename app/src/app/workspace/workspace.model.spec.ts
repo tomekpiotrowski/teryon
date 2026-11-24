@@ -8,12 +8,12 @@ import {
   choosing,
   FIRST_NEW_THREADS,
   firstStageChooses,
-  newThreadLabel,
   pendingChoice,
+  pressingAgent,
+  readNewThreads,
   startingChoice,
   modelLabel,
   sameChoice,
-  switchingAgent,
   threadChoice,
   countText,
   reviewerLabel,
@@ -46,20 +46,17 @@ import {
   type KeyPress,
   NO_PLACE,
   NOTHING_SELECTED,
-  nextAgent,
   type Place,
   placeIn,
   codePlace,
   copyPlace,
   refusalText,
   resolveSelection,
-  runningText,
+  runningCount,
   screenAfter,
   seenNow,
   summaryText,
   threadLabel,
-  waitingText,
-  waitingThreads,
   pendingQuestions,
   threadLines,
   type EntryKind,
@@ -174,9 +171,6 @@ describe('labels', () => {
     expect(AGENTS.map(agentLabel)).toEqual(['Claude', 'Codex', 'Grok', 'Gemini']);
   });
 
-  it('switches to the next agent, going round', () => {
-    expect(AGENTS.map(nextAgent)).toEqual(['codex', 'grok', 'gemini', 'claude']);
-  });
 });
 
 describe('reviewersFor', () => {
@@ -475,40 +469,63 @@ describe('choices', () => {
   it('lets the first stage choose for new threads until the person picks', () => {
     expect(startingChoice(FIRST_NEW_THREADS)).toBeNull();
     expect(startingChoice(choosing(FIRST_NEW_THREADS, { agent: 'codex', model: null }))).toEqual({ agent: 'codex', model: null });
-    expect(startingChoice(switchingAgent(FIRST_NEW_THREADS))).toEqual({ agent: 'codex', model: null });
   });
 
-  it('goes round the stage\'s choice and every agent when the first stage chooses', () => {
-    const first = switchingAgent(FIRST_NEW_THREADS, true);
-    expect([first.agent, first.picked]).toEqual(['claude', true]);
-    const fourth = switchingAgent(switchingAgent(switchingAgent(first, true), true), true);
-    expect([fourth.agent, fourth.picked]).toEqual(['gemini', true]);
-    expect(switchingAgent(fourth, true).picked).toBe(false);
-  });
-
-  it('says what new threads start on: the first stage\'s choice until the person picks', () => {
+  it('says what new threads start with: the first stage\'s choice until the person picks', () => {
     const choosingTalk: Workflows = {
       ...STAGE_DEFAULTS,
       labels: STAGE_DEFAULTS.labels.map((label) => (label.stage === 'talking' ? { ...label, chooses: 'Prefer Claude · strong' } : label)),
     };
     const sonnet: Starting = { type: 'provider', agent: 'claude', model: 'claude-sonnet-5-5' };
-    expect(newThreadLabel(FIRST_NEW_THREADS, sonnet)).toBe('Claude · Sonnet 5.5');
-    expect(newThreadLabel(FIRST_NEW_THREADS, { type: 'provider', agent: 'grok', model: null })).toBe('Grok · default');
-    expect(newThreadLabel(FIRST_NEW_THREADS, { type: 'unavailable', problem: 'Used up.' })).toBe('No provider available');
-    expect(newThreadLabel(FIRST_NEW_THREADS, null)).toBe('Claude · default');
-    expect(newThreadLabel(choosing(FIRST_NEW_THREADS, { agent: 'codex', model: null }), sonnet)).toBe('Codex · default');
-    expect(newThreadLabel(choosing(FIRST_NEW_THREADS, { agent: 'codex', model: null }), { type: 'unavailable', problem: 'x' })).toBe('Codex · default');
     expect(pendingChoice(FIRST_NEW_THREADS, sonnet)).toEqual({ agent: 'claude', model: 'claude-sonnet-5-5' });
     expect(pendingChoice(FIRST_NEW_THREADS, { type: 'unavailable', problem: 'x' })).toEqual({ agent: 'claude', model: null });
     expect(firstStageChooses(choosingTalk)).toBe(true);
     expect(firstStageChooses(STAGE_DEFAULTS)).toBe(false);
   });
 
+  it('picks an agent pressed on Home, on the model remembered for it', () => {
+    const remembered = choosing(FIRST_NEW_THREADS, { agent: 'codex', model: 'gpt-6-astra' });
+    const pressed = pressingAgent({ ...remembered, agent: 'claude', picked: false }, 'codex');
+    expect(pressed).toEqual({ ...remembered, picked: true });
+    expect(startingChoice(pressed)).toEqual({ agent: 'codex', model: 'gpt-6-astra' });
+  });
+
+  it('lifts the pick when the picked agent is pressed again, and keeps the models', () => {
+    const picked = pressingAgent(FIRST_NEW_THREADS, 'grok');
+    const lifted = pressingAgent(picked, 'grok');
+    expect(lifted.picked).toBe(false);
+    expect(startingChoice(lifted)).toBeNull();
+    expect(pressingAgent(lifted, 'grok').picked).toBe(true);
+  });
+
+  it('moves the pick to another agent pressed, and one chosen in the menu replaces a press', () => {
+    const codex = pressingAgent(FIRST_NEW_THREADS, 'codex');
+    expect(startingChoice(pressingAgent(codex, 'grok'))).toEqual({ agent: 'grok', model: null });
+    expect(startingChoice(choosing(codex, { agent: 'grok', model: null }))).toEqual({ agent: 'grok', model: null });
+  });
+
+  it('reads what was remembered of the choice for new threads', () => {
+    const remembered = choosing(FIRST_NEW_THREADS, { agent: 'codex', model: 'gpt-6-astra' });
+    expect(readNewThreads(JSON.stringify(remembered))).toEqual(remembered);
+  });
+
+  it.each([null, '', 'not json', '3', 'null', '{"agent":"mistral","picked":true}', '{"agent":"codex","picked":"yes"}'])('reads %j as nothing remembered', (stored) => {
+    expect(readNewThreads(stored)).toEqual(FIRST_NEW_THREADS);
+  });
+
+  it('keeps only the models that are text', () => {
+    expect(readNewThreads('{"agent":"grok","picked":false,"models":{"grok":"g","claude":4}}')).toEqual({
+      agent: 'grok',
+      picked: false,
+      models: { claude: null, codex: null, grok: 'g', gemini: null },
+    });
+  });
+
   it('remembers the model chosen for each agent, across switching agents', () => {
     const onOpus = choosing(FIRST_NEW_THREADS, { agent: 'claude', model: 'opus' });
-    const onCodex = switchingAgent(onOpus);
+    const onCodex = choosing(onOpus, { agent: 'codex', model: null });
     expect(chosen(onCodex)).toEqual({ agent: 'codex', model: null });
-    const back = switchingAgent(switchingAgent(switchingAgent(onCodex)));
+    const back = { ...onCodex, agent: 'claude' as const };
     expect(chosen(back)).toEqual({ agent: 'claude', model: 'opus' });
     const grokked = choosing(back, { agent: 'grok', model: 'grok-4.6' });
     expect(grokked.models).toEqual({ claude: 'opus', codex: null, grok: 'grok-4.6', gemini: null });
@@ -634,69 +651,21 @@ describe('barTitle', () => {
   });
 });
 
-describe('runningText', () => {
+describe('runningCount', () => {
   const projects = [project('a', '2026-11-01T10:00:00'), project('b', '2026-11-02T10:00:00')];
 
   it.each([
-    [[], ''],
-    [['idle', 'idle'], ''],
-    [['running', 'idle'], '1 running'],
-    [['running', 'running'], '2 running'],
-  ] as const)('for threads that are %j says %j', (statuses, text) => {
+    [[], 0],
+    [['idle', 'idle'], 0],
+    [['running', 'idle'], 1],
+    [['running', 'running'], 2],
+  ] as const)('for threads that are %j counts %j', (statuses, count) => {
     const threads = statuses.map((status, index) => thread(`t${index}`, index ? 'b' : 'a', '2026-11-03T10:00:00', status));
-    expect(runningText(groupThreads(projects, threads))).toBe(text);
+    expect(runningCount(groupThreads(projects, threads))).toBe(count);
   });
 
-  it('is empty without projects', () => {
-    expect(runningText([])).toBe('');
-  });
-});
-
-describe('waitingThreads and waitingText', () => {
-  const projects = [project('a', '2026-11-01T10:00:00'), project('b', '2026-11-02T10:00:00')];
-
-  function unread(id: string, created_at: string, title: string, status: Thread['status'] = 'idle'): Thread {
-    return { ...thread(id, id < 't3' ? 'a' : 'b', created_at, status), title, unread: true };
-  }
-
-  const one = unread('t1', '2026-11-03T10:00:00', 'One');
-  const two = unread('t2', '2026-11-04T10:00:00', '');
-  const three = unread('t3', '2026-11-05T10:00:00', 'Three');
-  const four = unread('t4', '2026-11-06T10:00:00', 'Four');
-
-  it('finds nothing without projects, or when every thread has been looked at', () => {
-    expect(waitingThreads([])).toEqual([]);
-    expect(waitingText([])).toBe('');
-    const read = groupThreads(projects, [thread('t1', 'a', '2026-11-03T10:00:00'), thread('t2', 'b', '2026-11-04T10:00:00', 'running')]);
-    expect(waitingThreads(read)).toEqual([]);
-    expect(waitingText(read)).toBe('');
-  });
-
-  it('finds the unread threads of every project, newest first', () => {
-    const groups = groupThreads(projects, [one, thread('t0', 'a', '2026-11-07T10:00:00'), three, two]);
-    expect(waitingThreads(groups).map((item) => item.id)).toEqual(['t3', 't2', 't1']);
-  });
-
-  it('finds a thread whose agent waits for answers, though it was looked at, until an agent works in it again', () => {
-    const asking: Thread = { ...thread('t5', 'a', '2026-11-08T10:00:00'), title: 'Asking', asking: true };
-    expect(waitingThreads(groupThreads(projects, [one, asking])).map((item) => item.id)).toEqual(['t5', 't1']);
-    expect(waitingThreads(groupThreads(projects, [{ ...asking, status: 'running' }]))).toEqual([]);
-    expect(waitingThreads(groupThreads(projects, [{ ...asking, asking: false }]))).toEqual([]);
-  });
-
-  it('leaves out a thread an agent is working in again', () => {
-    const groups = groupThreads(projects, [one, unread('t2', '2026-11-04T10:00:00', 'Two', 'running')]);
-    expect(waitingThreads(groups).map((item) => item.id)).toEqual(['t1']);
-    expect(waitingText(groups)).toBe('waiting: One');
-  });
-
-  it.each([
-    [[one], 'waiting: One'],
-    [[one, two], 'waiting: New thread, One'],
-    [[one, two, three], 'waiting: Three, New thread, One'],
-    [[one, two, three, four], '4 waiting'],
-  ])('names up to three and counts more', (threads, text) => {
-    expect(waitingText(groupThreads(projects, threads))).toBe(text);
+  it('is zero without projects', () => {
+    expect(runningCount([])).toBe(0);
   });
 });
 

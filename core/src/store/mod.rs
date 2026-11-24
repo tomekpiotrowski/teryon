@@ -80,6 +80,23 @@ pub enum Status {
     Running,
 }
 
+/// How the last run in a thread ended.
+///
+/// Home lists threads whose run failed or hit a limit apart from those that
+/// simply finished, so the person knows which need a second look.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum RunEnd {
+    /// The agent finished its turn.
+    Finished,
+    /// The program could not start, or ended without finishing its turn.
+    Failed,
+    /// The agent's provider said a usage limit ended the turn.
+    Limited,
+    /// The person stopped the run, or Teryon was restarted.
+    Stopped,
+}
+
 /// One conversation with an agent inside a project.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
 pub struct Thread {
@@ -170,6 +187,9 @@ pub struct Thread {
     /// The provider picked for each stage, so the thread goes back to the same one, see [`crate::workflow::picking`].
     #[serde(default)]
     pub picks: BTreeMap<Stage, String>,
+    /// How the last run ended. Nothing before the first run ends, and while a new one runs.
+    #[serde(default)]
+    pub ended: Option<RunEnd>,
     pub created_at: DateTime<Utc>,
 }
 

@@ -6,7 +6,7 @@
 // chooses, so the times on screen are known.
 
 import type { Page } from "@playwright/test";
-import { addProject, expect, git, gitAt, openWorkspace, put, test } from "./support";
+import { addProject, expect, git, gitAt, openWorkspace, pressAway, put, test } from "./support";
 
 /** The start of the hour before this one, in seconds since 1970. Commits come minutes after it. */
 const start = Math.floor(Date.now() / 3_600_000) * 3600 - 3600;
@@ -71,7 +71,7 @@ test("a project's history lists its commits and shows what one changed", async (
     first = git(folder, "rev-parse", "--short=7", "HEAD~1");
   });
 
-  await page.getByRole("button", { name: "history H" }).click();
+  await pressAway(page, "h");
 
   const list = page.getByLabel("Commit history");
   const changedFiles = page.getByRole("group", { name: "Changed files" });
@@ -190,7 +190,7 @@ test("the keys move between the thread, the history and the files, and through t
   await page.keyboard.press("h");
   await expect(composer).toBeVisible();
 
-  await page.getByRole("button", { name: "history H" }).click();
+  await pressAway(page, "h");
   // The thread stays on the page, hidden, with buttons of the same names; wait for the history's.
   await expect(page.getByLabel("Commit history")).toBeVisible();
   await page.getByRole("button", { name: "code C" }).click();
@@ -209,7 +209,7 @@ test("two commits are compared with a shift-click", async ({ page }) => {
     oldest = git(folder, "rev-parse", "--short=7", "HEAD~3");
     newest = git(folder, "rev-parse", "--short=7", "HEAD");
   });
-  await page.getByRole("button", { name: "history H" }).click();
+  await pressAway(page, "h");
   await expect(page.getByRole("heading", { name: "Route writes through the ledger" })).toBeVisible();
   const changedFiles = page.getByRole("group", { name: "Changed files" });
 
@@ -234,7 +234,7 @@ test("the files can be browsed as a commit left them", async ({ page }) => {
     branched(folder);
     entry = git(folder, "rev-parse", "--short=7", "HEAD~1");
   });
-  await page.getByRole("button", { name: "history H" }).click();
+  await pressAway(page, "h");
   await commits(page).filter({ hasText: "Add the ledger entry" }).click();
 
   await page.getByRole("button", { name: `Browse files at ${entry}` }).click();
@@ -317,13 +317,13 @@ test("a project without commits, or without a repository, says so", async ({ pag
   await addProject(page, "Empty", (folder) => {
     git(folder, "init", "-q", "-b", "main");
   });
-  await page.getByRole("button", { name: "history H" }).click();
+  await pressAway(page, "h");
   await expect(page.getByText("There are no commits here yet.")).toBeVisible();
   await expect(page.getByLabel("Commit history").getByText("0 commits")).toBeVisible();
   await page.getByRole("button", { name: "history H" }).click();
 
   await addProject(page, "Plain", (folder) => put(folder, "README.md", "# Plain\n"));
-  await page.getByRole("button", { name: "history H" }).click();
+  await pressAway(page, "h");
   await expect(page.getByText("This project's directory is not a git repository, so there are no files or history to show.")).toBeVisible();
   await expect(page.getByLabel("Branch")).toHaveCount(0);
   await page.getByRole("button", { name: "history H" }).click();
@@ -334,7 +334,7 @@ test("the phone layout stacks the commits above the open commit", async ({ page 
   await addProject(page, "Payments", branched);
   await page.setViewportSize({ width: 390, height: 844 });
 
-  await page.getByRole("button", { name: "history H" }).click();
+  await pressAway(page, "h");
 
   const list = await page.getByLabel("Commit history").boundingBox();
   const heading = await page.getByRole("heading", { name: "Route writes through the ledger" }).boundingBox();

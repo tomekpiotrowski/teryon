@@ -52,17 +52,15 @@
         </div>
       }
       <div class="workspace-shell" [class.workspace-covered]="covered" [inert]="covered">
-        <header class="files-bar workspace-bar">
-          <button class="menu-button" type="button" aria-label="Open menu" aria-keyshortcuts="/ Control+K" (click)="openMenu()">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"></path></svg>
-          </button>
-          <span class="files-mark">TERYON</span>
-          <span class="files-muted files-project">{{ barTitle(view.project, view.thread) }}</span>
-          <span class="files-spacer"></span>
-          @if (leader$ | async; as leader) { <span class="bar-leader" role="status">{{ leader.toUpperCase() }} …</span> }
-          @if (waitingText(view.groups); as waiting) { <span class="bar-waiting">{{ waiting }}</span> }
-          @if (runningText(view.groups); as running) { <span class="bar-running">● {{ running }}</span> }
-        </header>
+        <app-top-bar
+          [scope]="view.thread ? barTitle(view.project, view.thread) : 'all projects'"
+          [running]="runningCount(view.groups)"
+          [waiting]="view.needing"
+          [leader]="leader$ | async"
+          (menuOpened)="openMenu()"
+          (homeOpened)="openHome()"
+          (settingsOpened)="screen$.next('settings')"
+        ></app-top-bar>
 
         <div class="workspace-body">
           <main class="project-view">
@@ -81,35 +79,24 @@
                 <p class="empty-workspace">Add a project to get started. A project is a directory on this machine that agents work in. Press <kbd>/</kbd> or the menu button and choose New project.</p>
               </section>
             } @else if (!view.thread) {
-              <section class="empty-project">
-                <div class="hero-composer">
-                  <textarea
-                    class="hero-input"
-                    rows="1"
-                    aria-label="New thread"
-                    [placeholder]="'What should ' + agentLabel((choice$ | async)?.agent ?? 'claude') + ' do in ' + view.project.name + '?'"
-                    [value]="draft$ | async"
-                    (input)="updateDraft($event)"
-                    (keydown)="handleComposerKeydown($event, view)"
-                  ></textarea>
-                  <div class="composer-meta">
-                    @if (newThreadLabel$ | async; as label) {
-                      <button type="button" aria-label="Change agent" (click)="switchAgent()">{{ label }}</button>
-                    }
-                    <span class="spacer"></span>
-                    <button type="button" class="code-link" aria-keyshortcuts="/" (click)="openMenu()">menu <kbd>/</kbd></button>
-                    <button type="button" class="code-link" aria-keyshortcuts="h" (click)="screen$.next('history')">history <kbd>H</kbd></button>
-                    <button type="button" class="code-link" aria-keyshortcuts="c" (click)="showCode()">code <kbd>C</kbd></button>
-                    <button
-                      class="send-action"
-                      type="button"
-                      [class.ready]="(draft$ | async)?.trim()"
-                      [disabled]="sending$ | async"
-                      (click)="send(view)"
-                    >Run ↵</button>
-                  </div>
-                </div>
-              </section>
+              <app-home
+                [groups]="view.groups"
+                [installed]="(installed$ | async) ?? []"
+                [workflows]="(workflows$ | async) ?? emptyWorkflows"
+                [starting]="starting$ | async"
+                [pickedAgent]="pickedAgent$ | async"
+                [project]="view.project"
+                [sending]="(sending$ | async) ?? false"
+                [text]="(draft$ | async) ?? ''"
+                (textChanged)="draft$.next($event)"
+                (started)="startThread($event)"
+                (agentPressed)="pressAgent($event)"
+                (continued)="continueThread($event)"
+                (opened)="openThread($event)"
+                (boardOpened)="showBoard(true)"
+                (historyOpened)="screen$.next('history')"
+                (menuOpened)="openMenu()"
+              ></app-home>
             } @else {
               <section #thread class="thread" aria-label="Thread">
                 <div class="thread-inner">

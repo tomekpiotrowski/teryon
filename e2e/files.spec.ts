@@ -4,7 +4,7 @@
 // Each project is a real git repository made for the test, because that is
 // where the file browser reads from.
 
-import { expect, test, addProject, commit, git, openWorkspace, put } from "./support";
+import { addProject, commit, expect, git, openWorkspace, pressAway, put, test } from "./support";
 
 const adapterBefore = `import type { LegacyTxn } from "../legacy/types";
 
@@ -44,7 +44,7 @@ test("a project's files show what changed, and follow the disk", async ({ page }
     put(folder, "src/ledger/entry.ts", "export function toLedgerEntry() {}\n");
   });
 
-  await page.getByRole("button", { name: "code C" }).click();
+  await pressAway(page, "c");
 
   const tree = page.getByLabel("Repository files");
   const content = page.getByRole("region", { name: /^Content of / });
@@ -109,7 +109,7 @@ test("a project's files show what changed, and follow the disk", async ({ page }
   await expect(content.getByText("export const more = [];")).toBeVisible({ timeout: 15_000 });
 });
 
-test("the C key and the code link switch between a thread and the files", async ({ page }) => {
+test("the C key switches between a thread and the files", async ({ page }) => {
   await addProject(page, "Payments", repository);
   const composer = page.getByLabel("New thread");
 
@@ -130,7 +130,7 @@ test("the C key and the code link switch between a thread and the files", async 
 
   await page.keyboard.press("c");
   await expect(composer).toBeVisible();
-  await page.getByRole("button", { name: "code C" }).click();
+  await page.keyboard.press("c");
   await expect(page.getByLabel("Repository files")).toBeVisible();
   await page.getByRole("button", { name: "code C" }).click();
   await expect(composer).toBeVisible();
@@ -139,7 +139,7 @@ test("the C key and the code link switch between a thread and the files", async 
 test("a file can be asked about in a thread", async ({ page }) => {
   await addProject(page, "Payments", repository);
 
-  await page.getByRole("button", { name: "code C" }).click();
+  await pressAway(page, "c");
   await page.getByLabel("Repository files").getByRole("button", { name: "README.md" }).click();
   await expect(page.getByRole("heading", { name: "README.md" })).toBeVisible();
   await expect(page.getByText("Markdown")).toBeVisible();
@@ -159,7 +159,7 @@ test("another branch is compared with the main branch", async ({ page }) => {
   });
 
   const tree = page.getByLabel("Repository files");
-  await page.getByRole("button", { name: "code C" }).click();
+  await pressAway(page, "c");
   await expect(page.getByText("Choose a file to read it.")).toBeVisible();
 
   await page.getByLabel("Branch").selectOption("ledger-adapter");
@@ -186,7 +186,7 @@ test("the files open as they were left, apart for each branch", async ({ page })
   const tree = page.getByLabel("Repository files");
   const composer = page.getByLabel("New thread");
 
-  await page.getByRole("button", { name: "code C" }).click();
+  await pressAway(page, "c");
   await tree.getByRole("button", { name: "src" }).click();
   await tree.getByRole("button", { name: "api" }).click();
   await tree.getByRole("button", { name: "routes.ts" }).click();
@@ -195,7 +195,8 @@ test("the files open as they were left, apart for each branch", async ({ page })
   // Left and opened again, the files are as they were.
   await page.getByRole("button", { name: "code C" }).click();
   await expect(composer).toBeVisible();
-  await page.getByRole("button", { name: "code C" }).click();
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("c");
   await expect(page.getByRole("heading", { name: "routes.ts" })).toBeVisible();
   await expect(tree.getByRole("button", { name: "routes.ts" })).toHaveAttribute("aria-current", "true");
   await expect(tree.getByRole("button", { name: "src" })).toHaveAttribute("aria-expanded", "true");
@@ -222,7 +223,7 @@ test("the files open as they were left, apart for each branch", async ({ page })
 test("a project that is not a git repository says so", async ({ page }) => {
   await addProject(page, "Plain", (folder) => put(folder, "README.md", "# Plain\n"));
 
-  await page.getByRole("button", { name: "code C" }).click();
+  await pressAway(page, "c");
 
   await expect(page.getByText("This project's directory is not a git repository, so there are no files or history to show.")).toBeVisible();
   await expect(page.getByLabel("Branch")).toHaveCount(0);
@@ -237,7 +238,7 @@ test("the phone layout stacks the tree above the file", async ({ page }) => {
   });
   await page.setViewportSize({ width: 390, height: 844 });
 
-  await page.getByRole("button", { name: "code C" }).click();
+  await pressAway(page, "c");
   await page.getByLabel("Repository files").getByRole("button", { name: "src" }).click();
   await page.getByLabel("Repository files").getByRole("button", { name: "ledger" }).click();
   await page.getByLabel("Repository files").getByRole("button", { name: "adapter.ts" }).click();

@@ -86,8 +86,15 @@ impl Session {
                 agent,
                 model,
                 title,
+                workflow,
             } => workspace
-                .start_thread(project_id, agent.as_deref(), model.as_deref(), &title)
+                .start_thread_on(
+                    project_id,
+                    agent.as_deref(),
+                    model.as_deref(),
+                    &title,
+                    workflow.as_deref(),
+                )
                 .map(|thread| Answer::Thread {
                     thread: Box::new(thread),
                 })

@@ -11,9 +11,15 @@ export type Request = { "type": "add_project", name: string, directory: string, 
  */
 agent: string | null, 
 /**
- * Nothing leaves the model to the agent program.
+ * Nothing, for an agent that was named, runs the model its workflow's first stage names for the
+ * stage's strength, or the agent program's own default when the stage names none.
  */
-model: string | null, title: string, } | { "type": "send_message", thread_id: string, text: string, to: Voice, } | { "type": "review_change", thread_id: string, 
+model: string | null, title: string, 
+/**
+ * The workflow the thread follows, whose first stage chooses the agent when none was named.
+ * Nothing means the default.
+ */
+workflow: string | null, } | { "type": "send_message", thread_id: string, text: string, to: Voice, } | { "type": "review_change", thread_id: string, 
 /**
  * The agent that reviews, which may not be the thread's own.
  */
@@ -45,7 +51,11 @@ workflows: Workflows,
 /**
  * Who the next new thread starts with, when the workflow's first stage chooses.
  */
-starting: Starting | null, } | { "type": "models_changed", models: ModelLists, } | { "type": "project_added", project: ProjectView, } | { "type": "project_removed", project_id: string, } | { "type": "thread_changed", thread: Thread, } | { "type": "entry_added", entry: Entry, } | { "type": "limits_changed", limits: Limits, } | { "type": "usage_recorded", line: UsageLine, } | { "type": "starting_changed", starting: Starting | null, } | { "type": "settings_changed", opens: Opens, workflows: Workflows, };
+starting: Starting | null, 
+/**
+ * The agents whose programs are on this machine, in the order Teryon lists them.
+ */
+installed: Array<string>, } | { "type": "models_changed", models: ModelLists, } | { "type": "project_added", project: ProjectView, } | { "type": "project_removed", project_id: string, } | { "type": "thread_changed", thread: Thread, } | { "type": "entry_added", entry: Entry, } | { "type": "limits_changed", limits: Limits, } | { "type": "usage_recorded", line: UsageLine, } | { "type": "starting_changed", starting: Starting | null, } | { "type": "settings_changed", opens: Opens, workflows: Workflows, };
 
 export type Starting = { "type": "provider", agent: string, model: string | null, } | { "type": "unavailable", problem: string, };
 
@@ -182,7 +192,11 @@ plan: PlanInfo | null,
 /**
  * The provider picked for each stage, so the thread goes back to the same one, see [`crate::workflow::picking`].
  */
-picks: { [key in Stage]?: string }, created_at: string, };
+picks: { [key in Stage]?: string }, 
+/**
+ * How the last run ended. Nothing before the first run ends, and while a new one runs.
+ */
+ended: RunEnd | null, created_at: string, };
 
 export type PlanInfo = { 
 /**
@@ -199,6 +213,8 @@ fingerprint: string,
 too_large: boolean, };
 
 export type Status = "idle" | "running";
+
+export type RunEnd = "finished" | "failed" | "limited" | "stopped";
 
 export type Stage = "talking" | "planning" | "implementing" | "review" | "ready" | "done";
 

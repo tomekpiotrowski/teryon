@@ -42,7 +42,7 @@ use crate::changes::reviewing::{findings_in, fingerprint, reviewing};
 use crate::changes::status::Look;
 use crate::files::git::{first_line, Git};
 use crate::settings::AgentSettings;
-use crate::store::Thread;
+use crate::store::{RunEnd, Thread};
 use crate::usage::grok::{grok_home_here, grok_reading};
 use crate::usage::limits::{codex_home_here, codex_reading, gemini_used_up};
 use crate::usage::{says_limit_hit, Limits, Reading};
@@ -113,6 +113,8 @@ pub enum ThreadChange {
     ReviewCut,
     /// The agent's program said a usage limit ended the turn, so another provider may carry on.
     RanOut(Agent),
+    /// How the run ended, said once before [`ThreadChange::Finished`].
+    Ended(RunEnd),
     /// The program has ended, however it ended. The thread takes messages again
     /// and needs the person's attention.
     Finished,
@@ -242,6 +244,7 @@ async fn run_turn(
             thread.id,
             EntryDraft::error("This thread names an agent Teryon does not know.").by(voice),
         );
+        journal.note(thread.id, ThreadChange::Ended(RunEnd::Failed));
         review_cut(journal, &thread, voice);
         return None;
     };
@@ -279,6 +282,7 @@ async fn run_turn(
                 thread.id,
                 EntryDraft::error(&text).by(voice).naming(speaker.agent),
             );
+            journal.note(thread.id, ThreadChange::Ended(RunEnd::Failed));
             review_cut(journal, &thread, voice);
             return None;
         }
@@ -380,6 +384,14 @@ async fn run_turn(
         },
     );
 
+    let end = match outcome.stop {
+        Some(_) => RunEnd::Stopped,
+        None if hit_limit => RunEnd::Limited,
+        // A failure the program reports comes with a summary marked early, so it counts like one without a summary.
+        None if !outcome.summarised || outcome.early => RunEnd::Failed,
+        None => RunEnd::Finished,
+    };
+    journal.note(thread.id, ThreadChange::Ended(end));
     if hit_limit {
         journal.note(thread.id, ThreadChange::RanOut(speaker.agent));
     }

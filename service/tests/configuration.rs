@@ -60,6 +60,7 @@ async fn started(
             agent: agent.map(str::to_string),
             model: model.map(str::to_string),
             title: String::new(),
+            workflow: None,
         })
         .await
         .unwrap()

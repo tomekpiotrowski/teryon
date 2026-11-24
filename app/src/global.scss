@@ -6,6 +6,12 @@
 
 @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700&family=Barlow:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
+/* Inter and JetBrains Mono, kept with the app so nothing is fetched. Latin and Latin Extended cover Polish. */
+@font-face { font-family: 'Inter'; font-style: normal; font-weight: 400 600; font-display: swap; src: url('/assets/fonts/inter-latin-ext.woff2') format('woff2'); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: 'Inter'; font-style: normal; font-weight: 400 600; font-display: swap; src: url('/assets/fonts/inter-latin.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'JetBrains Mono'; font-style: normal; font-weight: 400 500; font-display: swap; src: url('/assets/fonts/jetbrains-mono-latin-ext.woff2') format('woff2'); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: 'JetBrains Mono'; font-style: normal; font-weight: 400 500; font-display: swap; src: url('/assets/fonts/jetbrains-mono-latin.woff2') format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+
 :root {
   --color-bg: #f2f2f3;
   --color-surface: #e9e9ea;
@@ -43,12 +49,42 @@
   --code-type: #1f6e73;
   --code-attribute: #66549a;
 
+  --t-bg: #f4f5f6;
+  --t-surface: #ffffff;
+  --t-raised: #eceef0;
+  --t-line: #dcdee1;
+  --t-line-strong: #c9ccd0;
+  --t-text: #1d1f20;
+  --t-soft: #565a61;
+  --t-dim: #6a6e75;
+  --t-blue: #3f6a99;
+  --t-amber: #8a6718;
+  --t-red: #b0463d;
+  --t-green: #3d7a5a;
+  --t-font: 'Inter', system-ui, sans-serif;
+  --t-mono: 'JetBrains Mono', ui-monospace, monospace;
+
   --ion-background-color: var(--color-bg);
   --ion-text-color: var(--color-text);
   --ion-font-family: var(--font-body);
 }
 
 :root[data-theme='dark'] {
+  /* The unified look of the new designs: Home and the top bar use these; other screens move over one at a time. */
+  --t-bg: #161719;
+  --t-surface: #1a1b1e;
+  --t-raised: #1f2023;
+  --t-line: #26282c;
+  --t-line-strong: #2e3035;
+  --t-text: #e4e5e7;
+  --t-soft: #9a9da3;
+  --t-dim: #83878e;
+  --t-blue: #8fb0d6;
+  --t-amber: #d6b46f;
+  --t-red: #d9827a;
+  --t-green: #86c0a0;
+  --t-font: 'Inter', system-ui, sans-serif;
+  --t-mono: 'JetBrains Mono', ui-monospace, monospace;
   --color-bg: #17191b;
   --color-surface: #202427;
   --color-text: #e9eaec;
@@ -435,9 +471,6 @@ a:hover {
   flex: 1;
 }
 
-/* The bar at the top of a thread. It shares the frame of the bar above the
-   files and the history, so the three screens line up. */
-.workspace-bar { gap: 12px; }
 
 .menu-button {
   display: grid;
@@ -451,23 +484,6 @@ a:hover {
 
 .menu-button:hover { color: var(--color-text) !important; }
 .menu-button svg { width: 18px; fill: none; stroke: currentColor; stroke-linecap: square; stroke-width: 1.5; }
-
-.bar-running,
-.bar-waiting,
-.bar-leader {
-  flex: none;
-  color: var(--color-accent-700);
-  font: 400 11.5px/1 var(--font-code);
-}
-
-.bar-waiting {
-  min-width: 0;
-  flex: 0 1 auto;
-  overflow: hidden;
-  color: var(--color-text);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 /* The menu: every command in one list. A box in the middle of a wide
    screen; further down, a sheet from the bottom of a narrow one. */
@@ -719,37 +735,11 @@ a:hover {
   padding: 0 60px;
 }
 
-.hero-composer {
-  display: flex;
-  width: 100%;
-  max-width: 620px;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.hero-input {
-  width: 100%;
-  min-height: 48px;
-  max-height: 180px;
-  border: 0;
-  border-bottom: 1px solid var(--color-divider);
-  border-radius: 0;
-  padding: 0 0 14px;
-  overflow-y: auto;
-  resize: none;
-  background: transparent;
-  caret-color: var(--color-accent);
-  font-size: 20px;
-  line-height: 1.45;
-  field-sizing: content;
-}
-
 /* The message box is the one place to type on its screen and shows a caret, so it needs no ring. */
-.hero-input:focus-visible,
 .composer-field textarea:focus-visible { outline: none; }
 
 /*
- * The message boxes show no scroll bar.
+ * The message box shows no scroll bar.
  *
  * A message box grows with its text, but WebKit, which runs the desktop app,
  * sizes it a pixel short at some line counts, so a scroll bar appeared on
@@ -758,10 +748,8 @@ a:hover {
  * Only the bar is hidden: past its maximum height the box still scrolls with
  * the wheel, the touchpad, touch and the caret.
  */
-.hero-input,
 .composer-field textarea { scrollbar-width: none; }
 
-.hero-input::placeholder,
 .composer-field textarea::placeholder { color: var(--color-neutral-500); opacity: 1; }
 
 .composer-meta {
@@ -2045,7 +2033,6 @@ ion-alert {
   .menu-form .picker-row { min-height: 44px; align-items: center; }
 
   .empty-project { padding: 0 22px; }
-  .hero-input { font-size: 17px; }
   .thread { padding-top: 18px; }
   .thread-inner,
   .composer-inner { padding: 0 20px; }
@@ -2496,3 +2483,268 @@ ion-alert {
 
 /* The plan button beside the change's buttons wears the accent, not the change's tone. */
 .change-strip .plan-action { --tone: var(--color-accent-700); }
+
+/* ------------------------------------------------------------------ */
+/* The top bar and Home, in the look of the new designs.               */
+/* ------------------------------------------------------------------ */
+
+.top-bar {
+  display: flex;
+  height: 52px;
+  flex: none;
+  align-items: center;
+  gap: 16px;
+  border-bottom: 1px solid var(--t-line);
+  padding: 0 20px;
+  background: var(--t-bg);
+  color: var(--t-text);
+  font: 400 13px/1.4 var(--t-font);
+}
+
+.top-bar button { border: 0; padding: 0; cursor: pointer; background: transparent; color: inherit; }
+
+.top-icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  color: var(--t-dim) !important;
+}
+
+.top-icon:hover { color: var(--t-text) !important; }
+.top-icon svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.4; }
+
+.top-mark { font: 500 13px/1 var(--t-mono); letter-spacing: 0.24em; }
+.top-scope { min-width: 0; overflow: hidden; color: var(--t-dim); text-overflow: ellipsis; white-space: nowrap; }
+.top-spacer { flex: 1; }
+.top-leader { color: var(--t-blue); font: 400 11.5px/1 var(--t-mono); }
+
+.top-count { display: flex; flex: none; align-items: center; gap: 8px; font-size: 12px; }
+.top-running { color: var(--t-blue); }
+.top-waiting { color: var(--t-amber) !important; }
+.top-dot { width: 6px; height: 6px; flex: none; border-radius: 50%; background: currentColor; }
+
+@keyframes top-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+.top-pulse { animation: top-pulse 1.6s ease-in-out infinite; }
+
+app-home {
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  background: var(--t-bg);
+  color: var(--t-text);
+  font: 400 14px/1.4 var(--t-font);
+}
+
+.home {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  justify-content: center;
+  overflow-y: auto;
+  padding: 40px 24px 32px;
+}
+
+/* With nothing waiting the prompt sits in the middle of the screen. */
+.home-empty { align-items: center; padding-bottom: 12vh; }
+
+.home-column { display: flex; width: 100%; max-width: 760px; flex-direction: column; gap: 20px; }
+.home-empty .home-column { gap: 16px; }
+
+.home button { border: 0; padding: 0; cursor: pointer; background: transparent; color: inherit; text-align: left; font: inherit; }
+.home-hidden { position: absolute; left: -9999px; }
+.home-mono { font-family: var(--t-mono); }
+.home-dim { color: var(--t-dim); }
+.home-spacer { flex: 1; }
+
+.home kbd,
+.home-keys kbd {
+  display: inline-block;
+  min-width: 16px;
+  border: 1px solid var(--t-line-strong);
+  border-radius: 3px;
+  padding: 0 4px;
+  color: var(--t-soft);
+  font: 400 11px/16px var(--t-mono);
+  text-align: center;
+}
+
+.home-prompt {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--t-line-strong);
+  border-radius: 10px;
+  background: var(--t-surface);
+}
+
+.home-field { display: flex; height: 60px; align-items: center; gap: 10px; padding: 0 18px; }
+
+.home-input {
+  min-width: 0;
+  height: 100%;
+  flex: 1;
+  border: 0;
+  outline: none;
+  background: none;
+  caret-color: var(--t-blue);
+  color: var(--t-text);
+  font-size: 17px;
+}
+
+.home-input::placeholder { color: var(--t-dim); opacity: 1; }
+
+.home-chip {
+  flex: none;
+  max-width: 50%;
+  overflow: hidden;
+  border-radius: 6px;
+  padding: 4px 8px !important;
+  background: color-mix(in srgb, var(--t-blue) 14%, transparent) !important;
+  color: var(--t-blue) !important;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-options {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid var(--t-line);
+  padding: 9px 12px 9px 14px;
+  color: var(--t-dim);
+  font-size: 12px;
+}
+
+.home-option {
+  display: flex;
+  height: 26px;
+  align-items: center;
+  gap: 6px;
+  border-radius: 6px;
+  padding: 0 8px 0 4px !important;
+  color: var(--t-soft) !important;
+}
+
+.home-option:hover { color: var(--t-text) !important; }
+.home-option[aria-pressed='true'] { background: color-mix(in srgb, var(--t-blue) 12%, transparent) !important; color: var(--t-text) !important; }
+.home-option svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1.3; }
+.home-separator { width: 1px; height: 14px; background: var(--t-line-strong); }
+
+.home-badge {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  background: var(--t-raised);
+  color: var(--t-soft);
+  font: 500 10px/1 var(--t-mono);
+}
+
+.home-chooser { position: relative; }
+
+.home-popover {
+  position: absolute;
+  z-index: 3;
+  top: calc(100% + 6px);
+  left: 0;
+  display: flex;
+  min-width: 160px;
+  flex-direction: column;
+  border: 1px solid var(--t-line-strong);
+  border-radius: 8px;
+  padding: 4px;
+  background: var(--t-raised);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.home-popover button { border-radius: 5px; padding: 6px 10px !important; color: var(--t-soft) !important; }
+.home-popover button:hover,
+.home-popover button[aria-selected='true'] { background: color-mix(in srgb, var(--t-blue) 12%, transparent) !important; color: var(--t-text) !important; }
+
+.home-run { display: flex; align-items: center; gap: 8px; color: var(--t-text) !important; }
+.home-run:disabled { cursor: default; opacity: 0.45; }
+
+.home-matches { display: flex; flex-direction: column; border-top: 1px solid var(--t-line); padding: 6px; }
+.home-none { margin: 0; padding: 8px 10px; font-size: 13px; }
+
+.home-match,
+.home-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid transparent !important;
+  border-radius: 8px;
+  padding: 10px 14px !important;
+}
+
+.home-match { padding: 7px 10px !important; }
+.home-marked { border-color: var(--t-line-strong) !important; background: var(--t-raised) !important; }
+
+.home-title { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.home-list { display: flex; flex-direction: column; gap: 2px; outline: none; }
+.home-row { font-size: 14px; }
+.home-row .home-dim,
+.home-match .home-dim { flex: none; font-size: 12px; }
+
+.home-dot { width: 6px; height: 6px; flex: none; border-radius: 50%; box-sizing: border-box; }
+.home-dot[data-word='apply'],
+.home-dot[data-word='reply'] { background: var(--t-amber); }
+.home-dot[data-word='failed'] { background: var(--t-red); }
+.home-dot[data-word='new'] { border: 1.5px solid var(--t-soft); }
+.home-dot[data-word='running'] { background: var(--t-blue); }
+
+.home-word { flex: none; min-width: 52px; color: var(--t-soft); font-size: 12px; text-align: right; }
+.home-word[data-word='apply'],
+.home-word[data-word='reply'] { color: var(--t-amber); }
+.home-word[data-word='failed'] { color: var(--t-red); }
+
+.home-more { padding: 6px 14px !important; font-size: 12px; }
+
+.home-nothing { margin: 0; padding: 0 14px; color: var(--t-soft); font-size: 13px; }
+
+.home-running {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 0 14px !important;
+  color: var(--t-dim);
+  font-size: 12px;
+}
+
+.home-running-title { min-width: 0; overflow: hidden; color: var(--t-soft); text-overflow: ellipsis; white-space: nowrap; }
+.home-running-doing { color: var(--t-blue); }
+.home-pulse { animation: top-pulse 1.6s ease-in-out infinite; }
+
+.home-keys {
+  display: flex;
+  height: 32px;
+  flex: none;
+  align-items: center;
+  gap: 20px;
+  border-top: 1px solid var(--t-line);
+  padding: 0 20px;
+  background: var(--t-bg);
+  color: var(--t-dim);
+  font-size: 12px;
+}
+
+.home-keys span,
+.home-keys button { display: flex; align-items: center; gap: 6px; border: 0; padding: 0; cursor: pointer; background: transparent; color: inherit; font: inherit; }
+.home-keys span { cursor: default; }
+.home-keys .home-spacer { flex: 1; }
+
+@media (max-width: 480px) {
+  .home { padding: 24px 14px; }
+  .home-keys { display: none; }
+}

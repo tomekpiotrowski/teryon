@@ -33,6 +33,7 @@ const lists: WorkspaceLists = {
   models: { claude: ['opus'], codex: [], grok: [], gemini: [] },
   workflows: NO_WORKFLOWS,
   starting: null,
+  installed: [],
 };
 
 const STARTING: Starting = { type: 'provider', agent: 'claude', model: 'sonnet' };
@@ -46,8 +47,8 @@ function apply(event: unknown): WorkspaceLists {
 describe('applyEvent', () => {
   it('replaces everything with a snapshot, including what copies can be opened in', () => {
     const models = { claude: ['sonnet'], codex: ['gpt-6-astra'], grok: [], gemini: [] };
-    const fresh = apply({ type: 'snapshot', projects: [project('c')], threads: [], opens: { editor: true, terminal: false }, models, workflows: SMALL_ONLY, starting: STARTING });
-    expect(fresh).toEqual({ projects: [project('c')], threads: [], opens: { editor: true, terminal: false }, models, workflows: SMALL_ONLY, starting: STARTING });
+    const fresh = apply({ type: 'snapshot', projects: [project('c')], threads: [], opens: { editor: true, terminal: false }, models, workflows: SMALL_ONLY, starting: STARTING, installed: ['claude', 'grok'] });
+    expect(fresh).toEqual({ projects: [project('c')], threads: [], opens: { editor: true, terminal: false }, models, workflows: SMALL_ONLY, starting: STARTING, installed: ['claude', 'grok'] });
   });
 
   it('replaces only the models when they change, as when Grok has listed its own', () => {
@@ -96,7 +97,7 @@ describe('applyEvent', () => {
   });
 
   it('starts from nothing', () => {
-    expect(NO_LISTS).toEqual({ projects: [], threads: [], opens: { editor: false, terminal: false }, models: { claude: [], codex: [], grok: [], gemini: [] }, workflows: NO_WORKFLOWS, starting: null });
+    expect(NO_LISTS).toEqual({ projects: [], threads: [], opens: { editor: false, terminal: false }, models: { claude: [], codex: [], grok: [], gemini: [] }, workflows: NO_WORKFLOWS, starting: null, installed: [] });
   });
 });
 

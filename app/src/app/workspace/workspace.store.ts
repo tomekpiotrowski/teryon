@@ -61,6 +61,11 @@ export class WorkspaceStore {
     map((lists) => lists.starting),
     distinctUntilChanged(),
   );
+  /** The agents installed on the service's machine, in the order Teryon lists them. */
+  readonly installed$: Observable<readonly string[]> = this.lists$.pipe(
+    map((lists) => lists.installed),
+    distinctUntilChanged(),
+  );
   /** How the connection to the service stands, for the screen to explain a wait. */
   readonly connection$ = this.connection.state$.asObservable();
 

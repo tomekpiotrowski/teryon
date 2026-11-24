@@ -306,6 +306,7 @@ mod tests {
             rounds: 0,
             held: false,
             picks: BTreeMap::new(),
+            ended: None,
             created_at: Utc::now(),
         }
     }

@@ -34,7 +34,7 @@ use crate::plans::PlanInfo;
 use crate::settings::{
     Configuration, ConfiguredStage, ConfiguredWorkflow, StageProvider, Strength, StrengthModels,
 };
-use crate::store::{Entry, Project, Reviewer, Status, Thread, Verdict};
+use crate::store::{Entry, Project, Reviewer, RunEnd, Status, Thread, Verdict};
 use crate::usage::{Limits, UsageLine, UsageReport, Window};
 use crate::workflow::{Stage, StageLabel, Workflow, Workflows};
 
@@ -77,11 +77,16 @@ pub enum Request {
         /// Nothing lets the workflow's first stage choose, see `crate::workflow::picking`.
         #[serde(default)]
         agent: Option<String>,
-        /// Nothing leaves the model to the agent program.
+        /// Nothing, for an agent that was named, runs the model its workflow's first stage names for the
+        /// stage's strength, or the agent program's own default when the stage names none.
         #[serde(default)]
         model: Option<String>,
         #[serde(default)]
         title: String,
+        /// The workflow the thread follows, whose first stage chooses the agent when none was named.
+        /// Nothing means the default.
+        #[serde(default)]
+        workflow: Option<String>,
     },
     /// Sends a message to the thread's agent, or to its reviewer.
     SendMessage {
@@ -365,6 +370,9 @@ pub enum Event {
         workflows: Workflows,
         /// Who the next new thread starts with, when the workflow's first stage chooses.
         starting: Option<Starting>,
+        /// The agents whose programs are on this machine, in the order Teryon lists them.
+        #[serde(default)]
+        installed: Vec<String>,
     },
     /// The models on offer changed, as when Grok has listed its own after the service started.
     ModelsChanged {
@@ -474,6 +482,7 @@ pub fn typescript() -> String {
         Thread::decl(&config),
         PlanInfo::decl(&config),
         Status::decl(&config),
+        RunEnd::decl(&config),
         Stage::decl(&config),
         Workflows::decl(&config),
         Workflow::decl(&config),

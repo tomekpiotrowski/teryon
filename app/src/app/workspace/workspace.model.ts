@@ -5,7 +5,7 @@
  * the screen itself cannot be unit tested until Vitest can load Ionic.
  */
 
-import type { PlanInfo, Question, Stage, Starting, Workflow, Workflows } from '../service/protocol';
+import type { PlanInfo, Question, RunEnd, Stage, Starting, Workflow, Workflows } from '../service/protocol';
 
 export type { PlanInfo, Stage, Starting, Workflow, Workflows };
 import type { Asked } from './questions.model';
@@ -54,6 +54,8 @@ export interface Thread {
   readonly stage_since?: string | null;
   /** What Teryon last saw of the thread's plan. Nothing until its agent writes one. */
   readonly plan?: PlanInfo | null;
+  /** How the thread's last run ended. Nothing before one ends, and while a new one runs. */
+  readonly ended?: RunEnd | null;
   /** How many agents Teryon started by itself since the person last wrote. */
   readonly rounds?: number;
   /** Whether the person stopped the thread, so Teryon starts nothing by itself until they write again. */
@@ -198,16 +200,6 @@ export function startingChoice(newThreads: NewThreads): Choice | null {
   return newThreads.picked ? chosen(newThreads) : null;
 }
 
-/**
- * What the new-thread button says: the provider and model the service chose, until the person picks, such as "Claude · Sonnet".
- *
- * Without a choice from the first stage, Claude's default, which is what the service starts.
- */
-export function newThreadLabel(newThreads: NewThreads, starting: Starting | null): string {
-  if (!newThreads.picked && starting?.type === 'unavailable') return 'No provider available';
-  return choiceLabel(pendingChoice(newThreads, starting));
-}
-
 /** The agent and model a new thread would start with: the person's pick, otherwise what the service chose. */
 export function pendingChoice(newThreads: NewThreads, starting: Starting | null): Choice {
   if (!newThreads.picked && starting?.type === 'provider') return { agent: starting.agent as AgentName, model: starting.model };
@@ -231,16 +223,34 @@ export function choosing(newThreads: NewThreads, choice: Choice): NewThreads {
 }
 
 /**
- * New threads on the next agent, going round, with the model remembered for it. For the button beside the message box.
+ * New threads after an agent's button was pressed on Home.
  *
- * When the first stage chooses, the round starts and ends with letting it:
- * the stage's choice, then Claude, Codex, Grok, and the stage's choice again.
+ * The agent is picked, on the model remembered for it. Pressing the picked
+ * agent again lifts the pick, so the workflow's first stage chooses again.
  */
-export function switchingAgent(newThreads: NewThreads, byStage = false): NewThreads {
-  if (!newThreads.picked && byStage) return { ...newThreads, agent: AGENTS[0], picked: true };
-  const next = nextAgent(newThreads.agent);
-  if (byStage && next === AGENTS[0]) return { ...newThreads, agent: next, picked: false };
-  return { ...newThreads, agent: next, picked: true };
+export function pressingAgent(newThreads: NewThreads, agent: AgentName): NewThreads {
+  if (newThreads.picked && newThreads.agent === agent) return { ...newThreads, picked: false };
+  return choosing(newThreads, { agent, model: newThreads.models[agent] });
+}
+
+/** Reads what was remembered of the choice for new threads, ignoring anything this version does not write. */
+export function readNewThreads(stored: string | null): NewThreads {
+  if (!stored) return FIRST_NEW_THREADS;
+  try {
+    const value: unknown = JSON.parse(stored);
+    if (typeof value !== 'object' || value === null) return FIRST_NEW_THREADS;
+    const { agent, models, picked } = value as Record<string, unknown>;
+    if (typeof agent !== 'string' || !(AGENTS as readonly string[]).includes(agent) || typeof picked !== 'boolean') return FIRST_NEW_THREADS;
+    const remembered = typeof models === 'object' && models !== null ? (models as Record<string, unknown>) : {};
+    const model = (name: AgentName): string | null => (typeof remembered[name] === 'string' ? (remembered[name] as string) : null);
+    return {
+      agent: agent as AgentName,
+      picked,
+      models: { claude: model('claude'), codex: model('codex'), grok: model('grok'), gemini: model('gemini') },
+    };
+  } catch {
+    return FIRST_NEW_THREADS;
+  }
 }
 
 /** Every choice an agent offers: its default first, then its models. */
@@ -427,6 +437,8 @@ export interface KeyPress {
   readonly element: string;
   /** Whether that element is one whose text can be edited in place. */
   readonly editable: boolean;
+  /** Whether that element is a message box: the reply box of a thread, or Home's prompt. */
+  readonly messageBox?: boolean;
 }
 
 /**
@@ -699,30 +711,9 @@ export function barTitle(project: Project | null, thread: Thread | null): string
   return thread ? `${project.name} · ${threadLabel(thread)}` : project.name;
 }
 
-/** How many agents are working, across every project. For example `2 running`; nothing when none is. */
-export function runningText(groups: readonly ProjectGroup[]): string {
-  const count = groups.flatMap((group) => group.threads).filter((thread) => thread.status === 'running').length;
-  return count ? `${count} running` : '';
-}
-
-/** The threads an agent stopped working in since the person last looked, or whose agent waits for answers, newest first. */
-export function waitingThreads(groups: readonly ProjectGroup[]): Thread[] {
-  return groups
-    .flatMap((group) => group.threads)
-    .filter(needsPerson)
-    .sort((a, b) => b.created_at.localeCompare(a.created_at));
-}
-
-/**
- * What the bar says about threads waiting to be looked at.
- *
- * Up to three are named, for example `waiting: Fix the parser, New thread`,
- * so that a glance is enough to know which. More are only counted.
- */
-export function waitingText(groups: readonly ProjectGroup[]): string {
-  const waiting = waitingThreads(groups);
-  if (!waiting.length) return '';
-  return waiting.length > 3 ? `${waiting.length} waiting` : `waiting: ${waiting.map(threadLabel).join(', ')}`;
+/** How many agents are working, across every project. */
+export function runningCount(groups: readonly ProjectGroup[]): number {
+  return groups.flatMap((group) => group.threads).filter((thread) => thread.status === 'running').length;
 }
 
 /**
@@ -752,11 +743,6 @@ const AGENT_LABELS: Readonly<Record<AgentName, string>> = { claude: 'Claude', co
 
 export function agentLabel(agent: AgentName): string {
   return AGENT_LABELS[agent];
-}
-
-/** The agent after this one, going round, for the button that switches the agent of new threads. */
-export function nextAgent(agent: AgentName): AgentName {
-  return AGENTS[(AGENTS.indexOf(agent) + 1) % AGENTS.length];
 }
 
 /**

@@ -66,9 +66,9 @@ use crate::settings::{
 };
 use crate::store::projects::ProjectList;
 use crate::store::threads::ThreadStore;
-use crate::store::{Entry, Project, Reviewer, Status, StoreError, Thread, Verdict};
+use crate::store::{Entry, Project, Reviewer, RunEnd, Status, StoreError, Thread, Verdict};
 use crate::usage::{Reading, UsageBook, UsageError, UsageLine, UsageReport};
-use crate::workflow::picking::{Pick, PickError};
+use crate::workflow::picking::{installed as program_installed, Pick, PickError};
 use crate::workflow::{moved as stage_after, Happening, Stage, Workflows};
 use crate::workspace::changes::Noticed;
 use crate::workspace::stages::{Mover, Starter, TurnStart};
@@ -433,9 +433,14 @@ impl Workspace {
     /// Every project and thread as they are now.
     pub fn snapshot(&self) -> Event {
         let starting = self.inner.refresh_starting();
-        let (opens, workflows) = {
+        let (opens, workflows, installed) = {
             let setup = self.inner.setup();
-            (opens_of(&setup.open), setup.workflows.clone())
+            let installed = Agent::ALL
+                .into_iter()
+                .filter(|agent| program_installed(setup.agents.program(*agent)))
+                .map(|agent| agent.name().to_string())
+                .collect();
+            (opens_of(&setup.open), setup.workflows.clone(), installed)
         };
         let state = self.inner.state();
         Event::Snapshot {
@@ -450,6 +455,7 @@ impl Workspace {
             models: self.inner.models().clone(),
             workflows,
             starting,
+            installed,
         }
     }
 
@@ -655,7 +661,8 @@ impl Workspace {
     ///
     /// Without an agent, the workflow's first stage chooses one, as `config.toml`
     /// says, and Claude on its default model when it says nothing. An agent
-    /// the person picked always wins.
+    /// the person picked always wins; without a model it runs the one that stage
+    /// names for its strength.
     pub fn start_thread(
         &self,
         project_id: Uuid,
@@ -663,13 +670,49 @@ impl Workspace {
         model: Option<&str>,
         title: &str,
     ) -> Result<Thread, WorkspaceError> {
-        // Held from picking until the thread is saved, so two new threads never start on the same choice.
-        let mut held = match agent {
-            None => Some(self.inner.starting()),
-            Some(_) => None,
+        self.start_thread_on(project_id, agent, model, title, None)
+    }
+
+    /// Starts a thread on a named workflow, or the default one without a name.
+    ///
+    /// The first stage of that workflow is where the thread begins, and what it
+    /// chooses is used when the person picked no agent. A name that no
+    /// workflow has is refused, so a typo never starts a thread on the wrong one.
+    pub fn start_thread_on(
+        &self,
+        project_id: Uuid,
+        agent: Option<&str>,
+        model: Option<&str>,
+        title: &str,
+        workflow: Option<&str>,
+    ) -> Result<Thread, WorkspaceError> {
+        let workflow = match workflow.map(str::trim).filter(|name| !name.is_empty()) {
+            None => self.inner.setup().workflows.of("").clone(),
+            Some(name) => {
+                let setup = self.inner.setup();
+                setup.workflows.named(name).cloned().ok_or_else(|| {
+                    let known = setup
+                        .workflows
+                        .workflows
+                        .iter()
+                        .map(|workflow| format!("`{}`", workflow.name))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    WorkspaceError::Invalid(format!(
+                        "There is no workflow `{name}`. The workflows are {known}."
+                    ))
+                })?
+            }
         };
-        let workflow = self.inner.setup().workflows.of("").clone();
         let first = workflow.first();
+        // The held choice is the default workflow's, which is what clients show for new threads. A thread on
+        // another workflow is picked by that workflow's own first stage and leaves the held choice alone.
+        let on_default = workflow.name == self.inner.setup().workflows.of("").name;
+        // Held from picking until the thread is saved, so two new threads never start on the same choice.
+        let mut held = match (agent, on_default) {
+            (None, true) => Some(self.inner.starting()),
+            _ => None,
+        };
         let (agent, model, picked) = match (agent, held.as_mut()) {
             (Some(agent), _) => {
                 let agent = Agent::parse(agent).ok_or_else(|| {
@@ -677,7 +720,12 @@ impl Workspace {
                         "Choose Claude, Codex, Grok or Gemini as the agent.".to_string(),
                     )
                 })?;
-                (agent, checked_model(model)?, false)
+                let model = match checked_model(model)? {
+                    Some(model) => Some(model),
+                    // An agent picked without a model runs the model the first stage names for its strength.
+                    None => self.inner.first_stage_model(first, agent),
+                };
+                (agent, model, false)
             }
             (None, Some(held)) => {
                 self.inner.update_starting(held, false);
@@ -687,7 +735,11 @@ impl Workspace {
                     None => (Agent::Claude, None, false),
                 }
             }
-            (None, None) => unreachable!("a thread without an agent holds the choice"),
+            (None, None) => match self.inner.stage_pick_after(None, first, None, None) {
+                Some(Ok(pick)) => (pick.agent, pick.model, true),
+                Some(Err(problem)) => return Err(WorkspaceError::Invalid(problem.to_string())),
+                None => (Agent::Claude, None, false),
+            },
         };
         let title = title.trim();
         let mut state = self.inner.state();
@@ -718,6 +770,7 @@ impl Workspace {
                 true => [(first, agent.name().to_string())].into(),
                 false => Default::default(),
             },
+            ended: None,
             created_at: Utc::now(),
         })?;
         drop(state);
@@ -941,6 +994,7 @@ impl Workspace {
         let entry = store.append(thread_id, draft.kind.name(), draft.body)?;
         let thread = store.change(thread_id, |thread| {
             thread.status = Status::Running;
+            thread.ended = None;
             match starter {
                 Starter::Person => {
                     thread.asking = false;
@@ -1072,6 +1126,7 @@ impl Workspace {
         };
         let thread = store.change(thread_id, |thread| {
             thread.status = Status::Running;
+            thread.ended = None;
             if let Starter::Teryon { stage, .. } = &starter {
                 thread.rounds += 1;
                 thread.picks.insert(*stage, agent.name().to_string());
@@ -1488,6 +1543,8 @@ impl Journal for WorkspaceJournal {
             return;
         }
         let finished = change == ThreadChange::Finished;
+        // How a run ended is announced with the thread's finish, which follows at once.
+        let silent = matches!(change, ThreadChange::Ended(_));
         // The plan is read before the thread shows as done, so its line comes before the person is called.
         let authored = self
             .0
@@ -1550,6 +1607,7 @@ impl Journal for WorkspaceJournal {
                                 reviewer.reviewing = false;
                             }
                         }
+                        ThreadChange::Ended(end) => thread.ended = Some(end),
                         ThreadChange::RanOut(_) => {}
                     })
                     .map_err(|problem| problem.to_string())?;
@@ -1569,6 +1627,7 @@ impl Journal for WorkspaceJournal {
             });
         drop(state);
         match changed {
+            Ok(_) if silent => {}
             Ok((thread, moved)) => {
                 self.0.announce(Event::ThreadChanged { thread });
                 self.0.announce_moved(moved);
@@ -1765,6 +1824,7 @@ fn release_interrupted(store: &mut ThreadStore) {
                 store.change(thread.id, |thread| {
                     thread.status = Status::Idle;
                     thread.unread = true;
+                    thread.ended = Some(RunEnd::Stopped);
                     if let Some(reviewer) = &mut thread.reviewer {
                         if reviewer.reviewing && reviewer.verdict.is_none() {
                             reviewer.verdict = Some(Verdict {

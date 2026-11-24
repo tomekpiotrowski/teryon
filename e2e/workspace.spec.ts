@@ -10,7 +10,7 @@ import { join } from "node:path";
 
 import type { Page } from "@playwright/test";
 
-import { addProject, choose, commit, expect, git, menu, openWorkspace, put, test } from "./support";
+import { addProject, agentButton, choose, commit, expect, git, menu, openWorkspace, put, test } from "./support";
 
 test.beforeEach(openWorkspace);
 
@@ -104,7 +104,7 @@ test("an agent works in a project and the thread fills in live", async ({ page }
   await expect(page.getByLabel("Thread").getByText("hello", { exact: true })).toBeVisible();
   await expect(page.getByLabel("Thread").getByText("ready", { exact: true })).toBeVisible();
   await expect(page.getByText(/^Done in \d+s · Fable 5\.2 · 25k tokens read, 4 written$/)).toBeVisible();
-  await expect(page.locator(".workspace-bar")).toContainText("Sample · hello");
+  await expect(page.locator(".top-bar")).toContainText("Sample · hello");
 
   await page.getByLabel("Reply").fill("use tools");
   await page.getByRole("button", { name: "send ↵" }).click();
@@ -139,9 +139,9 @@ test("an agent's change shows where it stands, and its copy can be found", async
   // W, then Y, copies where the thread's copy is, saying so in the bar while waiting for the second key.
   await page.getByLabel("Reply").press("Escape");
   await page.keyboard.press("w");
-  await expect(page.locator(".bar-leader")).toHaveText("W …");
+  await expect(page.locator(".top-leader")).toHaveText("W …");
   await page.keyboard.press("y");
-  await expect(page.locator(".bar-leader")).toHaveCount(0);
+  await expect(page.locator(".top-leader")).toHaveCount(0);
   await expect(page.getByText("Location copied.")).toBeVisible();
   const copied = await page.evaluate(() => navigator.clipboard.readText());
   expect(copied).toBe(join(realpathSync(directory), ".teryon", "worktrees", "fix-login"));
@@ -312,9 +312,8 @@ test("an agent's markdown is rendered, and what it must not act on is shown as t
 test("Grok's markdown is rendered too", async ({ page }) => {
   await addProject(page, "Sample");
 
-  await page.getByRole("button", { name: "Change agent" }).click();
-  await page.getByRole("button", { name: "Change agent" }).click();
-  await page.getByPlaceholder("What should Grok do in Sample?").fill("write markdown");
+  await agentButton(page, "Grok").click();
+  await page.getByLabel("New thread").fill("write markdown");
   await page.getByRole("button", { name: "Run ↵" }).click();
 
   const thread = page.getByLabel("Thread");
@@ -325,8 +324,8 @@ test("Grok's markdown is rendered too", async ({ page }) => {
 test("a thread can be started with Codex", async ({ page }) => {
   await addProject(page, "Sample");
 
-  await page.getByRole("button", { name: "Change agent" }).click();
-  await page.getByPlaceholder("What should Codex do in Sample?").fill("use tools");
+  await agentButton(page, "Codex").click();
+  await page.getByLabel("New thread").fill("use tools");
   await page.getByRole("button", { name: "Run ↵" }).click();
 
   await expect(page.getByText("shell  git worktree add ../sample-project--edit -b edit")).toBeVisible();
@@ -337,13 +336,13 @@ test("a thread can be started with Codex", async ({ page }) => {
 
 test("Codex models appear when searching from Codex default", async ({ page }) => {
   await addProject(page, "Sample");
-  await page.getByRole("button", { name: "Change agent" }).click();
-  await expect(page.getByRole("button", { name: "Change agent" })).toHaveText("Codex · default");
+  await agentButton(page, "Codex").click();
+  await expect(agentButton(page, "Codex")).toHaveAttribute("aria-pressed", "true");
 
   await page.getByLabel("New thread").press("/");
   await page.getByRole("combobox", { name: "Search the menu" }).fill("codex");
   await menu(page).getByRole("option", { name: "Use Codex · GPT 6 astra for new threads", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Change agent" })).toHaveText("Codex · GPT 6 astra");
+  await expect(agentButton(page, "Codex")).toHaveAttribute("aria-pressed", "true");
   await page.getByLabel("New thread").fill("hello");
   await page.getByRole("button", { name: "Run ↵" }).click();
   await expect(page.locator(".thread-meta")).toContainText("Codex · GPT 6 astra");
@@ -362,7 +361,7 @@ test("a thread runs on the model chosen for it, and each turn says which model r
   await page.keyboard.press("Escape");
 
   await choose(page, "Use Claude · Sonnet for new threads");
-  await expect(page.getByRole("button", { name: "Change agent" })).toHaveText("Claude · Sonnet");
+  await expect(agentButton(page, "Claude")).toHaveAttribute("aria-pressed", "true");
   await page.getByLabel("New thread").fill("hello");
   await page.getByRole("button", { name: "Run ↵" }).click();
 
@@ -394,9 +393,8 @@ test("a thread moves to another agent, which carries on in it", async ({ page })
 test("a thread can be started with Grok", async ({ page }) => {
   await addProject(page, "Sample");
 
-  await page.getByRole("button", { name: "Change agent" }).click();
-  await page.getByRole("button", { name: "Change agent" }).click();
-  await page.getByPlaceholder("What should Grok do in Sample?").fill("use tools");
+  await agentButton(page, "Grok").click();
+  await page.getByLabel("New thread").fill("use tools");
   await page.getByRole("button", { name: "Run ↵" }).click();
 
   await expect(page.getByText("run_terminal_command  Count bytes in note.txt")).toBeVisible();
@@ -410,9 +408,9 @@ test("a thread can be started with Gemini on a discovered model", async ({ page 
   await page.keyboard.press("Control+k");
   await expect(menu(page).getByRole("option", { name: /^Use Gemini · Gemini 4 neon high for new threads/ })).toBeVisible();
   await menu(page).getByRole("option", { name: /^Use Gemini · Gemini 4 neon high for new threads/ }).click();
-  await expect(page.getByRole("button", { name: "Change agent" })).toHaveText("Gemini · Gemini 4 neon high");
+  await expect(agentButton(page, "Gemini")).toHaveAttribute("aria-pressed", "true");
 
-  await page.getByPlaceholder("What should Gemini do in Sample?").fill("use tools");
+  await page.getByLabel("New thread").fill("use tools");
   await page.getByRole("button", { name: "Run ↵" }).click();
 
   await expect(page.getByText("write_file  /work/sample-project/note.txt")).toBeVisible();
@@ -445,7 +443,7 @@ test("a new project's name starts as its directory's name", async ({ page }) => 
   await expect(page.getByLabel("Project name")).toHaveValue(name);
 
   await page.getByRole("button", { name: "Add project" }).click();
-  await expect(page.getByPlaceholder(`What should Claude do in ${name}?`)).toBeVisible();
+  await expect(page.getByLabel("New thread")).toBeVisible();
 });
 
 test("a project directory can be picked from the list, and typed text narrows it", async ({ page }) => {
@@ -557,7 +555,7 @@ test("a slash opens the menu, except where it is typed as text", async ({ page }
   await expect(menu(page)).toHaveCount(0);
 
   // The button on screen does the same.
-  await page.getByRole("button", { name: "menu /" }).click();
+  await page.getByRole("button", { name: "/ menu" }).click();
   await expect(menu(page)).toBeVisible();
 });
 
@@ -590,7 +588,7 @@ test("the menu lists threads, projects and actions, and typing narrows them", as
   // Enter opens the marked thread, ready for a reply.
   await page.keyboard.press("Enter");
   await expect(menu(page)).toHaveCount(0);
-  await expect(page.locator(".workspace-bar")).toContainText("Sample · hello");
+  await expect(page.locator(".top-bar")).toContainText("Sample · hello");
 
   // Escape leaves the message box, and the letters run their commands again.
   await page.keyboard.press("h");
@@ -611,7 +609,7 @@ test("the menu lists threads, projects and actions, and typing narrows them", as
   await expect(page.getByLabel("Search the menu")).toBeFocused();
   await page.keyboard.type("other");
   await page.keyboard.press("Enter");
-  await expect(page.getByPlaceholder("What should Claude do in Other?")).toBeFocused();
+  await expect(page.getByLabel("New thread")).toBeFocused();
 
   // Something no command holds says so, and Enter does nothing.
   await page.keyboard.press("/");
@@ -626,23 +624,23 @@ test("the keys and the menu start a new thread and show the running agents", asy
   await addProject(page, "Sample");
   await page.getByLabel("New thread").fill("be slow");
   await page.getByRole("button", { name: "Run ↵" }).click();
-  await expect(page.locator(".workspace-bar")).toContainText("1 running");
+  await expect(page.locator(".top-bar")).toContainText("1 running");
 
   // The menu marks the thread an agent is working in, and can stop it.
   await page.keyboard.press("Control+k");
   await expect(menu(page).getByRole("option", { name: /^be slow/ })).toContainText("running");
   await menu(page).getByRole("option", { name: /^Stop the agent/ }).click();
   await expect(page.getByText("Stopped by you.")).toBeVisible();
-  await expect(page.locator(".workspace-bar")).not.toContainText("running");
+  await expect(page.locator(".top-bar")).not.toContainText("running");
 
   // N starts a new thread in the same project.
   await page.getByLabel("Reply").press("Escape");
   await page.keyboard.press("n");
-  await expect(page.getByPlaceholder("What should Claude do in Sample?")).toBeVisible();
+  await expect(page.getByLabel("New thread")).toBeVisible();
 
   // The agent for new threads is changed from the menu too.
   await choose(page, "Use Grok · default for new threads");
-  await expect(page.getByPlaceholder("What should Grok do in Sample?")).toBeVisible();
+  await expect(agentButton(page, "Grok")).toHaveAttribute("aria-pressed", "true");
 });
 
 test("a thread whose agent stopped while it was out of sight waits to be looked at", async ({ page }) => {
@@ -665,13 +663,13 @@ test("a thread whose agent stopped while it was out of sight waits to be looked 
 
   // A new thread is not the one waiting, so the bar still names it.
   await page.keyboard.press("n");
-  await expect(page.locator(".workspace-bar")).toContainText("waiting: be slow");
+  await expect(page.getByRole("button", { name: "1 need you" })).toBeVisible();
 
   // Opening it is looking at it.
   await page.keyboard.press("Control+k");
   await menu(page).getByRole("option", { name: /^be slow/ }).click();
   await expect(page.getByText("Stopped by you.")).toBeVisible();
-  await expect(page.locator(".workspace-bar")).not.toContainText("waiting");
+  await expect(page.getByRole("button", { name: /need you$/ })).toHaveCount(0);
   await page.keyboard.press("Control+k");
   await expect(menu(page).locator(".menu-heading").first()).toHaveText("Threads");
 });
@@ -718,7 +716,7 @@ test("an agent's questions are answered with number keys, and the answers go to 
   await expect
     .poll(() => readFileSync(join(directory, ".fake-agent-invocations"), "utf8"))
     .toContain("Answers to your questions: 1. Where should answers be kept? → On the record 2. Which screens should show it? → Window title, Notification");
-  await expect(page.locator(".workspace-bar")).not.toContainText("waiting");
+  await expect(page.getByRole("button", { name: /need you$/ })).toHaveCount(0);
 });
 
 test("own words still in their field are sent by the button", async ({ page }) => {
@@ -814,7 +812,7 @@ test("the phone layout brings the menu up from the bottom, to be tapped", async 
   await expect(page.getByText(/^Done in/)).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
 
-  await expect(page.locator(".workspace-bar")).toContainText("Sample · hello");
+  await expect(page.locator(".top-bar")).toContainText("Sample · hello");
   await page.getByRole("button", { name: "Open menu" }).click();
 
   const sheet = menu(page);
@@ -829,5 +827,5 @@ test("the phone layout brings the menu up from the bottom, to be tapped", async 
 
   await sheet.getByRole("option", { name: /^Sample/ }).click();
   await expect(sheet).toHaveCount(0);
-  await expect(page.getByPlaceholder("What should Claude do in Sample?")).toBeVisible();
+  await expect(page.getByLabel("New thread")).toBeVisible();
 });

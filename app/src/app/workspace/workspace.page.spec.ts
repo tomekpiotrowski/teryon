@@ -2,10 +2,11 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { AlertController } from '@ionic/angular/alert-controller';
 import { ErnoAlertsService } from 'erno-angular';
-import { BehaviorSubject, EMPTY, type Observable, of, Subject } from 'rxjs';
+import { BehaviorSubject, EMPTY, type Observable, of, Subject, throwError } from 'rxjs';
+import { vi } from 'vitest';
 
 import { WorkspaceApi } from './workspace.api';
-import { NO_MODELS, NO_WORKFLOWS, type Change, type Opens, type Project, type Screen, type Thread, type ThreadEntry } from './workspace.model';
+import { choosing, FIRST_NEW_THREADS, NO_MODELS, NO_WORKFLOWS, type Change, type Opens, type Project, type Screen, type Thread, type ThreadEntry } from './workspace.model';
 import { WorkspaceModule } from './workspace.module';
 import { WorkspacePage } from './workspace.page';
 import { WorkspaceStore } from './workspace.store';
@@ -17,6 +18,8 @@ class StoreDouble {
   readonly opens$ = new BehaviorSubject<Opens>({ editor: false, terminal: false });
   readonly models$ = of(NO_MODELS);
   readonly workflows$ = of(NO_WORKFLOWS);
+  readonly installed$ = of(['claude', 'codex']);
+  readonly starting$ = of(null);
   readonly connection$ = EMPTY;
   private readonly conversations = new Map<string, Subject<ThreadEntry[]>>();
 
@@ -65,19 +68,30 @@ function changed(id: string, name: string, branch: string | null): Thread {
   };
 }
 
+/** What the page asks the service for, answered as each test says. */
+interface ApiDouble {
+  markSeen: () => Observable<undefined>;
+  createThread: ReturnType<typeof vi.fn>;
+  sendMessage: ReturnType<typeof vi.fn>;
+}
+
 describe('WorkspacePage', () => {
   let page: WorkspacePage;
   let store: StoreDouble;
+  let api: ApiDouble;
+  let alerts: { error: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
     store = new StoreDouble();
+    api = { markSeen: () => of(undefined), createThread: vi.fn(), sendMessage: vi.fn() };
+    alerts = { error: vi.fn() };
     TestBed.configureTestingModule({
       imports: [WorkspaceModule],
       providers: [
         provideRouter([]),
         { provide: WorkspaceStore, useValue: store },
-        { provide: WorkspaceApi, useValue: { markSeen: () => of(undefined) } },
-        { provide: ErnoAlertsService, useValue: {} },
+        { provide: WorkspaceApi, useValue: api },
+        { provide: ErnoAlertsService, useValue: alerts },
         { provide: AlertController, useValue: {} },
       ],
     }).overrideTemplate(WorkspacePage, ''); // Only what the page decides is looked at here, not how it shows it.
@@ -211,6 +225,179 @@ describe('WorkspacePage', () => {
 
       expect(page.place$.value).toEqual({ projectId: 'p', threadId: null, branch: 'main', commit: null });
       expect(page.screen$.value).toBe('files');
+    });
+  });
+
+  describe('starting a thread from Home', () => {
+    const created = changed('new', 'new-thread', null);
+    const request = { projectId: 'p', workflow: 'small', text: 'Fix the parser' };
+
+    beforeEach(() => {
+      store.projects$.next([project]);
+      page.draft$.next('Fix the parser');
+    });
+
+    it('creates the thread on the workflow asked for, sends the message and clears the draft', () => {
+      api.createThread.mockReturnValue(of(created));
+      api.sendMessage.mockReturnValue(of({}));
+
+      page.startThread(request);
+
+      expect(api.createThread).toHaveBeenCalledWith('p', null, 'small');
+      expect(api.sendMessage).toHaveBeenCalledWith('new', 'Fix the parser', 'author');
+      expect(page.draft$.value).toBe('');
+      expect(page.selection$.value.threadId).toBe('new');
+      expect(page.sending$.value).toBe(false);
+    });
+
+    it('starts on the agent picked, on the model remembered for it', () => {
+      api.createThread.mockReturnValue(of(created));
+      api.sendMessage.mockReturnValue(of({}));
+      page.newThreads$.next(choosing(FIRST_NEW_THREADS, { agent: 'codex', model: 'gpt-6-astra' }));
+
+      page.startThread(request);
+
+      expect(api.createThread).toHaveBeenCalledWith('p', { agent: 'codex', model: 'gpt-6-astra' }, 'small');
+    });
+
+    it('keeps the text and says so when the thread cannot be created', () => {
+      api.createThread.mockReturnValue(throwError(() => new Error('no')));
+
+      page.startThread(request);
+
+      expect(api.sendMessage).not.toHaveBeenCalled();
+      expect(page.draft$.value).toBe('Fix the parser');
+      expect(page.selection$.value.threadId).toBeNull();
+      expect(page.sending$.value).toBe(false);
+      expect(alerts.error).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the text, now in the new thread\'s message box, when the message is refused', () => {
+      api.createThread.mockReturnValue(of(created));
+      api.sendMessage.mockReturnValue(throwError(() => new Error('no')));
+
+      page.startThread(request);
+
+      expect(page.draft$.value).toBe('Fix the parser');
+      expect(page.selection$.value.threadId).toBe('new');
+      expect(page.sending$.value).toBe(false);
+      expect(alerts.error).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not start a second thread while one is being started', () => {
+      api.createThread.mockReturnValue(new Subject());
+
+      page.startThread(request);
+      page.startThread(request);
+
+      expect(api.createThread).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('continuing a thread from Home', () => {
+    const waiting = changed('t1', 'fix-login', null);
+
+    beforeEach(() => {
+      store.projects$.next([project]);
+      store.threads$.next([waiting]);
+      page.draft$.next('try again');
+    });
+
+    it('sends the message, clears the draft and opens the thread', () => {
+      api.sendMessage.mockReturnValue(of({}));
+
+      page.continueThread({ thread: waiting, text: 'try again' });
+
+      expect(api.sendMessage).toHaveBeenCalledWith('t1', 'try again', 'author');
+      expect(page.draft$.value).toBe('');
+      expect(page.selection$.value.threadId).toBe('t1');
+    });
+
+    it('keeps the text, stays on Home and says so when the message is refused', () => {
+      api.sendMessage.mockReturnValue(throwError(() => new Error('The agent is still working.')));
+
+      page.continueThread({ thread: waiting, text: 'try again' });
+
+      expect(page.draft$.value).toBe('try again');
+      expect(page.selection$.value.threadId).toBeNull();
+      expect(page.sending$.value).toBe(false);
+      expect(alerts.error).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('the agent for new threads', () => {
+    it('is shared by Home\'s buttons and the menu\'s commands', () => {
+      const picked = () => {
+        let value: string | null = 'unset';
+        page.pickedAgent$.subscribe((agent) => (value = agent)).unsubscribe();
+        return value;
+      };
+      expect(picked()).toBeNull();
+
+      page.pressAgent('codex');
+      expect(picked()).toBe('codex');
+
+      page.run({ id: 'x', title: 'x', detail: '', group: 'action', key: null, leader: null, live: false, asking: false, badge: '', action: { kind: 'useChoice', choice: { agent: 'grok', model: null } } });
+      expect(picked()).toBe('grok');
+
+      page.pressAgent('grok');
+      expect(picked()).toBeNull();
+    });
+  });
+
+  describe('Home', () => {
+    const first = changed('t1', 'fix-login', null);
+
+    beforeEach(() => {
+      store.projects$.next([project]);
+      store.threads$.next([first]);
+      page.selectThread(first);
+      // The page offers commands once the open thread's conversation has arrived.
+      store.answer('t1');
+    });
+
+    it.each<Screen>(['files', 'history', 'usage', 'settings', 'board', 'thread'])('is reached from %s by G then H', (screen) => {
+      page.screen$.next(screen);
+      const watching = page.view$.subscribe();
+      const commands = page.commands$.subscribe();
+      TestBed.tick();
+      store.answer('t1');
+
+      page.handleShortcut(new KeyboardEvent('keydown', { key: 'g' }));
+      expect(page.leader$.value).toBe('g');
+      page.handleShortcut(new KeyboardEvent('keydown', { key: 'h' }));
+
+      expect(page.leader$.value).toBeNull();
+      expect(page.selection$.value.threadId).toBeNull();
+      expect(page.screen$.value).toBe('thread');
+      watching.unsubscribe();
+      commands.unsubscribe();
+    });
+
+    it('is reached from the menu, leaving the draft behind', () => {
+      page.draft$.next('half written');
+      const commands = page.commands$.subscribe();
+      TestBed.tick();
+      store.answer('t1');
+      page.openMenu();
+      let home: Parameters<WorkspacePage['run']>[0] | undefined;
+      page.commands$.subscribe((list) => (home = list.find((command) => command.id === 'action:home'))).unsubscribe();
+
+      expect(home).toBeDefined();
+      page.run(home as Parameters<WorkspacePage['run']>[0]);
+
+      expect(page.menuOpen$.value).toBe(false);
+      expect(page.selection$.value.threadId).toBeNull();
+      expect(page.draft$.value).toBe('');
+      commands.unsubscribe();
+    });
+
+    it('lets the board keep H for itself until a G is waiting', () => {
+      page.screen$.next('board');
+      const event = new KeyboardEvent('keydown', { key: 'h', cancelable: true });
+      page.handleShortcut(event);
+      expect(page.screen$.value).toBe('board');
+      expect(event.defaultPrevented).toBe(false);
     });
   });
 });

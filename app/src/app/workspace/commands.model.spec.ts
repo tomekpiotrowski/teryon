@@ -100,6 +100,7 @@ function ids(commands: readonly Command[]): string[] {
 describe('commandList', () => {
   it('offers only what needs no project when there is none', () => {
     expect(ids(commandList(situation()))).toEqual([
+      'action:home',
       'action:board',
       'action:usage',
       'action:settings',
@@ -118,6 +119,7 @@ describe('commandList', () => {
       'thread:t1',
       'project:a',
       'project:bb',
+      'action:home',
       'action:newThread',
       'action:files',
       'action:history',
@@ -582,6 +584,14 @@ describe('menuAsked', () => {
     expect(menuAsked(press({ element: 'TEXTAREA' }), draft)).toBe(false);
   });
 
+  it.each(['', '  '])('takes a slash in Home\'s prompt holding %j', (draft) => {
+    expect(menuAsked(press({ element: 'INPUT', messageBox: true }), draft)).toBe(true);
+  });
+
+  it('leaves a slash typed in Home\'s prompt after text', () => {
+    expect(menuAsked(press({ element: 'INPUT', messageBox: true }), 'src')).toBe(false);
+  });
+
   it.each(['INPUT', 'SELECT'])('leaves a slash typed into a %s, even with an empty message box', (element) => {
     expect(menuAsked(press({ element }), '')).toBe(false);
   });
@@ -612,6 +622,29 @@ describe('menuAsked', () => {
 
   it.each(['c', 'Enter', 'Escape', '?'])('leaves %s', (key) => {
     expect(menuAsked(press({ key }), '')).toBe(false);
+  });
+});
+
+describe('the Home command', () => {
+  const home = () => commandList(situation({ groups, project: first })).find((command) => command.id === 'action:home');
+
+  it('is offered with or without a project, a thread, or an open screen', () => {
+    expect(commandList(situation()).map((command) => command.id)).toContain('action:home');
+    expect(home()).toBeDefined();
+    expect(commandList(situation({ groups, project: first, thread: newest })).map((command) => command.id)).toContain('action:home');
+  });
+
+  it('goes home, by G then H', () => {
+    expect(home()?.action).toEqual({ kind: 'showHome' });
+    expect([home()?.leader, home()?.key]).toEqual(['g', 'h']);
+    expect(keyHint(home() as Command)).toBe('G H');
+  });
+
+  it('leaves a bare H to the history', () => {
+    const commands = commandList(situation({ groups, project: first }));
+    expect(keyOutcome(press({ key: 'h' }), commands, null)).toMatchObject({ kind: 'run', command: { id: 'action:history' } });
+    expect(keyOutcome(press({ key: 'g' }), commands, null)).toEqual({ kind: 'wait', leader: 'g' });
+    expect(keyOutcome(press({ key: 'h' }), commands, 'g')).toMatchObject({ kind: 'run', command: { id: 'action:home' } });
   });
 });
 
@@ -751,6 +784,7 @@ describe('the commands for a thread\'s change', () => {
       'change:discard',
       'change:copyLocation',
       'change:openFolder',
+      'action:home',
       'action:newThread',
       'action:files',
       'action:history',

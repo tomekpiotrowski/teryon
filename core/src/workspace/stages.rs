@@ -22,6 +22,7 @@ use crate::agents::{Agent, EntryDraft, EntryKind, Voice};
 use crate::changes::reviewing::findings_in;
 use crate::plans::{plan_line, plan_path, read_plan, LARGEST_PLAN};
 use crate::protocol::{Event, Starting};
+use crate::settings::Strength;
 use crate::store::threads::ThreadStore;
 use crate::store::{Entry, Status, Thread};
 use crate::workflow::picking::{installed, pick, usage_left, Left, Pick, PickError, Situation};
@@ -200,6 +201,17 @@ impl Inner {
         Some(pick(&setting, &agents, &situation, &mut |count| {
             (Uuid::new_v4().as_u128() % count as u128) as usize
         }))
+    }
+
+    /// The model a stage names for an agent's strength. Nothing when the stage names no strength, or the agent has no model for it.
+    ///
+    /// For a person who picked an agent without a model: the stage still says how strong the work should be.
+    pub(super) fn first_stage_model(&self, stage: Stage, agent: Agent) -> Option<String> {
+        let setup = self.setup();
+        let setting = setup.stages.of(stage).filter(|setting| setting.chooses())?;
+        setup
+            .agents
+            .model_for(agent, setting.strength.unwrap_or(Strength::Medium))
     }
 
     /// Who the next new thread starts with, chosen now when the held choice no longer fits.

@@ -173,6 +173,14 @@ case "$*" in
       exit 1
     fi
     ;;
+  *"end early"*)
+    # A failure the program reports itself, which ends the turn with a summary marked as early.
+    case "$agent" in
+      claude) echo '{"type":"result","is_error":true,"subtype":"error_max_turns"}' ;;
+      gemini) echo '{"event":"result","result":{"conversation_id":"9ec969d6-54b7-4375-9a8c-f907be2e11d0","status":"ERROR","error":{"type":"INTERNAL","message":"The model failed."},"usage":{"input_tokens":0,"output_tokens":0,"cache_read_tokens":0}}}' ;;
+      *) exit 5 ;;
+    esac
+    ;;
   *"please fail"*)
     echo "the fake agent was told to fail" >&2
     exit 3

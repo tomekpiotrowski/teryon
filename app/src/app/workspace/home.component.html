@@ -1,0 +1,128 @@
+@if (view$ | async; as view) {
+  <div class="home" [class.home-empty]="empty$ | async">
+    <div class="home-column">
+      <div class="home-prompt" [class.home-prompt-open]="view.searching">
+        <label for="home-prompt" class="home-hidden">New thread</label>
+        <div class="home-field">
+          @if (view.continuing; as chip) {
+            <button type="button" class="home-chip" aria-label="Stop continuing this thread" (click)="dropChip()">&#64; {{ chip.title || 'New thread' }}</button>
+          }
+          <input
+            #prompt
+            id="home-prompt"
+            class="home-input"
+            type="text"
+            autocomplete="off"
+            spellcheck="false"
+            [placeholder]="view.placeholder"
+            [value]="view.text"
+            [attr.aria-expanded]="view.searching"
+            (input)="updateText($event)"
+            (keydown)="handlePromptKey($event, view)"
+          />
+        </div>
+
+        @if (view.searching) {
+          <div class="home-matches" role="listbox" aria-label="Threads to continue">
+            @for (row of view.matches; track row.thread.id; let m = $index) {
+              <button type="button" role="option" class="home-match" [class.home-marked]="m === view.match" [attr.aria-selected]="m === view.match" (click)="chooseMatch(row)">
+                <span class="home-title">{{ row.thread.title || 'New thread' }}</span>
+                @if (row.change) { <span class="home-dim home-mono">branch {{ row.change }}</span> }
+                <span class="home-dim">{{ row.project }}</span>
+              </button>
+            } @empty {
+              <p class="home-dim home-none">No thread matches.</p>
+            }
+          </div>
+        } @else {
+          <div class="home-options">
+            <div class="home-chooser">
+              <button type="button" class="home-option" aria-haspopup="listbox" [attr.aria-expanded]="view.chooser === 'project'" (click)="toggleChooser('project')">
+                <span class="home-badge">{{ initial(view.project) }}</span>{{ view.project?.name ?? 'No project' }}
+                <svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 4l2.5 2.5L7.5 4"></path></svg>
+              </button>
+              @if (view.chooser === 'project') {
+                <div class="home-popover" role="listbox" aria-label="Project">
+                  @for (project of view.projects; track project.id) {
+                    <button type="button" role="option" [attr.aria-selected]="project.id === view.project?.id" (click)="chooseProject(project)">{{ project.name }}</button>
+                  }
+                </div>
+              }
+            </div>
+            <span class="home-separator"></span>
+            @for (agent of view.agents; track agent) {
+              <button type="button" class="home-option home-agent" [attr.aria-pressed]="agent === view.agent" (click)="pressAgent(agent)">
+                <span class="home-badge">{{ agentInitial(agent) }}</span>{{ agentLabel(agent) }}
+              </button>
+            }
+            <div class="home-chooser">
+              <button type="button" class="home-option" aria-haspopup="listbox" [attr.aria-expanded]="view.chooser === 'workflow'" (click)="toggleChooser('workflow')">
+                {{ view.workflow }}
+                <svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 4l2.5 2.5L7.5 4"></path></svg>
+              </button>
+              @if (view.chooser === 'workflow') {
+                <div class="home-popover" role="listbox" aria-label="Workflow">
+                  @for (name of view.workflows; track name) {
+                    <button type="button" role="option" [attr.aria-selected]="name === view.workflow" (click)="chooseWorkflow(name)">{{ name }}</button>
+                  }
+                </div>
+              }
+            </div>
+            <span class="home-spacer"></span>
+            <button type="button" class="home-run" [disabled]="!view.text.trim()" (click)="send()">Run <kbd>↵</kbd></button>
+          </div>
+        }
+      </div>
+
+      @if (view.list.total === 0) {
+        <p class="home-nothing" role="status">Nothing needs you.</p>
+      } @else {
+        <div
+          #list
+          class="home-list"
+          data-home-list
+          role="list"
+          aria-label="Threads that need you"
+          tabindex="-1"
+          (keydown)="handleListKey($event, view)"
+          (blur)="leftList()"
+        >
+          @for (row of view.list.rows; track row.thread.id; let r = $index) {
+            <button type="button" role="listitem" class="home-row" [class.home-marked]="r === view.cursor" (click)="opened.emit(row.thread)" (mousemove)="markRow(r)">
+              <span class="home-dot" [attr.data-word]="row.word" aria-hidden="true"></span>
+              <span class="home-title">{{ row.thread.title || 'New thread' }}</span>
+              @if (row.project) { <span class="home-dim">{{ row.project }}</span> }
+              <span class="home-word home-mono" [attr.data-word]="row.word">{{ row.word }}</span>
+            </button>
+          }
+          @if (view.list.more) {
+            <button type="button" class="home-more home-dim" (click)="boardOpened.emit()">+{{ view.list.more }} more</button>
+          }
+        </div>
+      }
+
+      @for (line of view.running.lines; track line.thread.id) {
+        <button type="button" class="home-running" (click)="opened.emit(line.thread)">
+          <span class="home-dot home-pulse" data-word="running" aria-hidden="true"></span>
+          <span class="home-running-title">{{ line.thread.title || 'New thread' }}</span>·<span class="home-dim">{{ line.project }}</span>·<span class="home-running-doing">{{ line.doing }}</span>
+        </button>
+      }
+      @if (view.running.more) { <p class="home-running home-dim">+{{ view.running.more }} more running</p> }
+    </div>
+  </div>
+
+  <footer class="home-keys" aria-label="Keys">
+    @if (view.list.total) {
+      <span><kbd>tab</kbd>prompt ↔ list</span>
+      <span><kbd>j</kbd><kbd>k</kbd>move</span>
+      <span><kbd>↵</kbd>open</span>
+    } @else {
+      <span><kbd>↵</kbd>run</span>
+    }
+    <span><kbd>&#64;</kbd>continue a thread</span>
+    <button type="button" (click)="boardOpened.emit()"><kbd>b</kbd>board</button>
+    <button type="button" (click)="historyOpened.emit()"><kbd>h</kbd>history</button>
+    <span class="home-spacer"></span>
+    <button type="button" (click)="menuOpened.emit()"><kbd>/</kbd>menu</button>
+  </footer>
+}
