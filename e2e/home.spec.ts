@@ -8,7 +8,7 @@ import type { Page } from "@playwright/test";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 
-import { addProject, agentChooser, choose, chooseAgent, commit, expect, git, menu, openWorkspace, put, test } from "./support";
+import { addProject, agentChooser, choose, chooseAgent, commit, expandCard, expect, git, menu, openWorkspace, put, startOnHome, startThread, test } from "./support";
 
 test.beforeEach(openWorkspace);
 
@@ -17,25 +17,30 @@ function home(page: Page) {
   return page.locator("app-home");
 }
 
-/** The list of threads that need the person. */
+/** The list of threads on Home. */
 function waiting(page: Page) {
-  return home(page).getByRole("list", { name: "Threads that need you" });
+  return home(page).getByRole("list", { name: "Threads" });
 }
 
-/** Goes to Home by the name in the bar. */
+/** Starts a thread from Home and waits until the agent has finished, still on Home. */
+async function finishOnHome(page: Page, message: string) {
+  const card = await startOnHome(page, message);
+  await expect(card).not.toHaveAttribute("data-section", "progress");
+  return card;
+}
+
+/** Returns from a thread screen to Home. */
 async function goHome(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "Home" }).click();
+  await choose(page, "Home");
   await expect(home(page)).toBeVisible();
 }
 
-/** Starts a thread from Home and waits for the agent to finish, then goes back to Home. */
-async function startAndReturn(page: Page, message: string): Promise<void> {
-  await page.getByLabel("New thread").fill(message);
-  await page.getByRole("button", { name: "Run ↵" }).click();
-  // The message is in the thread once the agent has been asked, and it is done when it stops working.
-  await expect(page.getByLabel("Thread", { exact: true }).getByText(message, { exact: true })).toBeVisible();
-  await expect(page.getByText(/is working…/)).toHaveCount(0);
-  await goHome(page);
+/** Opens the first listed thread on its own screen. */
+async function openFirst(page: Page): Promise<void> {
+  const card = waiting(page).getByRole("listitem").first();
+  await expandCard(card);
+  await card.getByRole("button", { name: "Open", exact: true }).click();
+  await expect(page.getByLabel("Thread", { exact: true })).toBeVisible();
 }
 
 test("with nothing waiting Home says so and offers only the prompt", async ({ page }) => {
@@ -120,8 +125,7 @@ test("a thread starts with the agent chosen on Home", async ({ page }) => {
   await expect(agentChooser(page)).toHaveAttribute("aria-expanded", "false");
   await expect(agentChooser(page)).toBeFocused();
 
-  await page.getByLabel("New thread").fill("use tools");
-  await page.getByLabel("New thread").press("Enter");
+  await startThread(page, "use tools");
 
   await expect(agentChooser(page, true)).toHaveAccessibleName("Grok · Grok 4.7 · Medium");
   await expect(page.getByText("run_terminal_command  Count bytes in note.txt")).toBeVisible();
@@ -158,7 +162,7 @@ test.describe("with Grok configured for the first stage", () => {
     await expect(choices).toBeHidden();
     await expect(prompt).toHaveValue("use tools");
 
-    await prompt.press("Enter");
+    await startThread(page, "use tools");
     await expect(agentChooser(page, true)).toHaveAccessibleName("Grok · Grok 4.7 · Medium");
     await expect(page.getByText("run_terminal_command  Count bytes in note.txt")).toBeVisible();
   });
@@ -178,7 +182,7 @@ test.describe("with a rule for the first stage", () => {
     // A manual pick drops Auto, and stays through a thread, Home and a reload.
     await chooseAgent(page, "Codex");
     await expect(agent).toHaveAccessibleName(/^Codex/);
-    await startAndReturn(page, "first manual");
+    await finishOnHome(page, "first manual");
     await expect(agent).toHaveAccessibleName(/^Codex/);
     await page.reload();
     await expect(agent).toHaveAccessibleName(/^Codex/);
@@ -188,8 +192,7 @@ test.describe("with a rule for the first stage", () => {
     await home(page).getByRole("option", { name: "Automatic", exact: true }).click();
     await expect(agent).toHaveAccessibleName("Auto · Grok · Grok 4.7 · Medium");
     await expect(agent).toBeFocused();
-    await page.getByLabel("New thread").fill("use tools");
-    await page.getByLabel("New thread").press("Enter");
+    await startThread(page, "use tools");
     await expect(agentChooser(page, true)).toHaveAccessibleName("Grok · Grok 4.7 · Medium");
     await expect(page.getByText("run_terminal_command  Count bytes in note.txt")).toBeVisible();
     await expect(page.getByText(/is working…/)).toHaveCount(0);
@@ -235,8 +238,7 @@ test.describe("with any agent for the first stage", () => {
     const messages = ["first automatic", "second automatic"];
     for (const [index, message] of messages.entries()) {
       const shown = (await agent.getAttribute("title"))!.replace(/^Auto · /, "");
-      await page.getByLabel("New thread").fill(message);
-      await page.getByRole("button", { name: "Run ↵" }).click();
+      await startThread(page, message);
       await expect(agentChooser(page, true)).toHaveAccessibleName(shown);
       await expect(page.getByLabel("Thread", { exact: true }).getByText(message, { exact: true })).toBeVisible();
       await expect(page.getByText(/is working…/)).toHaveCount(0);
@@ -259,29 +261,34 @@ test("Run does nothing until something is typed", async ({ page }) => {
 
 test("a thread whose agent asks questions waits as a reply, and leaves the count once answered", async ({ page }) => {
   await addProject(page, "Sample");
-  await startAndReturn(page, "please ask questions");
+  await finishOnHome(page, "please ask questions");
 
   const row = waiting(page).getByRole("listitem").filter({ hasText: /please ask questions/ });
-  await expect(row).toContainText("reply");
+  await expect(row).toHaveAttribute("data-section", "answer");
   await expect(page.getByRole("button", { name: "1 need you" })).toBeVisible();
 
-  await row.click();
+  await row.locator(".home-card-compact").click();
+  await expect(home(page)).toBeVisible();
+  await expect(page.getByLabel("Thread", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("group", { name: "The agent’s questions" })).toBeVisible();
 });
 
 test("a failed run is listed as failed, and stays until the thread runs again", async ({ page }) => {
   await addProject(page, "Sample");
-  await startAndReturn(page, "please fail");
+  await finishOnHome(page, "please fail");
 
   const row = waiting(page).getByRole("listitem").filter({ hasText: /please fail/ });
-  await expect(row).toContainText("failed");
+  await expect(row).toHaveAttribute("data-section", "decide");
+  await expect(row).toContainText("The run failed");
   await expect(row.locator(".home-dot")).toHaveAttribute("data-word", "failed");
 
-  // Looking at it does not clear a failure; only running again does.
-  await row.click();
-  await expect(page.getByLabel("Thread", { exact: true })).toBeVisible();
-  await goHome(page);
-  await expect(row).toContainText("failed");
+  // Opening the card does not clear a failure, and does not leave Home.
+  // The open card shows the failure itself; the short line belongs to the collapsed card.
+  await row.locator(".home-card-compact").click();
+  await expect(page.getByLabel("Thread", { exact: true })).toHaveCount(0);
+  await expect(row).toHaveAttribute("data-section", "decide");
+  await expect(row.locator(".home-dot")).toHaveAttribute("data-word", "failed");
+  await expect(row).toContainText("the fake agent was told to fail");
 });
 
 test("a change ready to apply is listed as apply, first", async ({ page }) => {
@@ -290,20 +297,20 @@ test("a change ready to apply is listed as apply, first", async ({ page }) => {
     put(folder, "README.md", "# Sample\n");
     commit(folder);
   });
-  await startAndReturn(page, "please fail");
-  await startAndReturn(page, "start a change fix-login");
+  await finishOnHome(page, "please fail");
+  await finishOnHome(page, "start a change fix-login");
 
   const rows = waiting(page).getByRole("listitem");
   await expect(rows).toHaveCount(2);
   await expect(rows.first()).toContainText("start a change fix-login");
-  await expect(rows.first()).toContainText("apply");
-  await expect(rows.last()).toContainText("failed");
+  await expect(rows.first()).toContainText("Ready to apply");
+  await expect(rows.last()).toContainText("The run failed");
 });
 
 test("Tab hands the keys to the list, where j, k and Enter move and open", async ({ page }) => {
   await addProject(page, "Sample");
-  await startAndReturn(page, "please fail");
-  await startAndReturn(page, "please ask questions");
+  await finishOnHome(page, "please fail");
+  await finishOnHome(page, "please ask questions");
 
   const rows = waiting(page).getByRole("listitem");
   await expect(rows).toHaveCount(2);
@@ -314,13 +321,14 @@ test("Tab hands the keys to the list, where j, k and Enter move and open", async
   await expect(waiting(page)).toBeFocused();
   await page.keyboard.press("j");
   await page.keyboard.press("Enter");
-  // Failed comes before reply, so the second row is the one that asked.
+  // Failed comes before the questions, so the second card is the one that asked. Enter answers it here.
+  await expect(home(page)).toBeVisible();
   await expect(page.getByRole("group", { name: "The agent’s questions" })).toBeVisible();
 });
 
 test("Tab and Escape in the list go back to the prompt", async ({ page }) => {
   await addProject(page, "Sample");
-  await startAndReturn(page, "please fail");
+  await finishOnHome(page, "please fail");
 
   await page.getByLabel("New thread").press("Tab");
   await expect(waiting(page)).toBeFocused();
@@ -332,7 +340,10 @@ test("@ starts a new thread as ordinary text", async ({ page }) => {
   await addProject(page, "Sample");
   await page.getByLabel("New thread").fill("@hello");
   await page.getByLabel("New thread").press("Enter");
-  await expect(page.getByLabel("Thread", { exact: true }).getByText("@hello", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("New thread")).toHaveValue("");
+  await expect(page.getByLabel("New thread")).toBeFocused();
+  await expect(home(page).locator(".home-card").filter({ hasText: "@hello" })).toBeVisible();
+  await expect(page.getByLabel("Thread", { exact: true })).toHaveCount(0);
 });
 
 test("a model and effort chosen with the keyboard on Home are restored", async ({ page }) => {
@@ -368,16 +379,15 @@ test("a project picked on Home is where the thread starts", async ({ page }) => 
 
   await home(page).getByRole("button", { name: /Second/ }).click();
   await home(page).getByRole("option", { name: "First" }).click();
-  await page.getByLabel("New thread").fill("hello");
-  await page.getByRole("button", { name: "Run ↵" }).click();
+  const card = await startOnHome(page, "be slow");
 
-  await expect(page.locator(".top-mark")).toHaveText("First");
-  await expect(page.locator(".top-scope")).toHaveText("hello");
+  await expect(card).toContainText("First");
+  await expect(page.getByLabel("Thread", { exact: true })).toHaveCount(0);
 });
 
 test("Escape from a thread goes to Home", async ({ page }) => {
   await addProject(page, "Sample");
-  await startAndReturn(page, "please fail");
+  await finishOnHome(page, "please fail");
   await page.getByLabel("Open menu").click();
   await menu(page).getByRole("option", { name: /^please fail/ }).click();
   await expect(page.getByLabel("Thread", { exact: true })).toBeVisible();
@@ -402,8 +412,7 @@ test("Home and the menu share the model for new threads", async ({ page }) => {
   await expect(menu(page).getByRole("option", { name: "Use Codex · GPT-6 Astra · Medium for new threads", exact: true })).toHaveCount(0);
   await page.keyboard.press("Escape");
 
-  await page.getByLabel("New thread").fill("hello");
-  await page.getByRole("button", { name: "Run ↵" }).click();
+  await startThread(page, "hello");
   await expect(page.locator(".thread-meta")).toContainText("Codex · GPT-6 Astra");
   await expect(page.getByText(/^Done in \d+s · GPT-6 Astra · Medium ·/)).toBeVisible();
 });
@@ -414,10 +423,9 @@ test("G then H goes home from the code, the history and the board", async ({ pag
     put(folder, "README.md", "# Sample\n");
     commit(folder);
   });
-  await startAndReturn(page, "please fail");
+  await finishOnHome(page, "please fail");
   await page.getByRole("button", { name: "Home" }).click();
-  await waiting(page).getByRole("listitem").first().click();
-  await expect(page.getByLabel("Thread", { exact: true })).toBeVisible();
+  await openFirst(page);
 
   for (const key of ["c", "h", "b"]) {
     await page.getByLabel("Reply").press("Escape");
@@ -426,15 +434,169 @@ test("G then H goes home from the code, the history and the board", async ({ pag
     await page.keyboard.press("g");
     await page.keyboard.press("h");
     await expect(home(page)).toBeVisible();
-    await waiting(page).getByRole("listitem").first().click();
-    await expect(page.getByLabel("Thread", { exact: true })).toBeVisible();
+    await openFirst(page);
   }
 });
 
 test("the menu has a Home command", async ({ page }) => {
   await addProject(page, "Sample");
-  await startAndReturn(page, "please fail");
-  await waiting(page).getByRole("listitem").first().click();
+  await finishOnHome(page, "please fail");
+  await openFirst(page);
   await choose(page, "Home");
   await expect(home(page)).toBeVisible();
+});
+
+test("a new thread stays on Home and is pointed out in progress", async ({ page }) => {
+  await addProject(page, "Sample");
+  await page.getByLabel("New thread").fill("be slow");
+  await page.getByRole("button", { name: "Run ↵" }).click();
+
+  const card = home(page).locator(".home-card").filter({ hasText: "be slow" });
+  await expect(card).toBeVisible();
+  await expect(card).toHaveClass(/home-card-fresh/);
+  await expect(card).toHaveAttribute("data-section", "progress");
+  await expect(home(page).getByRole("region", { name: "In progress" })).toBeVisible();
+  await expect(page.getByLabel("New thread")).toHaveValue("");
+  await expect(page.getByLabel("New thread")).toBeFocused();
+  await expect(page.getByLabel("Thread", { exact: true })).toHaveCount(0);
+});
+
+test("a reply is sent from the card and the thread keeps working on Home", async ({ page }) => {
+  await addProject(page, "Sample");
+  const card = await finishOnHome(page, "hello");
+
+  await expandCard(card);
+  await page.getByLabel("Reply").fill("be slow");
+  await page.getByLabel("Reply").press("Enter");
+
+  await expect(card).toContainText("be slow");
+  await expect(card).toHaveAttribute("data-section", "progress");
+  await expect(home(page)).toBeVisible();
+  await expect(page.getByLabel("Thread", { exact: true })).toHaveCount(0);
+});
+
+test("m marks a finished thread read from its card", async ({ page }) => {
+  await addProject(page, "Sample");
+  const card = await finishOnHome(page, "hello");
+
+  await expandCard(card);
+  await page.locator("[data-home-list]").focus();
+  await page.keyboard.press("m");
+
+  await expect(card).toHaveCount(0);
+  await expect(home(page).getByText("Nothing needs you.")).toBeVisible();
+});
+
+test("questions are answered on the card without leaving Home", async ({ page }) => {
+  await addProject(page, "Sample");
+  const card = await finishOnHome(page, "please ask questions");
+
+  await expandCard(card);
+  const questions = page.getByRole("group", { name: "The agent’s questions" });
+  await expect(questions).toBeVisible();
+  await expect(questions).not.toBeFocused();
+  await page.locator("[data-home-list]").focus();
+  await page.keyboard.press("q");
+  await expect(questions).toBeFocused();
+  await page.keyboard.press("Enter");
+
+  await expect(questions).toHaveCount(0);
+  await expect(card).toContainText("Answers to your questions");
+  await expect(card).toContainText("In the thread");
+  await expect(home(page)).toBeVisible();
+  await expect(page.getByLabel("Thread", { exact: true })).toHaveCount(0);
+});
+
+test("o opens the thread screen from the card", async ({ page }) => {
+  await addProject(page, "Sample");
+  const card = await finishOnHome(page, "hello");
+
+  await expandCard(card);
+  await page.locator("[data-home-list]").focus();
+  await page.keyboard.press("o");
+
+  await expect(page.getByLabel("Thread", { exact: true }).getByText("hello", { exact: true })).toBeVisible();
+});
+
+test("a plan opened from a card returns to that card", async ({ page }) => {
+  await addProject(page, "Sample");
+  const card = await finishOnHome(page, 'write a plan "Login fix"');
+
+  await expandCard(card);
+  await card.getByRole("button", { name: "plan", exact: true }).click();
+  await expect(page.locator("app-plan").getByRole("heading", { name: "Login fix" })).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(page.locator("app-plan")).toHaveCount(0);
+  await expect(home(page)).toBeVisible();
+  await expect(card.getByRole("button", { name: "Open", exact: true })).toBeVisible();
+});
+
+test("a review asked from a card is read on Home", async ({ page }) => {
+  await addProject(page, "Sample", (folder) => {
+    git(folder, "init", "-q", "-b", "main");
+    put(folder, "README.md", "# Sample\n");
+    commit(folder);
+  });
+  const card = await finishOnHome(page, "start a change fix-login");
+
+  await expandCard(card);
+  await card.getByRole("button", { name: "Ask Codex · GPT-6 Astra · Medium to review" }).click();
+
+  await expect(card).toContainText("fix-login.txt has no test.");
+  await expect(home(page)).toBeVisible();
+  await expect(page.getByLabel("Thread", { exact: true })).toHaveCount(0);
+});
+
+test("file changes opened from a card return to that card", async ({ page }) => {
+  await addProject(page, "Sample", (folder) => {
+    git(folder, "init", "-q", "-b", "main");
+    put(folder, "README.md", "# Sample\n");
+    commit(folder);
+  });
+  const card = await finishOnHome(page, "start a change fix-login");
+
+  await expandCard(card);
+  await page.locator("[data-home-list]").focus();
+  await page.keyboard.press("w");
+  await page.keyboard.press("v");
+  await expect(page.getByLabel("Repository files").getByRole("button", { name: "fix-login.txt" })).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(home(page)).toBeVisible();
+  await expect(card.getByRole("button", { name: "Open", exact: true })).toBeVisible();
+  await expect(page.getByLabel("Repository files")).toHaveCount(0);
+});
+
+test("a change is applied from its card", async ({ page }) => {
+  const directory = await addProject(page, "Sample", (folder) => {
+    git(folder, "init", "-q", "-b", "main");
+    put(folder, "README.md", "# Sample\n");
+    commit(folder);
+  });
+  const card = await finishOnHome(page, "start a change fix-login");
+
+  await expandCard(card);
+  await card.getByRole("button", { name: "Apply to the project" }).click();
+  const description = page.locator("ion-alert textarea");
+  await expect(description).toHaveValue("start a change fix-login");
+  await description.fill("Fix the login");
+  await page.locator("ion-alert").getByRole("button", { name: "Apply" }).click();
+
+  await expect(page.getByText("Applied to the project.", { exact: true }).first()).toBeVisible();
+  await expect(home(page)).toBeVisible();
+  await expect(card).toContainText("Applied");
+  await expect.poll(() => git(directory, "log", "-1", "--format=%s")).toBe("Fix the login");
+});
+
+test("a running agent is stopped from its card", async ({ page }) => {
+  await addProject(page, "Sample");
+  const card = await startOnHome(page, "be slow");
+
+  await expandCard(card);
+  await card.getByRole("button", { name: "Stop", exact: true }).click();
+
+  await expect(card).toContainText("Stopped by you.");
+  await expect(home(page)).toBeVisible();
+  await expect(page.getByLabel("Thread", { exact: true })).toHaveCount(0);
 });

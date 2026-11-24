@@ -21,6 +21,8 @@ type ShortcutPlace = 'home' | Screen;
 
 interface ScreenKeys {
   readonly waitingThreads?: boolean;
+  /** Waiting threads or threads at work, so Home's card keys apply. */
+  readonly homeCards?: boolean;
   readonly usageAgents?: number;
 }
 
@@ -37,8 +39,16 @@ const PLACE_NAMES: Readonly<Record<ShortcutPlace, string>> = {
 
 const BACK: ShortcutRow = { keys: ['esc'], text: 'Back' };
 const HOME_LIST: readonly ShortcutRow[] = [
-  { keys: ['tab'], text: 'Switch between prompt and list' },
-  { keys: ['j', 'k'], text: 'Move through the list' },
+  { keys: ['tab'], text: 'Move from the prompt to the threads' },
+  { keys: ['j', 'k'], text: 'Move between threads' },
+  { keys: ['↵'], text: 'Do what the thread needs, or run' },
+  { keys: ['r'], text: 'Reply' },
+  { keys: ['o'], text: 'Open the thread' },
+  { keys: ['m'], text: 'Mark read' },
+  { keys: ['q'], text: 'Answer the questions' },
+  { keys: ['p'], text: 'Read the plan' },
+  { keys: [CHANGE_LEADER], text: 'This thread’s changes' },
+  { keys: ['esc'], text: 'Close the thread' },
 ];
 const BOARD: readonly ShortcutRow[] = [
   { keys: ['h', 'j', 'k', 'l'], text: 'Move between cards' },
@@ -102,10 +112,7 @@ function hereRows(commands: readonly Command[], place: ShortcutPlace, screenKeys
       ];
     case 'home': {
       if (!commands.some((command) => command.action.kind === 'openProject' && command.key !== null)) return [];
-      return [
-        ...(screenKeys.waitingThreads ? HOME_LIST : []),
-        { keys: ['↵'], text: screenKeys.waitingThreads ? 'Open or run' : 'Run' },
-      ];
+      return screenKeys.homeCards || screenKeys.waitingThreads ? HOME_LIST : [{ keys: ['↵'], text: 'Run' }];
     }
     case 'board':
       return [

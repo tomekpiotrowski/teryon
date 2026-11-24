@@ -65,12 +65,12 @@ describe('shortcutSections', () => {
     expect(keys(sections[1])).toEqual(['/ Ctrl+K', 'esc', '?']);
   });
 
-  it('offers the Home list keys when threads need attention', () => {
+  it('offers the Home card keys when a thread is waiting or at work', () => {
     const [empty] = shortcutSections(commands(), 'home', '');
-    const [waiting] = shortcutSections(commands(), 'home', '', { waitingThreads: true });
+    const [waiting] = shortcutSections(commands(), 'home', '', { homeCards: true });
     expect(empty.rows[0].text).toBe('Run');
-    expect(keys(waiting)).toEqual(['tab', 'j k', '↵']);
-    expect(waiting.rows[2].text).toBe('Open or run');
+    expect(keys(waiting)).toEqual(['tab', 'j k', '↵', 'r', 'o', 'm', 'q', 'p', 'w', 'esc']);
+    expect(waiting.rows[2].text).toBe('Do what the thread needs, or run');
   });
 
   it('leaves out Home controls without a project, and the Board switch without a project to switch to', () => {

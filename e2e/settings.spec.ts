@@ -7,7 +7,7 @@
 
 import type { Page } from "@playwright/test";
 
-import { addProject, commit, expect, git, menu, openWorkspace, put, test } from "./support";
+import { startThread, addProject, commit, expect, git, menu, openWorkspace, put, test } from "./support";
 
 test.beforeEach(openWorkspace);
 
@@ -19,8 +19,7 @@ async function openSettings(page: Page): Promise<void> {
 
 test("saved choices come back, and the thread's stage button uses the new label", async ({ page }) => {
   await addProject(page, "Sample");
-  await page.getByLabel("New thread").fill("hello");
-  await page.getByRole("button", { name: "Run ↵" }).click();
+  await startThread(page, "hello");
   await expect(page.getByText(/^Done in/)).toBeVisible();
   await expect(page.locator(".thread-stage")).toContainText("Talking");
 
@@ -93,8 +92,7 @@ test("a workflow that starts at review stays unsaved, and a later save is offere
 
   await page.keyboard.press("Escape");
   await addProject(page, "Sample");
-  await page.getByLabel("New thread").fill("hello");
-  await page.getByRole("button", { name: "Run ↵" }).click();
+  await startThread(page, "hello");
   await expect(page.getByText(/^Done in/)).toBeVisible();
   await page.getByLabel("Reply").press("Escape");
   await page.keyboard.press("Control+k");
@@ -107,8 +105,7 @@ test("the editor and the terminal show in the menu once they are set, and leave 
     put(folder, "README.md", "# Sample\n");
     commit(folder);
   });
-  await page.getByLabel("New thread").fill("start a change fix-login");
-  await page.getByRole("button", { name: "Run ↵" }).click();
+  await startThread(page, "start a change fix-login");
   await expect(page.getByLabel("Thread").getByText("ready", { exact: true })).toBeVisible();
 
   await page.getByLabel("Reply").press("Escape");

@@ -70,16 +70,17 @@ function changed(id: string, name: string, branch: string | null): Thread {
 
 /** What the page asks the service for, answered as each test says. */
 interface ApiDouble {
-  markSeen: () => Observable<undefined>;
+  markSeen: ReturnType<typeof vi.fn>;
   createThread: ReturnType<typeof vi.fn>;
   sendMessage: ReturnType<typeof vi.fn>;
+  catchUp: ReturnType<typeof vi.fn>;
 }
 
 describe('WorkspacePage', () => {
   let page: WorkspacePage;
   let store: StoreDouble;
   let api: ApiDouble;
-  let alerts: { error: ReturnType<typeof vi.fn> };
+  let alerts: { error: ReturnType<typeof vi.fn>; info: ReturnType<typeof vi.fn>; success: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
     const stored = new Map<string, string>();
@@ -88,8 +89,13 @@ describe('WorkspacePage', () => {
       setItem: (key: string, value: string) => void stored.set(key, value),
     });
     store = new StoreDouble();
-    api = { markSeen: () => of(undefined), createThread: vi.fn(), sendMessage: vi.fn() };
-    alerts = { error: vi.fn() };
+    api = {
+      markSeen: vi.fn(() => of(undefined)),
+      createThread: vi.fn(),
+      sendMessage: vi.fn(),
+      catchUp: vi.fn(() => of(false)),
+    };
+    alerts = { error: vi.fn(), info: vi.fn(), success: vi.fn() };
     TestBed.configureTestingModule({
       imports: [WorkspaceModule],
       providers: [
@@ -382,6 +388,23 @@ describe('WorkspacePage', () => {
       expect(page.citation$.value).toBeNull();
       expect(page.place$.value).toEqual({ projectId: 'p', threadId: 't1', branch: 'fix-login', commit: null });
     });
+
+    it('opens a citation from an open Home card in that card’s project and copy', () => {
+      const other: Project = { id: 'q', name: 'Other', directory: '/other', created_at: '2026-11-01T10:00:00' };
+      const cardThread = { ...changed('t2', 'card-fix', 'card-fix'), project_id: 'q' };
+      store.projects$.next([project, other]);
+      store.threads$.next([cardThread]);
+      page.selectProject(project);
+      page.homeThreadId$.next('t2');
+
+      const event = clickCitation('#open?path=src%2Flib.rs&start=4&end=4');
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(page.screen$.value).toBe('files');
+      expect(page.selection$.value).toEqual({ projectId: 'q', threadId: null });
+      expect(page.place$.value).toEqual({ projectId: 'q', threadId: 't2', branch: 'card-fix', commit: null });
+      expect(page.citation$.value).toEqual({ path: 'src/lib.rs', start: 4, end: 4 });
+    });
   });
 
   describe('starting a thread from Home', () => {
@@ -402,7 +425,8 @@ describe('WorkspacePage', () => {
       expect(api.createThread).toHaveBeenCalledWith('p', null, 'small');
       expect(api.sendMessage).toHaveBeenCalledWith('new', 'Fix the parser', 'author');
       expect(page.draft$.value).toBe('');
-      expect(page.selection$.value.threadId).toBe('new');
+      expect(page.selection$.value.threadId).toBeNull();
+      expect(page.highlightedId$.value).toBe('new');
       expect(page.sending$.value).toBe(false);
     });
 
@@ -427,16 +451,23 @@ describe('WorkspacePage', () => {
       expect(alerts.error).toHaveBeenCalledTimes(1);
     });
 
-    it('keeps the text, now in the new thread\'s message box, when the message is refused', () => {
+    it('keeps the text in the prompt when the message is refused, and reuses the thread on the next try', () => {
       api.createThread.mockReturnValue(of(created));
-      api.sendMessage.mockReturnValue(throwError(() => new Error('no')));
+      api.sendMessage.mockReturnValueOnce(throwError(() => new Error('no'))).mockReturnValueOnce(of({}));
 
       page.startThread(request);
 
       expect(page.draft$.value).toBe('Fix the parser');
-      expect(page.selection$.value.threadId).toBe('new');
+      expect(page.selection$.value.threadId).toBeNull();
+      expect(page.highlightedId$.value).toBeNull();
       expect(page.sending$.value).toBe(false);
       expect(alerts.error).toHaveBeenCalledTimes(1);
+
+      page.startThread(request);
+
+      expect(api.createThread).toHaveBeenCalledTimes(1);
+      expect(api.sendMessage).toHaveBeenCalledTimes(2);
+      expect(page.highlightedId$.value).toBe('new');
     });
 
     it('does not start a second thread while one is being started', () => {
@@ -446,6 +477,131 @@ describe('WorkspacePage', () => {
       page.startThread(request);
 
       expect(api.createThread).toHaveBeenCalledTimes(1);
+    });
+
+    it('stops highlighting the new thread after a moment', () => {
+      vi.useFakeTimers();
+      api.createThread.mockReturnValue(of(created));
+      api.sendMessage.mockReturnValue(of({}));
+
+      page.startThread(request);
+      expect(page.highlightedId$.value).toBe('new');
+      vi.advanceTimersByTime(2000);
+
+      expect(page.highlightedId$.value).toBeNull();
+      vi.useRealTimers();
+    });
+  });
+
+  describe('a card open on Home', () => {
+    const planned = {
+      ...changed('t1', 'fix-login', 'fix-login'),
+      plan: { title: 'The plan', fingerprint: 'x', too_large: false },
+      unread: true,
+    };
+
+    beforeEach(() => {
+      store.projects$.next([project]);
+      store.threads$.next([planned]);
+      page.homeThreadId$.next(planned.id);
+    });
+
+    it('comes back from the plan to Home with the card still open', () => {
+      page.showPlanFor(planned);
+      expect(page.screen$.value).toBe('plan');
+      expect(page.selection$.value.threadId).toBeNull();
+
+      page.handleShortcut(new KeyboardEvent('keydown', { key: 'Escape' }));
+
+      expect(page.screen$.value).toBe('thread');
+      expect(page.homeThreadId$.value).toBe(planned.id);
+    });
+
+    it('offers the card’s plan among the commands', () => {
+      const commands = page.commands$.subscribe();
+      TestBed.tick();
+      let plan = false;
+      page.commands$.subscribe((list) => {
+        plan = list.some((command) => command.action.kind === 'showScreen' && command.action.screen === 'plan');
+      }).unsubscribe();
+      expect(plan).toBe(true);
+      commands.unsubscribe();
+    });
+
+    it('does not offer the card’s plan on the board', () => {
+      page.screen$.next('board');
+      const commands = page.commands$.subscribe();
+      TestBed.tick();
+      let plan = true;
+      page.commands$.subscribe((list) => {
+        plan = list.some((command) => command.action.kind === 'showScreen' && command.action.screen === 'plan');
+      }).unsubscribe();
+      expect(plan).toBe(false);
+      commands.unsubscribe();
+    });
+
+    it('closes the card when a new thread is started, so the prompt takes the message', () => {
+      page.selection$.next({ projectId: project.id, threadId: planned.id });
+      const commands = page.commands$.subscribe();
+      TestBed.tick();
+      let started: Parameters<WorkspacePage['run']>[0] | undefined;
+      page.commands$.subscribe((list) => {
+        started = list.find((command) => command.id === 'action:newThread');
+      }).unsubscribe();
+
+      page.run(started!);
+
+      expect(page.selection$.value).toEqual({ projectId: project.id, threadId: null });
+      expect(page.homeThreadId$.value).toBeNull();
+      expect(page.screen$.value).toBe('thread');
+      commands.unsubscribe();
+    });
+
+    it('puts a drafted review into the card and leaves the prompt alone', () => {
+      page.homeLines$.next([
+        { kind: 'review', text: 'Review', reviewer: false },
+        { kind: 'agent', text: 'A finding\n\nFindings: 1', reviewer: true },
+      ]);
+      const commands = page.commands$.subscribe();
+      TestBed.tick();
+
+      page.passFindings();
+
+      expect(page.draft$.value).toBe('');
+      expect(page.cardNote$.value?.threadId).toBe(planned.id);
+      expect(page.cardNote$.value?.text).toContain('A finding');
+      expect(page.selection$.value.threadId).toBeNull();
+      commands.unsubscribe();
+    });
+
+    it('adds an asked-about file to the card reply instead of the prompt text', () => {
+      page.draft$.next('prompt text');
+
+      page.askAbout('src/a.rs');
+
+      expect(page.draft$.value).toBe('prompt text');
+      expect(page.cardNote$.value).toMatchObject({ threadId: planned.id, add: true });
+      expect(page.cardNote$.value?.text).toBe('About `src/a.rs`: ');
+    });
+
+    it('puts a catch-up request into the card when the change overlaps', () => {
+      api.catchUp.mockReturnValue(of(true));
+
+      page.catchUp(planned);
+
+      expect(api.catchUp).toHaveBeenCalledWith(planned.id);
+      expect(page.draft$.value).toBe('');
+      expect(page.cardNote$.value?.text).toContain('newer work');
+    });
+
+    it('does not mark the card read just because Home is showing it', () => {
+      const seen = vi.fn(() => of(undefined));
+      api.markSeen = seen;
+      const watching = page.view$.subscribe();
+      TestBed.tick();
+
+      expect(seen).not.toHaveBeenCalled();
+      watching.unsubscribe();
     });
   });
 

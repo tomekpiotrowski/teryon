@@ -1,0 +1,158 @@
+@if (view$ | async; as view) {
+  <article
+    class="home-card"
+    role="listitem"
+    [class.home-card-open]="view.expanded"
+    [class.home-card-fresh]="(freshClass$ | async) ?? false"
+    [attr.data-thread]="view.card.thread.id"
+    [attr.data-section]="view.card.section"
+    [attr.aria-expanded]="view.expanded"
+  >
+    @if (!view.expanded) {
+      <button type="button" class="home-card-compact" (click)="toggled.emit()">
+        <span class="home-dot" [class.home-pulse]="view.card.word === 'running'" [attr.data-word]="view.card.word" aria-hidden="true"></span>
+        <span class="home-card-title" [class.home-card-unread]="view.card.section === 'read' && view.card.thread.unread">{{ view.title }}</span>
+        <span class="home-card-meta home-dim">
+          <span>{{ agentLabel(view.card.thread.agent) }}</span>
+          @if (view.card.projectName) { <span>{{ view.card.projectName }}</span> }
+        </span>
+        <span class="home-card-preview">{{ view.card.subtitle }}</span>
+      </button>
+    } @else {
+      <header class="home-card-head">
+        <span class="home-dot" [class.home-pulse]="view.card.word === 'running'" [attr.data-word]="view.card.word" aria-hidden="true"></span>
+        <span class="home-card-heading">
+          <span class="home-card-title" [class.home-card-unread]="view.card.section === 'read' && view.card.thread.unread">{{ view.title }}</span>
+          <span class="home-dim">{{ view.stage }}</span>
+        </span>
+        <span class="home-card-meta home-dim">
+          <span>{{ view.who }}</span>
+          <span>{{ view.card.project.name }}</span>
+        </span>
+        <span class="home-card-tools">
+          @if (view.canMarkRead) {
+            <button type="button" (click)="markedRead.emit()">Mark read</button>
+          }
+          <button type="button" (click)="opened.emit()">Open</button>
+          <button type="button" aria-label="Collapse" (click)="toggled.emit()">
+            <svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2 6.5l3-3 3 3"></path></svg>
+          </button>
+        </span>
+      </header>
+
+      <div class="home-card-body">
+        @if (view.earlier.length) {
+          <button type="button" class="home-earlier" [attr.aria-expanded]="view.showEarlier" (click)="toggleEarlier(!view.showEarlier)">
+            {{ view.showEarlier ? 'Hide earlier messages' : 'Earlier in this thread' }}
+          </button>
+        }
+        @for (line of view.showEarlier ? view.earlier : []; track $index) {
+          <ng-container *ngTemplateOutlet="entry; context: { $implicit: line, thread: view.card.thread, roots: view.roots }"></ng-container>
+        }
+        @for (line of view.latest; track $index) {
+          <ng-container *ngTemplateOutlet="entry; context: { $implicit: line, thread: view.card.thread, roots: view.roots }"></ng-container>
+        }
+        @if (view.running) {
+          @if (view.reviewing) {
+            <div class="live-line reviewer-entry" role="status"><span>◆</span><span>{{ view.reviewer }} is reviewing…</span></div>
+          } @else {
+            <div class="live-line" role="status"><span>◆</span><span>{{ agentLabel(view.card.thread.agent) }} is working…</span></div>
+          }
+        }
+      </div>
+
+      @if (view.asked; as asked) {
+        <app-questions [asked]="asked" [autoFocus]="false" (answered)="answered.emit($event)" (putAway)="putAway.emit(asked.id)"></app-questions>
+      }
+
+      @if (view.showStrip) {
+        <section class="change-strip" [attr.data-tone]="view.tone || null" [attr.aria-label]="view.hasChange ? 'This thread’s changes' : 'This thread’s plan'">
+          @if (view.labelled) { <span class="change-status" role="status">{{ view.changeTitle }}</span> }
+          @if (view.changeNote) { <span class="change-note">{{ view.changeNote }}</span> }
+          <span class="spacer"></span>
+          @if (view.plan) {
+            <button type="button" class="change-action plan-action" aria-keyshortcuts="p" title="Read this thread’s plan" (click)="planOpened.emit()">plan</button>
+          }
+          @for (action of view.actions; track action.command.id) {
+            <button type="button" class="change-action" [attr.aria-keyshortcuts]="action.hint" (click)="commandRun.emit(action.command)">{{ action.command.title }}</button>
+          }
+          @if (view.hasChange) {
+            <button type="button" class="change-more" aria-label="More about this thread’s changes" (click)="moreOpened.emit()">more</button>
+          }
+        </section>
+      }
+
+      @if (view.running) {
+        <div class="home-card-stop">
+          <button type="button" class="stop-action" (click)="stopped.emit()">Stop</button>
+        </div>
+      } @else {
+        <div class="home-reply">
+          <label class="composer-field" [class.to-reviewer]="view.to === 'reviewer'">
+            <span>❯</span>
+            <textarea
+              #reply
+              rows="1"
+              data-home-reply
+              aria-label="Reply"
+              [placeholder]="view.to === 'reviewer' ? 'Ask ' + view.reviewer : 'Reply'"
+              [value]="view.draft"
+              (input)="updateDraft($event)"
+              (keydown)="handleReplyKey($event)"
+            ></textarea>
+          </label>
+          <div class="home-reply-meta">
+            @if (view.card.thread.reviewer) {
+              <button type="button" class="target-switch" aria-label="Who the message goes to" (click)="switchTo()">to {{ view.to }}</button>
+            }
+            <span class="home-spacer"></span>
+            <button type="button" class="send-action" [class.ready]="view.draft.trim()" (click)="send()">send ↵</button>
+          </div>
+        </div>
+      }
+    }
+  </article>
+}
+
+<ng-template #entry let-line let-thread="thread" let-roots="roots">
+  <article class="thread-entry" [class.user-entry]="line.kind === 'user'" [class.reviewer-entry]="line.reviewer && line.kind !== 'review'">
+    @switch (line.kind) {
+      @case ('user') {
+        <div class="message">
+          <span class="prompt-mark">❯</span>
+          @if (line.reviewer) { <span class="speaker">to {{ reviewerLabel(line, thread) }}</span> }
+          <p>{{ line.text }}</p>
+        </div>
+      }
+      @case ('agent') {
+        @if (line.reviewer) { <span class="speaker">{{ reviewerLabel(line, thread) }} · reviewing</span> }
+        <div class="markdown" [innerHTML]="line.text | markdown:roots"></div>
+      }
+      @case ('review') { <p class="review-divider"><span>{{ line.text }}</span></p> }
+      @case ('activity') {
+        <div class="activity-block"><div><span>◆</span><span>{{ line.text }}</span></div></div>
+      }
+      @case ('notice') { <p class="notice-line">{{ line.text }}</p> }
+      @case ('stage') { <p class="notice-line stage-line">◇ {{ line.text }}</p> }
+      @case ('plan') {
+        <p class="notice-line">◇ <button type="button" class="code-link plan-line" aria-keyshortcuts="p" (click)="planOpened.emit()">{{ line.text }}</button></p>
+      }
+      @case ('error') { <p class="error-line" role="alert">{{ line.text }}</p> }
+      @case ('summary') { <p class="summary-line" [attr.title]="line.title ?? null">{{ line.text }}</p> }
+      @case ('questions') {
+        @if (line.asked; as asked) {
+          <div class="asked-block" aria-label="Questions from the agent">
+            @for (question of asked.questions; track $index; let q = $index) {
+              <p class="asked-question"><span class="question-number">{{ q + 1 }}.</span> {{ question.question }}</p>
+              <p class="asked-answers">
+                @for (answer of question.answers; track $index; let a = $index) {
+                  <span [class.recommended]="isRecommended(question, a)">{{ answer.label }}</span>
+                }
+              </p>
+            }
+          </div>
+        }
+      }
+    }
+  </article>
+</ng-template>

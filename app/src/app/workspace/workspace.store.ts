@@ -11,7 +11,7 @@ import {
   Observable,
   of,
   scan,
-  share,
+  shareReplay,
   switchMap,
 } from 'rxjs';
 import { ServiceConnection } from '../service/service-connection';
@@ -86,9 +86,12 @@ export class WorkspaceStore {
   /**
    * A thread's entries, in order, as they arrive.
    *
-   * Following starts with the first watcher and stops with the last. Each time
-   * the connection is made again the thread is followed again, because the
-   * service forgets what a closed connection followed.
+   * Following starts with the first watcher and stops with the last. A watcher
+   * that joins while the thread is already followed is given the entries
+   * already read, so the thread screen can open from a card that is showing
+   * them without waiting for another line. Each time the connection is made
+   * again the thread is followed again, because the service forgets what a
+   * closed connection followed.
    */
   entries$(threadId: string): Observable<ThreadEntry[]> {
     let entries = this.following.get(threadId);
@@ -103,7 +106,7 @@ export class WorkspaceStore {
             .pipe(catchError(() => EMPTY))
             .subscribe();
         }),
-        share({ resetOnRefCountZero: true }),
+        shareReplay({ bufferSize: 1, refCount: true }),
       );
       this.following.set(threadId, entries);
     }

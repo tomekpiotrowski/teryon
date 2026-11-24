@@ -1,10 +1,15 @@
 import { CommonModule } from '@angular/common';
 import { AgentChooserComponent } from './agent-chooser.component';
+import { HomeCardComponent } from './home-card.component';
 import { modelOptionForTest as model } from './model.testing';
+import { MarkdownPipe } from './markdown.pipe';
+import { QuestionsComponent } from './questions.component';
 import { TestBed, type ComponentFixture } from '@angular/core/testing';
+import { of } from 'rxjs';
 import { vi } from 'vitest';
 
 import { HomeComponent, type StartRequest } from './home.component';
+import { WorkspaceStore } from './workspace.store';
 import { type Choice, groupThreads, type ModelLists, NO_MODELS, NO_WORKFLOWS, type Project, type Starting, type Thread, type Workflows } from './workspace.model';
 
 const project = (id: string): Project => ({ id, name: `Project ${id}`, directory: `/work/${id}`, created_at: '2026-11-01T10:00:00' });
@@ -123,7 +128,7 @@ function clickButton(of: Scene, label: string): void {
 }
 
 function rows(of: Scene): HTMLElement[] {
-  return Array.from(of.element.querySelectorAll<HTMLElement>('.home-row'));
+  return Array.from(of.element.querySelectorAll<HTMLElement>('.home-card'));
 }
 
 /** A browser's storage that lives as long as the test, since the test environment has none. */
@@ -137,10 +142,18 @@ function stubStorage(): void {
   });
 }
 
+function configure(): void {
+  TestBed.configureTestingModule({
+    imports: [CommonModule],
+    declarations: [HomeComponent, HomeCardComponent, AgentChooserComponent, QuestionsComponent, MarkdownPipe],
+    providers: [{ provide: WorkspaceStore, useValue: { entries$: () => of([]) } }],
+  });
+}
+
 describe('HomeComponent', () => {
   beforeEach(() => {
     stubStorage();
-    TestBed.configureTestingModule({ imports: [CommonModule], declarations: [HomeComponent, AgentChooserComponent] });
+    configure();
   });
 
   afterEach(() => {
@@ -154,23 +167,27 @@ describe('HomeComponent', () => {
       expect(rows(home)).toHaveLength(0);
     });
 
-    it('lists a thread with its word, and opens it on a click', () => {
+    it('lists a thread in Decide, and opens the card on a click', () => {
       const waiting = thread({ id: 'w', title: 'Fix it', ended: 'failed' });
       const home = scene([waiting]);
+      expect(home.element.querySelector('[data-section="decide"]')).toBeTruthy();
       expect(rows(home)).toHaveLength(1);
       expect(rows(home)[0].textContent).toContain('Fix it');
-      expect(rows(home)[0].querySelector('.home-word')?.textContent?.trim()).toBe('failed');
-      rows(home)[0].click();
-      expect(home.opened).toEqual([waiting]);
+      expect(rows(home)[0].textContent).toContain('The run failed');
+      rows(home)[0].querySelector('button')?.click();
+      home.fixture.detectChanges();
+      expect(home.opened).toEqual([]);
+      expect(rows(home)[0].classList).toContain('home-card-open');
     });
 
     it('shows the project name only when threads come from several projects', () => {
       const one = scene([thread({ id: '1', asking: true })]);
-      expect(rows(one)[0].querySelectorAll('.home-dim')).toHaveLength(0);
+      expect(rows(one)[0].textContent).toContain('Claude');
+      expect(rows(one)[0].textContent).not.toContain('Project a');
       TestBed.resetTestingModule();
-      TestBed.configureTestingModule({ imports: [CommonModule], declarations: [HomeComponent, AgentChooserComponent] });
+      configure();
       const several = scene([thread({ id: '1', asking: true }), thread({ id: '2', asking: true, project_id: 'b' })]);
-      expect(rows(several).map((row) => row.querySelectorAll('.home-dim').length)).toEqual([1, 1]);
+      expect(rows(several).map((row) => row.textContent)).toEqual([expect.stringContaining('Project a'), expect.stringContaining('Project b')]);
     });
 
     it('cuts the list at seven and points to the board', () => {
@@ -184,65 +201,81 @@ describe('HomeComponent', () => {
       expect(board).toBe(1);
     });
 
-    it('names what runs under the list', () => {
+    it('names what runs under In progress, including its project', () => {
       const home = scene([thread({ id: 'r', title: 'Busy', status: 'running' })]);
-      const line = home.element.querySelector('.home-running');
+      const line = home.element.querySelector('[data-section="progress"]');
       expect(line?.textContent).toContain('Busy');
       expect(line?.textContent).toContain('Project a');
       expect(line?.textContent).toContain('working');
+      expect(home.element.textContent).toContain('Nothing needs you.');
+      expect(home.element.querySelector('.home')?.classList.contains('home-empty')).toBe(false);
     });
   });
 
   describe('the keys of the list', () => {
     const waiting = [thread({ id: 'a', title: 'First', asking: true, created_at: '2026-11-05T10:00:00' }), thread({ id: 'b', title: 'Second', asking: true, created_at: '2026-11-04T10:00:00' })];
 
-    it('hands the keys to the list on Tab, marking the first row', () => {
+    it('hands the keys to the list on Tab, opening the first card', () => {
       const home = scene(waiting);
       const event = key(home, prompt(home), 'Tab');
       expect(event.defaultPrevented).toBe(true);
-      expect(rows(home)[0].classList).toContain('home-marked');
+      expect(rows(home)[0].classList).toContain('home-card-open');
     });
 
     it('leaves Tab alone when there is no list, and Shift+Tab always', () => {
       const empty = scene([]);
       expect(key(empty, prompt(empty), 'Tab').defaultPrevented).toBe(false);
       TestBed.resetTestingModule();
-      TestBed.configureTestingModule({ imports: [CommonModule], declarations: [HomeComponent, AgentChooserComponent] });
+      configure();
       const home = scene(waiting);
       expect(key(home, prompt(home), 'Tab', { shiftKey: true }).defaultPrevented).toBe(false);
     });
 
-    it('moves with j and k, not past either end, and opens with Enter', () => {
+    it('moves with j and k, not past either end, and Enter stays on Home', () => {
       const home = scene(waiting);
       key(home, prompt(home), 'Tab');
       const list = home.element.querySelector('[data-home-list]') as HTMLElement;
       key(home, list, 'j');
-      expect(rows(home)[1].classList).toContain('home-marked');
+      expect(rows(home)[1].classList).toContain('home-card-open');
       key(home, list, 'j');
-      expect(rows(home)[1].classList).toContain('home-marked');
+      expect(rows(home)[1].classList).toContain('home-card-open');
       key(home, list, 'k');
       key(home, list, 'k');
-      expect(rows(home)[0].classList).toContain('home-marked');
+      expect(rows(home)[0].classList).toContain('home-card-open');
       key(home, list, 'j');
       key(home, list, 'Enter');
-      expect(home.opened.map((item) => item.id)).toEqual(['b']);
+      expect(home.opened).toEqual([]);
+      expect(rows(home)[1].classList).toContain('home-card-open');
     });
 
-    it('moves and opens even when keys come before the screen is drawn', () => {
+    it('moves even when keys come before the screen is drawn', () => {
       const home = scene(waiting);
       key(home, prompt(home), 'Tab');
       const list = home.element.querySelector('[data-home-list]') as HTMLElement;
       list.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', bubbles: true, cancelable: true }));
-      list.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      list.dispatchEvent(new KeyboardEvent('keydown', { key: 'o', bubbles: true, cancelable: true }));
       expect(home.opened.map((item) => item.id)).toEqual(['b']);
     });
 
-    it('goes back to the prompt on Escape', () => {
+    it('closes the card and goes back to the prompt on Escape', () => {
       const home = scene(waiting);
       key(home, prompt(home), 'Tab');
       const list = home.element.querySelector('[data-home-list]') as HTMLElement;
       key(home, list, 'Escape');
-      expect(rows(home).some((row) => row.classList.contains('home-marked'))).toBe(false);
+      expect(rows(home).some((row) => row.classList.contains('home-card-open'))).toBe(false);
+    });
+
+    it('marks a read card read with m, and opens it with o', () => {
+      const fresh = thread({ id: 'n', title: 'Done', unread: true, stage: 'implementing' });
+      const home = scene([fresh]);
+      const marked: Thread[] = [];
+      home.fixture.componentInstance.markedRead.subscribe((item) => marked.push(item));
+      key(home, prompt(home), 'Tab');
+      const list = home.element.querySelector('[data-home-list]') as HTMLElement;
+      key(home, list, 'm');
+      expect(marked.map((item) => item.id)).toEqual(['n']);
+      key(home, list, 'o');
+      expect(home.opened.map((item) => item.id)).toEqual(['n']);
     });
   });
 

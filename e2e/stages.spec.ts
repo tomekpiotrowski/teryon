@@ -7,7 +7,7 @@
 
 import type { Page } from "@playwright/test";
 
-import { addProject, agentChooser, choose, commit, expect, git, menu, openWorkspace, put, test } from "./support";
+import { startThread, addProject, agentChooser, choose, commit, expect, git, menu, openWorkspace, put, test } from "./support";
 
 test.beforeEach(openWorkspace);
 
@@ -25,8 +25,7 @@ test.describe("with an agent set for implementing", () => {
     await page.keyboard.press("Escape");
     await expect(page.locator("app-settings")).toHaveCount(0);
 
-    await page.getByLabel("New thread", { exact: true }).fill("report stage implementing");
-    await page.getByRole("button", { name: "Run ↵" }).click();
+    await startThread(page, "report stage implementing");
 
     const thread = page.getByLabel("Thread");
     await expect(thread.getByText("◇ Talking → Implementing · by Claude")).toBeVisible();
@@ -39,8 +38,7 @@ test.describe("with an agent set for implementing", () => {
 
 test("the board shows each thread in the column of its stage, and follows it", async ({ page }) => {
   await addProject(page, "Sample");
-  await page.getByLabel("New thread").fill("report stage planning");
-  await page.getByRole("button", { name: "Run ↵" }).click();
+  await startThread(page, "report stage planning");
   await expect(page.getByLabel("Thread").getByText("◇ Talking → Planning · by Claude")).toBeVisible();
 
   await page.getByLabel("Reply").press("Escape");
@@ -95,8 +93,7 @@ test("a finish stays for the visit where it is seen, then leaves the board", asy
     put(folder, "README.md", "# Sample\n");
     commit(folder);
   });
-  await page.getByLabel("New thread").fill("start a change fix-login");
-  await page.getByRole("button", { name: "Run ↵" }).click();
+  await startThread(page, "start a change fix-login");
   await expect(page.getByRole("region", { name: "This thread’s changes" })).toContainText("1 file changed");
   await expect(page.getByText(/^Done in/)).toBeVisible();
 
@@ -127,14 +124,12 @@ test("quiet threads leave together, and writing brings one back", async ({ page 
     commit(folder);
   });
 
-  await page.getByLabel("New thread").fill("hello there");
-  await page.getByRole("button", { name: "Run ↵" }).click();
+  await startThread(page, "hello there");
   await expect(page.getByText(/^Done in/)).toBeVisible();
 
   await page.getByLabel("Reply").press("Escape");
   await page.keyboard.press("n");
-  await page.getByLabel("New thread").fill("start a change fix-login");
-  await page.getByRole("button", { name: "Run ↵" }).click();
+  await startThread(page, "start a change fix-login");
   await expect(page.getByRole("region", { name: "This thread’s changes" })).toContainText("1 file changed");
   await expect(page.getByText(/^Done in/)).toBeVisible();
 
@@ -176,8 +171,7 @@ test("quiet threads leave together, and writing brings one back", async ({ page 
 
 test("the agent's plan shows as a line, opens on P or the plan button, and follows changes", async ({ page }) => {
   await addProject(page, "Sample");
-  await page.getByLabel("New thread").fill('write a plan "Login fix"');
-  await page.getByRole("button", { name: "Run ↵" }).click();
+  await startThread(page, 'write a plan "Login fix"');
 
   const thread = page.getByLabel("Thread");
   await expect(thread.getByText("◇ Talking → Planning · a plan was written")).toBeVisible();

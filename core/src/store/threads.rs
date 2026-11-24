@@ -330,6 +330,7 @@ mod tests {
             done_seen: false,
             picks: BTreeMap::new(),
             ended: None,
+            preview: None,
             created_at: Utc::now(),
         }
     }

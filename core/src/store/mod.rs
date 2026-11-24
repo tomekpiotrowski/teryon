@@ -209,6 +209,13 @@ pub struct Thread {
     /// How the last run ended. Nothing before the first run ends, and while a new one runs.
     #[serde(default)]
     pub ended: Option<RunEnd>,
+    /// A short line about the latest question, message or error, for the main screen.
+    ///
+    /// The main screen lists every thread without reading its conversation, so
+    /// the line is kept on the thread and filled when a turn ends. Nothing
+    /// while a turn is running, and on threads stored before Teryon wrote one.
+    #[serde(default)]
+    pub preview: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 

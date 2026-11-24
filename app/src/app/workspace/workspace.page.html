@@ -10,7 +10,7 @@
         } @else if (screen === 'usage') {
           <app-usage (closed)="screen$.next('thread')" (menuOpened)="openMenu()" (shortcutsOpened)="openShortcuts()"></app-usage>
         } @else if (screen === 'plan') {
-          <app-plan [projectName]="headerName(view.project?.name, true)" [thread]="view.thread" [roots]="view.roots" (menuOpened)="openMenu()" (shortcutsOpened)="openShortcuts()"></app-plan>
+          <app-plan [projectName]="headerName(view.project?.name, true)" [thread]="(activeThread$ | async) ?? view.thread" [roots]="(activeRoots$ | async) ?? view.roots" (menuOpened)="openMenu()" (shortcutsOpened)="openShortcuts()"></app-plan>
         } @else if (screen === 'board') {
           <app-board
             [project]="view.project"
@@ -98,11 +98,28 @@
                 [project]="view.project"
                 [sending]="(sending$ | async) ?? false"
                 [text]="(draft$ | async) ?? ''"
+                [expandedId]="homeThreadId$ | async"
+                [highlightedId]="highlightedId$ | async"
+                [commands]="(commands$ | async) ?? []"
+                [putAwayId]="putAway$ | async"
+                [cardNote]="cardNote$ | async"
+                [cardClear]="cardClear$ | async"
                 (textChanged)="draft$.next($event)"
                 (started)="startThread($event)"
                 (choiceChosen)="chooseForNewThreads($event)"
                 (automaticChosen)="chooseAutomaticForNewThreads()"
                 (opened)="openThread($event)"
+                (expanded)="homeThreadId$.next($event)"
+                (replied)="replyTo($event.thread, $event.text, $event.to)"
+                (answered)="answerThread($event.thread, $event.text)"
+                (markedRead)="markThreadSeen($event)"
+                (stopped)="stop($event)"
+                (planOpened)="showPlanFor($event)"
+                (commandRun)="run($event)"
+                (moreOpened)="openMenu(false, 'change')"
+                (questionsPutAway)="putAwayCardQuestions($event)"
+                (questionsRestored)="putAway$.next(null)"
+                (linesChange)="homeLines$.next($event)"
                 (boardOpened)="showBoard(true)"
                 (historyOpened)="screen$.next('history')"
                 (menuOpened)="openMenu()"

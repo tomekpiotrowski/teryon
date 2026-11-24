@@ -34,7 +34,7 @@ import { type Command, type CommandGroup, commandList, keyHint, keyOutcome, menu
 import { askDraft } from './files.model';
 import { citationFromHref, type Citation } from './markdown';
 import { homeList } from './home.model';
-import type { StartRequest } from './home.component';
+import { type CardNote, type StartRequest } from './home.component';
 import { type Asked, isRecommended } from './questions.model';
 import { type Commit, revertDraft } from './history.model';
 import { shortcutSections } from './shortcuts.model';
@@ -202,6 +202,20 @@ export class WorkspacePage implements OnDestroy {
 
   readonly selection$ = new BehaviorSubject<Selection>(NOTHING_SELECTED);
   readonly draft$ = new BehaviorSubject('');
+  /** The card open on Home. Separate from the thread open on its own screen. */
+  readonly homeThreadId$ = new BehaviorSubject<string | null>(null);
+  /** The thread just started, so Home can point it out. Cleared after a moment. */
+  readonly highlightedId$ = new BehaviorSubject<string | null>(null);
+  /** A reply written into the open card, from a plan, the files or a review. */
+  readonly cardNote$ = new BehaviorSubject<CardNote | null>(null);
+  /** Clears a card's reply once it has been sent. */
+  readonly cardClear$ = new BehaviorSubject<{ id: string; at: number } | null>(null);
+  /** The open card's conversation, for a drafted reply such as a review's findings. */
+  readonly homeLines$ = new BehaviorSubject<readonly EntryLine[]>([]);
+  /** A thread made for a message that was refused, so trying again reuses it. */
+  private unsentThread: { readonly projectId: string; readonly thread: Thread } | null = null;
+  private highlightTimer: ReturnType<typeof setTimeout> | undefined;
+  private preferCardReply = false;
   /** The agent and model new threads start with, and the model remembered for each agent. */
   readonly newThreads$ = new BehaviorSubject<NewThreads>(readNewThreads(rememberedNewThreads()));
   private readonly remembering: Subscription = this.newThreads$.pipe(skip(1)).subscribe(rememberNewThreads);
@@ -233,6 +247,7 @@ export class WorkspacePage implements OnDestroy {
   readonly citation$ = new BehaviorSubject<Citation | null>(null);
   /** Kept so the markdown pipe sees the same directories until they actually change. */
   private shownRoots: readonly string[] = [];
+  private shownActiveRoots: readonly string[] = [];
   /** A leader key pressed, waiting for the key that picks a command of its family. */
   readonly leader$ = new BehaviorSubject<string | null>(null);
 
@@ -254,6 +269,29 @@ export class WorkspacePage implements OnDestroy {
     this.selection$,
   ]).pipe(
     map(([groups, selection]) => ({ groups, ...resolveSelection(groups, selection) })),
+    shareReplay({ bufferSize: 1, refCount: true }),
+  );
+
+  /**
+   * The thread the commands and the plan act on.
+   *
+   * The thread open on its own screen wins. Otherwise it is the card open on
+   * Home, so a plan or a change can be handled without leaving Home.
+   */
+  readonly activeThread$: Observable<Thread | null> = combineLatest([this.selected$, this.homeThreadId$]).pipe(
+    map(([{ groups, thread }, id]) => thread ?? groups.flatMap((group) => group.threads).find((candidate) => candidate.id === id) ?? null),
+    shareReplay({ bufferSize: 1, refCount: true }),
+  );
+
+  /** The citation directories for the thread open on its own screen or in a Home card. */
+  readonly activeRoots$: Observable<readonly string[]> = combineLatest([this.selected$, this.activeThread$]).pipe(
+    map(([{ groups, project }, active]) => {
+      const owner = active ? groups.find((group) => group.project.id === active.project_id)?.project ?? project : project;
+      const next = citationRoots(owner, active);
+      if (next.length === this.shownActiveRoots.length && next.every((root, index) => root === this.shownActiveRoots[index])) return this.shownActiveRoots;
+      this.shownActiveRoots = next;
+      return next;
+    }),
     shareReplay({ bufferSize: 1, refCount: true }),
   );
 
@@ -327,10 +365,17 @@ export class WorkspacePage implements OnDestroy {
     combineLatest([this.pending$, this.putAway$]).pipe(map(([pending, putAway]) => pending !== null && pending.id === putAway)),
     this.screen$,
     this.boardEvery$,
+    this.homeThreadId$,
   ]).pipe(
-    map(([view, newThreads, theme, opens, models, installed, starting, to, workflows, questionsPutAway, screen, everyProject]) =>
-      commandList({
+    map(([view, newThreads, theme, opens, models, installed, starting, to, workflows, questionsPutAway, screen, everyProject, homeThreadId]) => {
+      const cardScreen = screen === 'thread' || screen === 'files' || screen === 'plan';
+      const homeThread = view.thread || !cardScreen ? null : view.groups.flatMap((group) => group.threads).find((candidate) => candidate.id === homeThreadId) ?? null;
+      const thread = view.thread ?? homeThread;
+      const project = thread ? view.groups.find((group) => group.project.id === thread.project_id)?.project ?? view.project : view.project;
+      return commandList({
         ...view,
+        thread,
+        project,
         newThreads,
         theme,
         opens,
@@ -340,9 +385,9 @@ export class WorkspacePage implements OnDestroy {
         to,
         workflows,
         questionsPutAway,
-        putAwayScope: putAwayScope(screen, everyProject, view.project),
-      }),
-    ),
+        putAwayScope: putAwayScope(screen, everyProject, project),
+      });
+    }),
     shareReplay({ bufferSize: 1, refCount: true }),
   );
 
@@ -384,7 +429,11 @@ export class WorkspacePage implements OnDestroy {
     map(([commands, view, screen, usageAgents]) => {
       const place = coversThread(screen, view.project) ? screen : view.thread ? 'thread' : 'home';
       const badge = view.thread ? changeBadge(view.thread) : '';
-      return shortcutSections(commands, place, badge, { waitingThreads: view.needing > 0, usageAgents });
+      return shortcutSections(commands, place, badge, {
+        waitingThreads: view.needing > 0,
+        homeCards: view.needing > 0 || runningCount(view.groups) > 0,
+        usageAgents,
+      });
     }),
   );
 
@@ -437,8 +486,11 @@ export class WorkspacePage implements OnDestroy {
     )
     .subscribe(() =>
       requestAnimationFrame(() => {
+        const prefer = this.preferCardReply;
+        this.preferCardReply = false;
         const boxes = Array.from(this.host.nativeElement.querySelectorAll<HTMLTextAreaElement>('textarea'));
-        const box = boxes.find((candidate) => !candidate.closest('[inert]'));
+        const cardBox = prefer ? this.host.nativeElement.querySelector<HTMLTextAreaElement>('[data-home-reply]') : null;
+        const box = cardBox && !cardBox.closest('[inert]') ? cardBox : boxes.find((candidate) => !candidate.closest('[inert]'));
         box?.focus();
         box?.setSelectionRange(box.value.length, box.value.length);
       }),
@@ -493,6 +545,7 @@ export class WorkspacePage implements OnDestroy {
     this.seeing.unsubscribe();
     this.listed.unsubscribe();
     this.leavingCode.unsubscribe();
+    clearTimeout(this.highlightTimer);
   }
 
   /**
@@ -617,6 +670,8 @@ export class WorkspacePage implements OnDestroy {
       case 'openThread':
         return this.openThread(action.thread);
       case 'openProject':
+        // A new thread is started from the prompt, so the card that was open is closed.
+        this.homeThreadId$.next(null);
         this.selectProject(action.project);
         return this.screen$.next('thread');
       case 'showHome':
@@ -626,7 +681,12 @@ export class WorkspacePage implements OnDestroy {
       case 'chooseWorkflow':
         return this.chooseWorkflow(action.thread, action.workflow);
       case 'showScreen':
-        return action.screen === 'files' ? this.showCode() : this.screen$.next(screenAfter(this.screen$.value, action.screen));
+        if (action.screen === 'files') return this.showCode();
+        if (action.screen === 'plan') {
+          this.keepHomeProject();
+          return this.screen$.next(screenAfter(this.screen$.value, 'plan'));
+        }
+        return this.screen$.next(screenAfter(this.screen$.value, action.screen));
       case 'removeProject':
         return void this.confirmRemoveProject(action.project);
       case 'useChoice':
@@ -662,6 +722,10 @@ export class WorkspacePage implements OnDestroy {
       case 'draft':
         return this.draftAndReturn(action.text);
       case 'answerQuestions':
+        if (!this.selection$.value.threadId && this.homeThreadId$.value) {
+          this.putAway$.next(null);
+          return;
+        }
         this.screen$.next('thread');
         return this.putAway$.next(null);
       case 'putAwayQuiet':
@@ -674,7 +738,8 @@ export class WorkspacePage implements OnDestroy {
 
   /** Goes back to the thread with the file named in the message box, ready to be asked about. */
   askAbout(path: string): void {
-    this.draftAndReturn(askDraft(this.draft$.value, path));
+    const card = this.cardTarget();
+    this.draftAndReturn(askDraft(card ? '' : this.draft$.value, path), card !== null);
   }
 
   /**
@@ -684,7 +749,8 @@ export class WorkspacePage implements OnDestroy {
    * agent, and the person still decides whether to send the request.
    */
   askToRevert(commit: Commit): void {
-    this.draftAndReturn(revertDraft(this.draft$.value, commit));
+    const card = this.cardTarget();
+    this.draftAndReturn(revertDraft(card ? '' : this.draft$.value, commit), card !== null);
   }
 
   /** Shows a branch of a project in the files and the history. Nothing means the directory as it is. */
@@ -709,10 +775,13 @@ export class WorkspacePage implements OnDestroy {
     const citation = citationFromHref(link.getAttribute('href') ?? '');
     if (!citation) return;
     event.preventDefault();
-    this.selected$.pipe(take(1)).subscribe(({ project, thread }) => {
-      if (!project) return;
+    this.selected$.pipe(take(1)).subscribe(({ groups, project, thread }) => {
+      const active = thread ?? groups.flatMap((group) => group.threads).find((candidate) => candidate.id === this.homeThreadId$.value) ?? null;
+      const owner = active ? groups.find((group) => group.project.id === active.project_id)?.project ?? project : project;
+      if (!owner) return;
+      if (active && !thread) this.keepProject(active);
       this.citation$.next(citation);
-      this.place$.next(citationPlace(this.place$.value, project.id, thread));
+      this.place$.next(citationPlace(this.place$.value, owner.id, active));
       this.screen$.next('files');
     });
   }
@@ -734,8 +803,10 @@ export class WorkspacePage implements OnDestroy {
    */
   showCode(): void {
     if (this.screen$.value === 'thread') {
-      this.selected$.pipe(take(1)).subscribe(({ project, thread }) => {
-        if (project) this.place$.next(codePlace(this.place$.value, project.id, thread));
+      this.selected$.pipe(take(1)).subscribe(({ groups, project, thread }) => {
+        const active = thread ?? groups.flatMap((group) => group.threads).find((candidate) => candidate.id === this.homeThreadId$.value) ?? null;
+        const owner = active ? groups.find((group) => group.project.id === active.project_id)?.project ?? project : project;
+        if (owner) this.place$.next(codePlace(this.place$.value, owner.id, active));
       });
     }
     this.screen$.next(screenAfter(this.screen$.value, 'files'));
@@ -745,6 +816,7 @@ export class WorkspacePage implements OnDestroy {
   exploreChange(thread: Thread): void {
     const change = thread.change;
     if (!change) return;
+    this.keepProject(thread);
     this.place$.next(copyPlace(thread, change));
     this.screen$.next('files');
   }
@@ -784,6 +856,14 @@ export class WorkspacePage implements OnDestroy {
 
   /** Opens the open thread's plan. */
   showPlan(): void {
+    const thread = this.homeThreadId$.value;
+    if (!this.selection$.value.threadId && thread) this.keepHomeProject();
+    this.screen$.next('plan');
+  }
+
+  /** Opens a card's plan and comes back to that card. */
+  showPlanFor(thread: Thread): void {
+    this.keepProject(thread);
     this.screen$.next('plan');
   }
 
@@ -817,7 +897,7 @@ export class WorkspacePage implements OnDestroy {
   passFindings(): void {
     this.view$.pipe(take(1)).subscribe((view) => {
       this.to$.next('author');
-      this.draftAndReturn(findingsDraft(view.lines));
+      this.draftAndReturn(findingsDraft(view.thread ? view.lines : this.homeLines$.value));
     });
   }
 
@@ -846,7 +926,13 @@ export class WorkspacePage implements OnDestroy {
    */
   answer(view: WorkspaceView, text: string): void {
     const thread = view.thread;
-    if (!thread || view.running || this.sending$.value) return;
+    if (!thread || view.running) return;
+    this.answerThread(thread, text);
+  }
+
+  /** Sends answers typed on a card, without leaving Home. */
+  answerThread(thread: Thread, text: string): void {
+    if (thread.status === 'running' || this.sending$.value) return;
     this.sending$.next(true);
     this.api.sendMessage(thread.id, text, 'author').subscribe({
       next: () => this.sending$.next(false),
@@ -857,10 +943,37 @@ export class WorkspacePage implements OnDestroy {
     });
   }
 
+  /** Sends the open card's reply and clears it once it has gone. */
+  replyTo(thread: Thread, text: string, to: Voice): void {
+    if (thread.status === 'running' || this.sending$.value || !text.trim()) return;
+    this.sending$.next(true);
+    this.api.sendMessage(thread.id, text.trim(), to).subscribe({
+      next: () => {
+        this.sending$.next(false);
+        this.cardClear$.next({ id: thread.id, at: Date.now() });
+      },
+      error: (failure: unknown) => {
+        this.sending$.next(false);
+        this.alerts.error(refusalText(failure, 'The message could not be sent.'));
+      },
+    });
+  }
+
+  /** Marks a card read. Opening the card does not, so it stays until the person says so. */
+  markThreadSeen(thread: Thread): void {
+    this.api.markSeen(thread.id).pipe(catchError(() => EMPTY)).subscribe();
+  }
+
   /** Puts the agent's questions away and goes to the message box, to write something else. */
   putAwayQuestions(asked: Asked): void {
     this.putAway$.next(asked.id);
     this.focusMessageBox();
+  }
+
+  /** Puts a card's questions away and goes to that card's reply. */
+  putAwayCardQuestions(id: string): void {
+    this.putAway$.next(id);
+    this.focusCardReply();
   }
 
   /** Sends what was typed in the open thread's message box to the agent, or to the reviewer when it was picked. */
@@ -884,27 +997,29 @@ export class WorkspacePage implements OnDestroy {
   }
 
   /**
-   * Starts a thread from Home with its first message, and opens it.
+   * Starts a thread from Home with its first message, and stays on Home.
    *
    * The agent and model come from the Home or menu selection when present.
-   * Otherwise the workflow's first stage chooses. What was typed stays in the
-   * message box until the message is sent, so a refusal loses nothing: if
-   * the thread was made but the message was refused, it is in the new
-   * thread's message box to send again.
+   * Otherwise the workflow's first stage chooses. The new thread is highlighted
+   * in In progress once its first message is sent. What was typed stays in the prompt
+   * until the message is sent, so a refusal loses nothing.
    */
   startThread(request: StartRequest): void {
     if (this.sending$.value) return;
     this.sending$.next(true);
-    this.api
-      .createThread(request.projectId, request.choice, request.workflow)
+    const made = this.unsentThread?.projectId === request.projectId ? of(this.unsentThread.thread) : this.api.createThread(request.projectId, request.choice, request.workflow);
+    made
       .pipe(
-        tap((thread) => this.selection$.next({ projectId: thread.project_id, threadId: thread.id })),
-        switchMap((thread) => this.api.sendMessage(thread.id, request.text, 'author')),
+        tap((thread) => (this.unsentThread = { projectId: request.projectId, thread })),
+        switchMap((thread) => this.api.sendMessage(thread.id, request.text, 'author').pipe(map(() => thread))),
       )
       .subscribe({
-        next: () => {
+        next: (thread) => {
+          this.unsentThread = null;
+          this.highlight(thread.id);
           this.draft$.next('');
           this.sending$.next(false);
+          this.focusMessageBox();
         },
         error: (failure: unknown) => {
           this.sending$.next(false);
@@ -1121,16 +1236,61 @@ export class WorkspacePage implements OnDestroy {
     await alert.present();
   }
 
-  /** Goes back to the thread with a text in the message box, ready to be finished and sent. */
-  private draftAndReturn(draft: string): void {
+  /**
+   * Puts a drafted reply where the person will send it.
+   *
+   * An open card on Home gets it in its own reply. With no card, it goes to
+   * the prompt. A thread open on its own screen gets it there. With `add`,
+   * the card keeps what was typed in its reply and the draft follows it.
+   */
+  private draftAndReturn(draft: string, add = false): void {
+    const homeId = this.cardTarget();
+    if (homeId) {
+      this.cardNote$.next({ threadId: homeId, text: draft, to: this.to$.value, add });
+      this.screen$.next('thread');
+      this.focusCardReply();
+      return;
+    }
     this.draft$.next(draft);
     this.screen$.next('thread');
     this.focusMessageBox();
   }
 
+  /** The open card on Home, when no thread is on its own screen. */
+  private cardTarget(): string | null {
+    return this.selection$.value.threadId ? null : this.homeThreadId$.value;
+  }
+
   /** Asks for the cursor at the end of the message box. */
   private focusMessageBox(): void {
     this.typingWanted$.next();
+  }
+
+  /** Asks for the cursor in the open card's reply. */
+  private focusCardReply(): void {
+    this.preferCardReply = true;
+    this.typingWanted$.next();
+  }
+
+  /** Points out a thread that just appeared, for a short while. */
+  private highlight(id: string): void {
+    this.highlightedId$.next(id);
+    clearTimeout(this.highlightTimer);
+    this.highlightTimer = setTimeout(() => {
+      if (this.highlightedId$.value === id) this.highlightedId$.next(null);
+    }, 2000);
+  }
+
+  /** Keeps Home in the project of the card a plan or a change was opened from. */
+  private keepHomeProject(): void {
+    const thread = this.threadsNow.find((candidate) => candidate.id === this.homeThreadId$.value);
+    if (thread) this.keepProject(thread);
+  }
+
+  private keepProject(thread: Thread): void {
+    if (this.selection$.value.threadId) return;
+    if (this.selection$.value.projectId === thread.project_id) return;
+    this.selection$.next({ projectId: thread.project_id, threadId: null });
   }
 
   private removeProject(project: Project): void {

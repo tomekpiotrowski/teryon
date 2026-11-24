@@ -32,6 +32,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
+use serde_json::Value;
 use thiserror::Error;
 use tokio::join;
 use tokio::sync::broadcast::{channel, Receiver, Sender};
@@ -76,6 +77,9 @@ use crate::workspace::stages::{Mover, Starter, TurnStart};
 
 /// The longest title a list shows whole.
 const LONGEST_TITLE: usize = 60;
+
+/// The longest preview the main screen shows whole, in characters.
+const PREVIEW_LENGTH: usize = 180;
 
 /// How many changes a slow listener may fall behind before it must start over.
 const BACKLOG: usize = 1024;
@@ -816,6 +820,7 @@ impl Workspace {
                 false => Default::default(),
             },
             ended: None,
+            preview: None,
             created_at: Utc::now(),
         })?;
         drop(state);
@@ -925,7 +930,11 @@ impl Workspace {
             .map_err(|problem| WorkspaceError::Invalid(format!("{problem}\n\n{SHAPE}")))?;
         let draft = EntryDraft::questions(turn, &questions);
         let entry = store.append(thread_id, draft.kind.name(), draft.body)?;
-        let thread = store.change(thread_id, |thread| thread.asking = true)?;
+        let preview = questions_preview(&questions);
+        let thread = store.change(thread_id, |thread| {
+            thread.asking = true;
+            thread.preview = preview;
+        })?;
         Ok((entry, thread))
     }
 
@@ -1040,6 +1049,8 @@ impl Workspace {
         let thread = store.change(thread_id, |thread| {
             thread.status = Status::Running;
             thread.ended = None;
+            // The line on the main screen belongs to the turn that just ended.
+            thread.preview = None;
             // A message the person sends picks the thread up. One Teryon
             // sends to carry a stage on does not: the thread stays put away.
             if stages::brings_back(&starter) {
@@ -1177,6 +1188,7 @@ impl Workspace {
         let thread = store.change(thread_id, |thread| {
             thread.status = Status::Running;
             thread.ended = None;
+            thread.preview = None;
             if let Starter::Teryon { stage, .. } = &starter {
                 thread.rounds += 1;
                 thread.picks.insert(*stage, agent.name().to_string());
@@ -1620,6 +1632,14 @@ impl Journal for WorkspaceJournal {
             .holding(thread_id)
             .map_err(|problem| problem.to_string())
             .and_then(|(store, _)| {
+                // Entries are already stored, so the preview is the turn's last word.
+                let preview = match finished {
+                    true => store
+                        .entries(thread_id)
+                        .ok()
+                        .and_then(|entries| preview_of(&entries)),
+                    false => None,
+                };
                 let thread = store
                     .change(thread_id, |thread| match change {
                         ThreadChange::Conversation(Voice::Author, named) => {
@@ -1660,6 +1680,7 @@ impl Journal for WorkspaceJournal {
                         ThreadChange::Finished => {
                             thread.status = Status::Idle;
                             thread.unread = true;
+                            thread.preview = preview.clone();
                             if let Some(reviewer) = &mut thread.reviewer {
                                 reviewer.reviewing = false;
                             }
@@ -1921,6 +1942,116 @@ fn handover_message(
     Ok(handed_over(&store.entries(thread.id)?, voice, message))
 }
 
+/// One line for the main screen: marks removed, spaces collapsed, cut when long.
+///
+/// A preview is read in a list, so a heading, a star or a backtick would only
+/// get in the way. The cut is counted in characters, so a letter of more than
+/// one byte is not split.
+fn preview_text(text: &str) -> String {
+    let plain = strip_marks(text);
+    let collapsed = plain.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.chars().count() <= PREVIEW_LENGTH {
+        collapsed
+    } else {
+        let start: String = collapsed.chars().take(PREVIEW_LENGTH).collect();
+        format!("{}…", start.trim_end())
+    }
+}
+
+/// The newest question, message or error since the person last wrote.
+///
+/// Anything earlier belongs to a turn the person has already seen. A question
+/// the agent asked beats the text that came before it, because that question
+/// is what the main screen has to show. Nothing when the turn said none of these.
+fn preview_of(entries: &[Entry]) -> Option<String> {
+    let start = entries
+        .iter()
+        .rposition(|entry| entry.kind == "user_message")
+        .map_or(0, |index| index + 1);
+    entries[start..].iter().rev().find_map(|entry| {
+        let raw = match entry.kind.as_str() {
+            "questions" => questions_text(&entry.body)?,
+            "agent_message" | "error" => entry.body["text"].as_str()?.to_string(),
+            _ => return None,
+        };
+        let preview = preview_text(&raw);
+        (!preview.is_empty()).then_some(preview)
+    })
+}
+
+/// The questions as one line, in the order they were asked.
+fn questions_preview(questions: &Questions) -> Option<String> {
+    let text = questions
+        .questions
+        .iter()
+        .map(|question| question.question.as_str())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let preview = preview_text(&text);
+    (!preview.is_empty()).then_some(preview)
+}
+
+/// The question texts stored on an entry, or nothing when the entry has none.
+fn questions_text(body: &Value) -> Option<String> {
+    let questions = body.get("questions")?.as_array()?;
+    let prompts = questions
+        .iter()
+        .filter_map(|question| question.get("question")?.as_str())
+        .filter(|text| !text.is_empty())
+        .collect::<Vec<_>>();
+    (!prompts.is_empty()).then(|| prompts.join(" "))
+}
+
+/// Heading marks, emphasis and inline code ticks, leaving a word's own underscore.
+fn strip_marks(text: &str) -> String {
+    let mut out = String::new();
+    for (index, line) in text.split('\n').enumerate() {
+        if index > 0 {
+            out.push('\n');
+        }
+        out.push_str(&strip_inline(strip_heading(line)));
+    }
+    out
+}
+
+/// A heading's hashes and the space after them. A hash in a sentence stays.
+fn strip_heading(line: &str) -> &str {
+    let trimmed = line.trim();
+    let bytes = trimmed.as_bytes();
+    let mut hashes = 0;
+    while hashes < bytes.len() && hashes < 6 && bytes[hashes] == b'#' {
+        hashes += 1;
+    }
+    if hashes > 0 && bytes.get(hashes) == Some(&b' ') {
+        trimmed[hashes..].trim_start()
+    } else {
+        trimmed
+    }
+}
+
+/// Removes `*`, backticks and emphasis underscores. `fix_login` keeps its underscore.
+fn strip_inline(text: &str) -> String {
+    let text = text.replace('`', "").replace("**", "").replace("__", "");
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::new();
+    for (index, character) in chars.iter().copied().enumerate() {
+        if character == '*' {
+            continue;
+        }
+        if character == '_' {
+            let word = |side: Option<char>| side.is_some_and(|item| item.is_alphanumeric());
+            let before = index.checked_sub(1).and_then(|at| chars.get(at).copied());
+            let after = chars.get(index + 1).copied();
+            if word(before) && word(after) {
+                out.push('_');
+            }
+            continue;
+        }
+        out.push(character);
+    }
+    out
+}
+
 fn title_from(text: &str) -> String {
     shortened(text.lines().next().unwrap_or_default().trim())
 }
@@ -1937,9 +2068,34 @@ fn shortened(line: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use chrono::Utc;
     use lets_expect::lets_expect;
+    use serde_json::json;
+    use uuid::Uuid;
 
     use super::*;
+
+    fn entry(kind: &str, body: Value) -> Entry {
+        Entry {
+            id: Uuid::nil(),
+            thread_id: Uuid::nil(),
+            position: 1,
+            kind: kind.to_string(),
+            body,
+            created_at: Utc::now(),
+        }
+    }
+
+    fn said(kind: &str, text: &str) -> Entry {
+        entry(kind, json!({ "text": text }))
+    }
+
+    fn asked(question: &str) -> Entry {
+        entry(
+            "questions",
+            json!({ "turn": Uuid::nil(), "questions": [{ "question": question }] }),
+        )
+    }
 
     lets_expect! {
         // requirement: a thread's title is the start of its first message, unless one was given
@@ -1959,6 +2115,70 @@ mod tests {
             when(text = format!("{} tail", "a".repeat(59))) as a_cut_at_a_space to drop_the_space {
                 equal(format!("{}…", "a".repeat(59)))
             }
+        }
+
+        // requirement: a preview is one plain line, cut in characters
+        expect(preview_text(&text)) {
+            when(text = "  Hello   there. ".to_string()) as plain_text to collapse_spaces {
+                equal("Hello there.".to_string())
+            }
+            when(text = "First line\n\n  second\tline".to_string()) as several_lines to be_one_line {
+                equal("First line second line".to_string())
+            }
+            when(text = "## Hello **world** and `code`".to_string()) as markdown to drop_the_marks {
+                equal("Hello world and code".to_string())
+            }
+            when(text = "* a point\n_kept_ in fix_login".to_string()) as emphasis_and_a_word to keep_the_word {
+                equal("a point kept in fix_login".to_string())
+            }
+            when(text = "ż".repeat(PREVIEW_LENGTH)) as exactly_the_longest to be_kept_whole {
+                equal("ż".repeat(PREVIEW_LENGTH))
+            }
+            when(text = "ż".repeat(PREVIEW_LENGTH + 1)) as a_longer_line_of_two_byte_letters to be_cut_in_letters {
+                equal(format!("{}…", "ż".repeat(PREVIEW_LENGTH)))
+            }
+            when(text = "   ".to_string()) as only_space to be_empty { equal(String::new()) }
+        }
+
+        // requirement: the preview is the newest question, message or error since the person last wrote
+        expect(preview_of(&entries)) {
+            when(entries = Vec::<Entry>::new()) as an_empty_conversation to be_nothing { equal(None) }
+            when(entries = vec![said("user_message", "hello")]) as only_the_person to be_nothing { equal(None) }
+            when(entries = vec![said("activity", "Read file")]) as tool_activity to be_nothing { equal(None) }
+            when(entries = vec![said("agent_message", "  ")]) as a_blank_message to be_nothing { equal(None) }
+            when(entries = vec![
+                said("user_message", "earlier"),
+                said("agent_message", "old answer"),
+                said("user_message", "again"),
+                said("agent_message", "## Now **this**"),
+            ]) as an_earlier_turn to use_the_latest_message {
+                equal(Some("Now this".to_string()))
+            }
+            when(entries = vec![
+                said("user_message", "hello"),
+                said("agent_message", "I would guess"),
+                asked("Where should it live?"),
+            ]) as questions_after_text to prefer_the_questions {
+                equal(Some("Where should it live?".to_string()))
+            }
+            when(entries = vec![
+                said("user_message", "hello"),
+                asked("Where should it live?"),
+                said("agent_message", "ready"),
+            ]) as a_message_after_questions to use_the_later_message {
+                equal(Some("ready".to_string()))
+            }
+            when(entries = vec![
+                said("user_message", "please fail"),
+                said("agent_message", "trying"),
+                said("error", "the run failed"),
+            ]) as a_failed_run to use_the_error {
+                equal(Some("the run failed".to_string()))
+            }
+            when(entries = vec![
+                said("agent_message", "before anyone wrote"),
+                said("user_message", "hello"),
+            ]) as a_message_from_before to ignore_it { equal(None) }
         }
     }
 }

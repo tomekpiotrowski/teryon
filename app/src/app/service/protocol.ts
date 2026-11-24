@@ -217,7 +217,15 @@ picks: { [key in Stage]?: string },
 /**
  * How the last run ended. Nothing before the first run ends, and while a new one runs.
  */
-ended: RunEnd | null, created_at: string, };
+ended: RunEnd | null, 
+/**
+ * A short line about the latest question, message or error, for the main screen.
+ *
+ * The main screen lists every thread without reading its conversation, so
+ * the line is kept on the thread and filled when a turn ends. Nothing
+ * while a turn is running, and on threads stored before Teryon wrote one.
+ */
+preview: string | null, created_at: string, };
 
 export type DoneSeen = { thread_id: string, at: string, };
 

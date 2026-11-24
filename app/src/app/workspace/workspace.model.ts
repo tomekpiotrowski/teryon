@@ -65,6 +65,14 @@ export interface Thread {
   readonly put_away?: boolean;
   /** Whether this finish has been shown on the board. A seen finish stays off the board and off Home. */
   readonly done_seen?: boolean;
+  /**
+   * A short line about the latest question, message or error.
+   *
+   * Home lists every thread without reading its conversation, so the service
+   * keeps this line on the thread and fills it when a turn ends. Nothing
+   * while a turn is running, and on threads stored before Teryon wrote one.
+   */
+  readonly preview?: string | null;
   readonly created_at: string;
 }
 

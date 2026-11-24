@@ -1,17 +1,31 @@
 import { modelOptionForTest as model } from './model.testing';
 import {
+  cardSubtitle,
   homeAgentState,
   homeChoices,
   HOME_LIMIT,
   homeList,
+  homeQueue,
   homeWord,
   NO_HOME_CHOICE,
+  primaryCardAction,
   readHomeChoice,
   runningLines,
+  splitLatestTurn,
   startProject,
 } from './home.model';
 import {
-  type Change, type ChangeState, type Choice, groupThreads, NO_MODELS, NO_WORKFLOWS, type Project, type Starting, type Thread, type Workflows,
+  type Change,
+  type ChangeState,
+  type Choice,
+  type EntryLine,
+  groupThreads,
+  NO_MODELS,
+  NO_WORKFLOWS,
+  type Project,
+  type Starting,
+  type Thread,
+  type Workflows,
 } from './workspace.model';
 
 function project(id: string): Project {
@@ -353,5 +367,121 @@ describe('readHomeChoice', () => {
 
   it.each([null, '', 'not json', '42', 'null'])('reads %j as no choice', (stored) => {
     expect(readHomeChoice(stored)).toEqual(NO_HOME_CHOICE);
+  });
+});
+
+function line(kind: EntryLine['kind'], text = ''): EntryLine {
+  return { kind, text, reviewer: false };
+}
+
+describe('homeQueue', () => {
+  it('groups waiting threads into Decide, Answer and Read, newest first inside each', () => {
+    const apply = thread({ id: 'apply', change: changed(), stage_since: '2026-11-01T00:00:00' });
+    const failed = thread({ id: 'failed', ended: 'failed', stage_since: '2026-11-04T00:00:00' });
+    const answer = thread({ id: 'answer', asking: true, stage: 'talking', unread: true, stage_since: '2026-11-03T00:00:00' });
+    const read = thread({ id: 'read', unread: true, stage: 'implementing', stage_since: '2026-11-02T00:00:00' });
+    const queue = homeQueue(groupThreads([project('a')], [read, apply, answer, failed]));
+
+    expect(queue.sections.map((section) => section.title)).toEqual(['Decide', 'Answer', 'Read']);
+    expect(queue.sections.map((section) => section.cards.map((card) => card.thread.id))).toEqual([['apply', 'failed'], ['answer'], ['read']]);
+    expect(queue.waiting).toBe(homeList(groupThreads([project('a')], [read, apply, answer, failed])).total);
+    expect(queue.cards.map((card) => card.projectName)).toEqual(['', '', '', '']);
+  });
+
+  it('names the project when waiting threads span more than one, and always on a thread at work', () => {
+    const waiting = thread({ id: 'w', asking: true });
+    const other = thread({ id: 'o', asking: true, project_id: 'b' });
+    const running = thread({ id: 'r', status: 'running', project_id: 'a' });
+    const queue = homeQueue(groupThreads([project('a'), project('b')], [waiting, other, running]));
+
+    expect(queue.sections.map((section) => section.title)).toEqual(['Answer', 'In progress']);
+    expect(queue.cards.map((card) => card.projectName)).toEqual(['Project a', 'Project b', 'Project a']);
+    expect(queue.cards[2].subtitle).toBe('working');
+  });
+
+  it('caps waiting and running threads and counts the rest', () => {
+    const waiting = Array.from({ length: 8 }, (_, index) => thread({ id: `w${index}`, asking: true, created_at: `2026-11-0${index + 1}T00:00:00` }));
+    const running = Array.from({ length: 8 }, (_, index) => thread({ id: `r${index}`, status: 'running', created_at: `2026-11-${10 + index}T00:00:00` }));
+    const queue = homeQueue(groupThreads([project('a')], [...waiting, ...running]));
+
+    expect(queue.cards.filter((card) => card.section !== 'progress')).toHaveLength(7);
+    expect(queue.moreWaiting).toBe(1);
+    expect(queue.waiting).toBe(8);
+    expect(queue.cards.filter((card) => card.section === 'progress')).toHaveLength(7);
+    expect(queue.moreRunning).toBe(1);
+    expect(queue.cards.filter((card) => card.section === 'progress').map((card) => card.thread.id)).toEqual(['r7', 'r6', 'r5', 'r4', 'r3', 'r2', 'r1']);
+  });
+
+  it('leaves Home empty when nothing waits and nothing runs', () => {
+    const queue = homeQueue(groupThreads([project('a')], [thread()]));
+    expect(queue.sections).toEqual([]);
+    expect(queue.waiting).toBe(0);
+  });
+});
+
+describe('cardSubtitle', () => {
+  const stage = 'Talking';
+
+  it('describes a change that is ready to apply by its copy', () => {
+    const item = thread({ change: changed({ files_changed: 2 }, 'fix-login') });
+    const card = homeQueue(groupThreads([project('a')], [item])).cards[0];
+    expect(card.subtitle).toBe('Ready to apply · 2 files changed · fix-login');
+  });
+
+  it('says how a run failed when the thread never made a change', () => {
+    expect(cardSubtitle(thread({ ended: 'failed' }), null, null, stage)).toBe('The run failed');
+    expect(cardSubtitle(thread({ ended: 'limited' }), null, null, stage)).toBe('Hit a usage limit');
+  });
+
+  it('prefers the stored preview, then the plan title, then the stage', () => {
+    expect(cardSubtitle(thread({ asking: true, preview: 'Which screen?' }), null, null, stage)).toBe('Which screen?');
+    expect(cardSubtitle(thread({ asking: true, plan: { title: 'The plan', fingerprint: 'x', too_large: false } }), null, null, stage)).toBe('The plan');
+    expect(cardSubtitle(thread({ asking: true, preview: '  ' }), null, null, stage)).toBe(stage);
+  });
+
+  it('says what a running thread is doing', () => {
+    const item = thread({ status: 'running', change: changed({ files_changed: 2 }) });
+    const card = homeQueue(groupThreads([project('a')], [item])).cards[0];
+    expect(card.subtitle).toBe('changing · 2 files changed so far');
+  });
+});
+
+describe('splitLatestTurn', () => {
+  it('keeps the whole conversation when nobody has spoken', () => {
+    const lines = [line('agent', 'hello')];
+    expect(splitLatestTurn(lines)).toEqual({ earlier: [], latest: lines });
+  });
+
+  it('starts the latest turn at the newest message from the person or a review', () => {
+    const lines = [line('user', 'first'), line('agent', 'one'), line('user', 'second'), line('agent', 'two')];
+    expect(splitLatestTurn(lines).earlier.map((item) => item.text)).toEqual(['first', 'one']);
+    expect(splitLatestTurn(lines).latest.map((item) => item.text)).toEqual(['second', 'two']);
+    const reviewed = [line('agent', 'before'), line('review', 'Review'), line('agent', 'after')];
+    expect(splitLatestTurn(reviewed).latest.map((item) => item.kind)).toEqual(['review', 'agent']);
+  });
+});
+
+describe('primaryCardAction', () => {
+  function card(overrides: Partial<Thread> = {}, word: 'apply' | 'failed' | 'reply' | 'new' | 'running' = 'reply') {
+    const item = thread(overrides);
+    const queue = homeQueue(groupThreads([project('a')], [word === 'running' ? thread({ ...overrides, status: 'running' }) : item]));
+    return queue.cards[0];
+  }
+
+  it('applies, catches up and replies from Decide', () => {
+    const ready = card({ change: changed() });
+    expect(primaryCardAction(ready, [])).toBe('apply');
+    expect(primaryCardAction(ready, [{ id: 'change:apply' }])).toBe('apply');
+    expect(primaryCardAction(ready, [{ id: 'other' }])).toBe('reply');
+    const overlap = card({ change: changed({ fit: 'overlaps' }) });
+    expect(primaryCardAction(overlap, [])).toBe('catchUp');
+    expect(primaryCardAction(card({ ended: 'failed' }), [])).toBe('reply');
+  });
+
+  it('focuses questions, marks read, or opens a thread at work', () => {
+    expect(primaryCardAction(card({ asking: true }))).toBe('questions');
+    expect(primaryCardAction(card({ unread: true, stage: 'talking' }))).toBe('reply');
+    expect(primaryCardAction(card({ unread: true, stage: 'implementing' }))).toBe('markRead');
+    expect(primaryCardAction(card({}, 'running'))).toBe('open');
   });
 });

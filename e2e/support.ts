@@ -131,6 +131,41 @@ export async function addProject(page: Page, name: string, prepare?: (directory:
   return directory;
 }
 
+/**
+ * Starts a thread from Home and waits until its card is on the list.
+ *
+ * The prompt clears and Home stays put. The card is the thread, collapsed,
+ * so a later step can open it in place or go on to the thread screen.
+ */
+export async function startOnHome(page: Page, message: string): Promise<Locator> {
+  await page.getByLabel("New thread").fill(message);
+  await page.getByRole("button", { name: "Run ↵" }).click();
+  const card = page.locator("app-home .home-card").filter({ hasText: message }).first();
+  await expect(card).toBeVisible();
+  await expect(page.getByLabel("New thread")).toHaveValue("");
+  return card;
+}
+
+/** Opens a Home card in place, when it is still collapsed. */
+export async function expandCard(card: Locator): Promise<void> {
+  const open = card.getByRole("button", { name: "Open", exact: true });
+  if ((await open.count()) === 0) await card.locator(".home-card-compact").click();
+  await expect(open).toBeVisible();
+}
+
+/**
+ * Starts a thread from Home and opens it on the thread screen.
+ *
+ * Specs of the thread screen begin the same way a person does: the thread
+ * lands on Home, then Open (`o`) is how it fills the screen.
+ */
+export async function startThread(page: Page, message: string): Promise<void> {
+  const card = await startOnHome(page, message);
+  await expandCard(card);
+  await card.getByRole("button", { name: "Open", exact: true }).click();
+  await expect(page.getByLabel("Thread", { exact: true })).toBeVisible();
+}
+
 /** The chooser trigger on Home, or in the message bar of an open thread. */
 export function agentChooser(page: Page, inThread = false): Locator {
   return page.locator(`${inThread ? ".thread-meta" : "app-home"} app-agent-chooser .agent-trigger`);

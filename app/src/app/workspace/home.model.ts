@@ -1,13 +1,27 @@
 /**
- * What Home shows: the threads that need the person, one word each, and what is running.
+ * What Home shows: threads to decide, answer or read, and threads still at work.
  *
- * Home answers two questions: do I start something, and which thread do I go
- * to next. So every item is one line and its only action is to open the
- * thread. Free of Angular so it can be tested on its own.
+ * Home is where a thread is started and where its latest turn is handled, so
+ * a person can reply, answer questions and apply a change without opening the
+ * thread on its own screen. Free of Angular so it can be tested on its own.
  */
 
 import {
-  AGENTS, type AgentName, changeCard, type Choice, firstStageChooses, type ModelLists, resolveChoice, type Project, type ProjectGroup, type Starting, type Thread,
+  AGENTS,
+  type AgentName,
+  changeCard,
+  type ChangeCard,
+  type Choice,
+  type EntryLine,
+  firstStageChooses,
+  type ModelLists,
+  NO_WORKFLOWS,
+  type Project,
+  type ProjectGroup,
+  resolveChoice,
+  stageText,
+  type Starting,
+  type Thread,
   type Workflows,
 } from './workspace.model';
 
@@ -199,6 +213,188 @@ export function homeAgentState(
   }
   const choice = manual ?? choices.find((choice) => choice.agent === 'claude') ?? choices[0] ?? null;
   return { allowAutomatic, automatic: false, choice, unavailableReason: null, sendChoice: choice };
+}
+
+/** How many running threads Home shows before pointing to the board. */
+const PROGRESS_LIMIT = 7;
+
+/** Which group a waiting thread belongs to. */
+const SECTION_KIND: Readonly<Record<HomeWord, HomeSectionKind>> = {
+  apply: 'decide',
+  failed: 'decide',
+  reply: 'answer',
+  new: 'read',
+};
+
+/** The groups, in the order Home shows them. */
+const SECTION_ORDER: readonly HomeSectionKind[] = ['decide', 'answer', 'read', 'progress'];
+
+const SECTION_TITLE: Readonly<Record<HomeSectionKind, string>> = {
+  decide: 'Decide',
+  answer: 'Answer',
+  read: 'Read',
+  progress: 'In progress',
+};
+
+/** A group of threads on Home. */
+export type HomeSectionKind = 'decide' | 'answer' | 'read' | 'progress';
+
+/**
+ * One thread on Home.
+ *
+ * `projectName` is blank on a waiting card when every waiting thread is in
+ * the same project. A thread at work always names its project.
+ */
+export interface HomeCard {
+  readonly thread: Thread;
+  readonly project: Project;
+  readonly section: HomeSectionKind;
+  readonly word: HomeWord | 'running';
+  readonly projectName: string;
+  readonly subtitle: string;
+}
+
+/** One group Home draws, heading included. Empty groups are left out. */
+export interface HomeSection {
+  readonly kind: HomeSectionKind;
+  readonly title: string;
+  readonly cards: readonly HomeCard[];
+}
+
+/** Everything under the prompt: the groups, in order, and how many threads were left off. */
+export interface HomeQueue {
+  readonly sections: readonly HomeSection[];
+  /** Every visible card, in the order the keys move through them. */
+  readonly cards: readonly HomeCard[];
+  /** Every thread that needs the person, the same count as `homeList`. */
+  readonly waiting: number;
+  readonly moreWaiting: number;
+  readonly moreRunning: number;
+}
+
+/**
+ * The threads Home shows, grouped into Decide, Answer, Read and In progress.
+ *
+ * Waiting threads keep the order and the cap of `homeList`, so the count in
+ * the bar and the `+N more` link stay the ones Home already had. Running
+ * threads follow, newest first, up to their own cap. A group with nothing
+ * in it is left out, and the names of projects are decided the same way as
+ * the old list: only when the waiting threads span more than one.
+ */
+export function homeQueue(groups: readonly ProjectGroup[], workflows: Workflows = NO_WORKFLOWS): HomeQueue {
+  const listed = homeList(groups);
+  const projects = new Map(groups.map((group) => [group.project.id, group.project]));
+  const waiting = listed.rows.flatMap((row) => {
+    const project = projects.get(row.thread.project_id);
+    return project ? [cardOf(row.thread, project, SECTION_KIND[row.word], row.word, row.project, workflows)] : [];
+  });
+  const running = groups
+    .flatMap((group) => group.threads.filter((thread) => thread.status === 'running').map((thread) => ({ thread, project: group.project })))
+    .sort((a, b) => moved(b.thread).localeCompare(moved(a.thread)));
+  const progress = running
+    .slice(0, PROGRESS_LIMIT)
+    .map(({ thread, project }) => cardOf(thread, project, 'progress', 'running', project.name, workflows));
+  const cards = [...waiting, ...progress];
+  const sections = SECTION_ORDER.flatMap((kind) => {
+    const inSection = cards.filter((card) => card.section === kind);
+    return inSection.length ? [{ kind, title: SECTION_TITLE[kind], cards: inSection }] : [];
+  });
+  return {
+    sections,
+    cards,
+    waiting: listed.total,
+    moreWaiting: listed.more,
+    moreRunning: Math.max(0, running.length - PROGRESS_LIMIT),
+  };
+}
+
+function cardOf(
+  thread: Thread,
+  project: Project,
+  section: HomeSectionKind,
+  word: HomeWord | 'running',
+  projectName: string,
+  workflows: Workflows,
+): HomeCard {
+  return {
+    thread,
+    project,
+    section,
+    word,
+    projectName,
+    subtitle: cardSubtitle(thread, project, changeCard(thread, project), stageText(workflows, thread)),
+  };
+}
+
+/**
+ * The one line under a thread's title.
+ *
+ * Decide reads the change (`Ready to apply · 2 files changed · fix-login`).
+ * A failed run that never made a change says so in a sentence. Answer and
+ * Read use the preview the service stored, then the plan's title, then the
+ * stage, so a thread from before previews still says something. A thread at
+ * work says what it is doing.
+ */
+export function cardSubtitle(thread: Thread, project: Project | null, change: ChangeCard | null, stage: string): string {
+  if (thread.status === 'running') {
+    if (!thread.change || !change) return 'working';
+    const doing = change.title.toLowerCase();
+    return change.note ? `${doing} · ${change.note}` : doing;
+  }
+  const word = homeWord(thread, project);
+  if (word === 'apply' || word === 'failed') {
+    if (change && thread.change) return [change.title, change.note, thread.change.name].filter(Boolean).join(' · ');
+    if (thread.ended === 'limited') return 'Hit a usage limit';
+    if (thread.ended === 'failed') return 'The run failed';
+    if (change) return [change.title, change.note].filter(Boolean).join(' · ');
+    return stage;
+  }
+  const preview = thread.preview?.trim();
+  if (preview) return preview;
+  const plan = thread.plan?.title?.trim();
+  if (plan) return plan;
+  return stage;
+}
+
+/**
+ * Splits a conversation into what just happened and everything before it.
+ *
+ * The latest turn starts at the newest thing the person sent, or at the
+ * newest review, since that is the work the card is about. With neither,
+ * the whole conversation is the latest turn.
+ */
+export function splitLatestTurn(lines: readonly EntryLine[]): { earlier: readonly EntryLine[]; latest: readonly EntryLine[] } {
+  let start = -1;
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    if (lines[index].kind === 'user' || lines[index].kind === 'review') {
+      start = index;
+      break;
+    }
+  }
+  if (start < 0) return { earlier: [], latest: lines };
+  return { earlier: lines.slice(0, start), latest: lines.slice(start) };
+}
+
+/** What Enter does on an open card. */
+export type CardAction = 'apply' | 'catchUp' | 'questions' | 'reply' | 'markRead' | 'open';
+
+/**
+ * The action Enter takes on a card.
+ *
+ * A thread at work opens. A change ready to apply asks to apply it, and one
+ * that overlaps newer work asks to catch up, when that command is on offer.
+ * An empty command list does not withhold those: the list is a filter only
+ * once it names something. Questions are focused when the agent is waiting
+ * on them, and a finished result is marked read. Anything else goes to the reply.
+ */
+export function primaryCardAction(card: HomeCard, commands: readonly { id: string }[] = []): CardAction {
+  const offered = (id: string) => commands.length === 0 || commands.some((command) => command.id === id);
+  if (card.section === 'progress') return 'open';
+  if (card.word === 'apply' && offered('change:apply')) return 'apply';
+  if (card.word === 'failed' && card.thread.change?.state?.fit === 'overlaps' && offered('change:catchUp')) return 'catchUp';
+  if (card.section === 'answer') return card.thread.asking === true ? 'questions' : 'reply';
+  if (card.section === 'read') return 'markRead';
+  return 'reply';
 }
 
 /** Reads what was remembered, ignoring anything that is not what this version writes. */

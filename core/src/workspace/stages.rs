@@ -1163,6 +1163,7 @@ mod tests {
             done_seen: true,
             picks: BTreeMap::new(),
             ended: None,
+            preview: None,
             created_at: Utc::now(),
         };
         landed(&mut thread, to);

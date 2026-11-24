@@ -202,4 +202,31 @@ lets_expect! { #tokio_test
         scene.workspace.stop(thread.id).unwrap();
         scene.wait_until_idle(&thread).await;
     }
+
+    // requirement: the main screen's preview follows the latest question, message or error, and clears when a turn starts
+    story the_preview_follows_the_turn {
+        let scene = Scene::new();
+        let folder = project_folder();
+        let project = scene.project(&folder);
+        let thread = scene.thread(&project, "claude");
+        expect(scene.thread_now(&thread).preview.clone()) to equal(None)
+
+        scene.say(&thread, "remember the turn and wait").unwrap();
+        expect(scene.thread_now(&thread).preview.clone()) to equal(None)
+        let turn = noted_turn(&folder).await;
+        scene.workspace.ask_questions(thread.id, turn, ASKED).unwrap();
+        expect(scene.thread_now(&thread).preview.clone()) to equal(Some("Where should answers be kept? Which screens?".to_string()))
+
+        scene.workspace.stop(thread.id).unwrap();
+        scene.wait_until_idle(&thread).await;
+        expect(scene.thread_now(&thread).preview.clone()) to equal(Some("Where should answers be kept? Which screens?".to_string()))
+
+        scene.say(&thread, "hello").unwrap();
+        scene.wait_until_idle(&thread).await;
+        expect(scene.thread_now(&thread).preview.clone()) to equal(Some("ready".to_string()))
+
+        scene.say(&thread, "please fail").unwrap();
+        scene.wait_until_idle(&thread).await;
+        expect(scene.thread_now(&thread).preview.clone()) to equal(Some("the fake agent was told to fail".to_string()))
+    }
 }

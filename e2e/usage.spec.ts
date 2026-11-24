@@ -5,14 +5,13 @@
 // 4 tokens written. The recording's windows reset on 14 November 2026, which
 // has passed, so they show as started over.
 
-import { addProject, expect, openWorkspace, test } from "./support";
+import { startThread, addProject, expect, openWorkspace, test } from "./support";
 
 test.beforeEach(openWorkspace);
 
 test("the usage screen shows an agent's limits and the day's tokens after a turn", async ({ page }) => {
   await addProject(page, "Sample");
-  await page.getByLabel("New thread").fill("hello");
-  await page.getByRole("button", { name: "Run ↵" }).click();
+  await startThread(page, "hello");
   await expect(page.getByText(/^Done in \d+s · Fable 5\.2 · Medium · 25k tokens read, 4 written$/)).toBeVisible();
 
   await page.keyboard.press("Escape");

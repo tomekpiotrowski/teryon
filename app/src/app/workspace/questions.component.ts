@@ -43,6 +43,14 @@ export class QuestionsComponent implements AfterViewInit, OnDestroy {
     this.asked$.next(asked);
   }
 
+  /**
+   * Whether the questions take the keyboard when they appear.
+   *
+   * The thread screen wants that. A card on Home does not: moving from card
+   * to card would otherwise land in the questions and trap the keys there.
+   */
+  @Input() autoFocus = true;
+
   /** The message carrying the answers, once the person sends them. */
   @Output() readonly answered = new EventEmitter<string>();
   /** The person put the questions away, to write a message instead. */
@@ -71,7 +79,12 @@ export class QuestionsComponent implements AfterViewInit, OnDestroy {
    * where the keyboard rests after sending.
    */
   ngAfterViewInit(): void {
-    if (keyboardFree()) this.focusList();
+    if (this.autoFocus && keyboardFree()) this.focusList();
+  }
+
+  /** Moves the keys to the questions. */
+  focus(): void {
+    this.focusList();
   }
 
   ngOnDestroy(): void {

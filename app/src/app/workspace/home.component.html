@@ -1,5 +1,5 @@
 @if (view$ | async; as view) {
-  <div class="home" [class.home-empty]="empty$ | async">
+  <div class="home" [class.home-empty]="(calm$ | async) ?? false">
     <div class="home-column">
       <div class="home-prompt">
         <label for="home-prompt" class="home-hidden">New thread</label>
@@ -42,48 +42,38 @@
           </div>
       </div>
 
-      @if (view.list.total === 0) {
+      @if (view.queue.waiting === 0) {
         <p class="home-nothing" role="status">Nothing needs you.</p>
-      } @else {
-        <div
-          #list
-          class="home-list"
-          data-home-list
-          role="list"
-          aria-label="Threads that need you"
-          tabindex="-1"
-          (keydown)="handleListKey($event, view)"
-          (blur)="leftList()"
-        >
-          @for (row of view.list.rows; track row.thread.id; let r = $index) {
-            <button type="button" role="listitem" class="home-row" [class.home-marked]="r === view.cursor" (click)="opened.emit(row.thread)" (mousemove)="markRow(r)">
-              <span class="home-dot" [attr.data-word]="row.word" aria-hidden="true"></span>
-              <span class="home-title">{{ row.thread.title || 'New thread' }}</span>
-              @if (row.project) { <span class="home-dim">{{ row.project }}</span> }
-              <span class="home-word home-mono" [attr.data-word]="row.word">{{ row.word }}</span>
-            </button>
+      }
+
+      @if (view.queue.sections.length) {
+        <div #list class="home-list" data-home-list role="list" aria-label="Threads" tabindex="-1" (keydown)="handleListKey($event, view)">
+          @for (section of view.queue.sections; track section.kind) {
+            @if (section.kind !== 'progress') {
+              <ng-container *ngTemplateOutlet="group; context: { $implicit: section }"></ng-container>
+            }
           }
-          @if (view.list.more) {
-            <button type="button" class="home-more home-dim" (click)="boardOpened.emit()">+{{ view.list.more }} more</button>
+          @if (view.queue.moreWaiting) {
+            <button type="button" class="home-more home-dim" (click)="boardOpened.emit()">+{{ view.queue.moreWaiting }} more</button>
+          }
+          @for (section of view.queue.sections; track section.kind) {
+            @if (section.kind === 'progress') {
+              <ng-container *ngTemplateOutlet="group; context: { $implicit: section }"></ng-container>
+            }
+          }
+          @if (view.queue.moreRunning) {
+            <button type="button" class="home-more home-dim" (click)="boardOpened.emit()">+{{ view.queue.moreRunning }} more running</button>
           }
         </div>
       }
-
-      @for (line of view.running.lines; track line.thread.id) {
-        <button type="button" class="home-running" (click)="opened.emit(line.thread)">
-          <span class="home-dot home-pulse" data-word="running" aria-hidden="true"></span>
-          <span class="home-running-title">{{ line.thread.title || 'New thread' }}</span>·<span class="home-dim">{{ line.project }}</span>·<span class="home-running-doing">{{ line.doing }}</span>
-        </button>
-      }
-      @if (view.running.more) { <p class="home-running home-dim">+{{ view.running.more }} more running</p> }
     </div>
   </div>
 
   <footer class="home-keys" aria-label="Keys">
-    @if (view.list.total) {
-      <span><kbd>tab</kbd>prompt ↔ list</span>
+    @if (view.queue.cards.length) {
+      <span><kbd>tab</kbd>threads</span>
       <span><kbd>j</kbd><kbd>k</kbd>move</span>
-      <span><kbd>↵</kbd>open</span>
+      <span><kbd>↵</kbd>next</span>
     } @else {
       <span><kbd>↵</kbd>run</span>
     }
@@ -93,4 +83,37 @@
     <button type="button" (click)="menuOpened.emit()"><kbd>/</kbd>menu</button>
     <button type="button" class="code-link shortcuts-link" aria-keyshortcuts="?" (click)="shortcutsOpened.emit()"><kbd>?</kbd>all shortcuts</button>
   </footer>
+
+  <ng-template #group let-section>
+    <section class="home-section" [attr.data-section]="section.kind" [attr.aria-label]="section.title">
+      <h2 class="home-section-title">{{ section.title }}</h2>
+      @for (card of section.cards; track card.thread.id) {
+        <app-home-card
+          [card]="card"
+          [expanded]="card.thread.id === view.expandedId"
+          [fresh]="card.thread.id === view.highlightedId"
+          [draft]="view.drafts[card.thread.id]"
+          [to]="view.voices[card.thread.id]"
+          [commands]="view.commands"
+          [putAwayId]="view.putAwayId"
+          [workflows]="view.workflows"
+          [models]="view.models"
+          (toggled)="toggle(card)"
+          (opened)="opened.emit(card.thread)"
+          (markedRead)="markedRead.emit(card.thread)"
+          (replied)="replied.emit({ thread: card.thread, text: $event.text, to: $event.to })"
+          (answered)="answered.emit({ thread: card.thread, text: $event })"
+          (putAway)="questionsPutAway.emit($event)"
+          (restored)="questionsRestored.emit()"
+          (stopped)="stopped.emit(card.thread)"
+          (planOpened)="planOpened.emit(card.thread)"
+          (commandRun)="commandRun.emit($event)"
+          (moreOpened)="moreOpened.emit()"
+          (draftChanged)="rememberDraft(card.thread, $event)"
+          (toChanged)="rememberVoice(card.thread, $event)"
+          (linesChange)="rememberLines(card, $event)"
+        ></app-home-card>
+      }
+    </section>
+  </ng-template>
 }

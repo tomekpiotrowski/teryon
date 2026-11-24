@@ -6,7 +6,7 @@
 // chooses, so the times on screen are known.
 
 import type { Page } from "@playwright/test";
-import { addProject, expect, git, gitAt, openWorkspace, pressAway, put, test } from "./support";
+import { startThread, addProject, expect, git, gitAt, openWorkspace, pressAway, put, test } from "./support";
 
 /** The start of the hour before this one, in seconds since 1970. Commits come minutes after it. */
 const start = Math.floor(Date.now() / 3_600_000) * 3600 - 3600;
@@ -268,8 +268,7 @@ test("the files can be browsed as a commit left them", async ({ page }) => {
 
 test("a commit made while an agent was working leads back to its thread", async ({ page }) => {
   const directory = await addProject(page, "Payments", repository);
-  await page.getByLabel("New thread").fill("be slow");
-  await page.getByRole("button", { name: "Run ↵" }).click();
+  await startThread(page, "be slow");
   await expect(page.getByRole("status")).toHaveText(/Claude is working…/);
   put(directory, "notes.md", "# Notes\n");
   git(directory, "add", "-A");
