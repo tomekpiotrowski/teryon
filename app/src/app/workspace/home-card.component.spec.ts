@@ -231,4 +231,17 @@ describe('HomeCardComponent', () => {
     expect(link?.textContent).toBe('the parser');
     expect(link?.getAttribute('href')).toBe('#open?path=src%2Fparser.rs&start=10&end=20');
   });
+
+  it('bolds the title of an unread new card', () => {
+    const element = show(thread({ stage: 'done', unread: true }));
+
+    expect(element.querySelector('.home-card-unread')?.textContent).toContain('Fix it');
+  });
+
+  it('does not bold the title of an unread reply card', () => {
+    const element = show(thread({ asking: true, unread: true }));
+
+    expect(element.querySelector('.home-card')?.getAttribute('data-section')).toBe('waiting');
+    expect(element.querySelector('.home-card-unread')).toBeNull();
+  });
 });

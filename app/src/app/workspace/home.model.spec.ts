@@ -154,21 +154,66 @@ describe('homeList', () => {
     expect(listed([thread({ id: 'x' }), thread({ id: 'y', status: 'running', unread: true })]).total).toBe(0);
   });
 
-  it('orders apply, failed, reply, new, each newest first', () => {
+  it('orders every waiting thread oldest first, whatever its word', () => {
     const rows = listed([
+      thread({ id: 'apply', stage: 'ready', created_at: '2026-11-05T10:00:00' }),
+      thread({ id: 'new-recent', stage: 'implementing', unread: true, created_at: '2026-11-04T10:00:00' }),
+      thread({ id: 'failed', ended: 'failed', created_at: '2026-11-03T10:00:00' }),
+      thread({ id: 'reply', asking: true, created_at: '2026-11-02T10:00:00' }),
       thread({ id: 'new-old', stage: 'implementing', unread: true, created_at: '2026-11-01T10:00:00' }),
-      thread({ id: 'new-recent', stage: 'implementing', unread: true, created_at: '2026-11-05T10:00:00' }),
-      thread({ id: 'reply', asking: true }),
-      thread({ id: 'failed', ended: 'failed' }),
-      thread({ id: 'apply', stage: 'ready' }),
     ]).rows.map((row) => [row.thread.id, row.word]);
     expect(rows).toEqual([
-      ['apply', 'apply'],
-      ['failed', 'failed'],
-      ['reply', 'reply'],
-      ['new-recent', 'new'],
       ['new-old', 'new'],
+      ['reply', 'reply'],
+      ['failed', 'failed'],
+      ['new-recent', 'new'],
+      ['apply', 'apply'],
     ]);
+  });
+
+  it('keeps the oldest seven and counts the newest as more', () => {
+    const threads = Array.from({ length: HOME_LIMIT + 2 }, (_, index) =>
+      thread({ id: `t${index}`, asking: true, created_at: `2026-11-${String(20 - index).padStart(2, '0')}T10:00:00` }),
+    );
+    const list = listed(threads);
+    expect(list.rows.map((row) => row.thread.id)).toEqual(['t8', 't7', 't6', 't5', 't4', 't3', 't2']);
+    expect(list.more).toBe(2);
+  });
+
+  const earlierThreads = Array.from({ length: HOME_LIMIT - 1 }, (_, index) =>
+    thread({ id: `earlier-${index}`, asking: true, created_at: '2026-11-02T10:00:00Z' }),
+  );
+
+  it.each([
+    ['00Z', '00.001Z'],
+    ['00.001Z', '00.001001Z'],
+    ['00.001001Z', '00.001001001Z'],
+  ])('keeps the older thread at the cap when times end in %s and %s', (older, newer) => {
+    const list = listed([
+      ...earlierThreads,
+      thread({
+        id: 'newer', stage: 'ready', created_at: '2026-11-04T10:00:00Z', stage_since: `2026-11-03T10:00:${newer}`,
+      }),
+      thread({ id: 'older', asking: true, created_at: `2026-11-03T10:00:${older}` }),
+    ]);
+
+    expect(list.rows.map((row) => row.thread.id)).toEqual([...earlierThreads.map((thread) => thread.id), 'older']);
+    expect(list.more).toBe(1);
+  });
+
+  it.each(['00Z', '00.000Z'])('keeps the first thread when different words tie for the last slot (%s)', (applyTime) => {
+    const list = listed([
+      ...earlierThreads,
+      thread({
+        id: 'reply', asking: true, created_at: '2026-11-02T10:00:00Z', stage_since: '2026-11-03T10:00:00Z',
+      }),
+      thread({
+        id: 'apply', stage: 'ready', created_at: '2026-11-02T10:00:00Z', stage_since: `2026-11-03T10:00:${applyTime}`,
+      }),
+    ]);
+
+    expect(list.rows.map((row) => row.thread.id)).toEqual([...earlierThreads.map((thread) => thread.id), 'reply']);
+    expect(list.more).toBe(1);
   });
 
   it('orders by when a thread moved to its stage, when that is known', () => {
@@ -176,7 +221,7 @@ describe('homeList', () => {
       thread({ id: 'older-move', asking: true, created_at: '2026-11-09T10:00:00', stage_since: '2026-11-02T10:00:00' }),
       thread({ id: 'newer-move', asking: true, created_at: '2026-11-01T10:00:00', stage_since: '2026-11-04T10:00:00' }),
     ]).rows.map((row) => row.thread.id);
-    expect(rows).toEqual(['newer-move', 'older-move']);
+    expect(rows).toEqual(['older-move', 'newer-move']);
   });
 
   it.each([
@@ -375,15 +420,16 @@ function line(kind: EntryLine['kind'], text = ''): EntryLine {
 }
 
 describe('homeQueue', () => {
-  it('groups waiting threads into Decide, Answer and Read, newest first inside each', () => {
+  it('puts every waiting thread into one Waiting for you queue, oldest first', () => {
     const apply = thread({ id: 'apply', change: changed(), stage_since: '2026-11-01T00:00:00' });
     const failed = thread({ id: 'failed', ended: 'failed', stage_since: '2026-11-04T00:00:00' });
     const answer = thread({ id: 'answer', asking: true, stage: 'talking', unread: true, stage_since: '2026-11-03T00:00:00' });
     const read = thread({ id: 'read', unread: true, stage: 'implementing', stage_since: '2026-11-02T00:00:00' });
     const queue = homeQueue(groupThreads([project('a')], [read, apply, answer, failed]));
 
-    expect(queue.sections.map((section) => section.title)).toEqual(['Decide', 'Answer', 'Read']);
-    expect(queue.sections.map((section) => section.cards.map((card) => card.thread.id))).toEqual([['apply', 'failed'], ['answer'], ['read']]);
+    expect(queue.sections.map((section) => section.title)).toEqual(['Waiting for you']);
+    expect(queue.sections.map((section) => section.cards.map((card) => card.thread.id))).toEqual([['apply', 'read', 'answer', 'failed']]);
+    expect(queue.cards.map((card) => card.word)).toEqual(['apply', 'new', 'reply', 'failed']);
     expect(queue.waiting).toBe(homeList(groupThreads([project('a')], [read, apply, answer, failed])).total);
     expect(queue.cards.map((card) => card.projectName)).toEqual(['', '', '', '']);
   });
@@ -394,9 +440,17 @@ describe('homeQueue', () => {
     const running = thread({ id: 'r', status: 'running', project_id: 'a' });
     const queue = homeQueue(groupThreads([project('a'), project('b')], [waiting, other, running]));
 
-    expect(queue.sections.map((section) => section.title)).toEqual(['Answer', 'In progress']);
+    expect(queue.sections.map((section) => section.title)).toEqual(['Waiting for you', 'In progress']);
     expect(queue.cards.map((card) => card.projectName)).toEqual(['Project a', 'Project b', 'Project a']);
     expect(queue.cards[2].subtitle).toBe('working');
+  });
+
+  it('orders running threads newest first when their times have different precision', () => {
+    const whole = thread({ id: 'whole', status: 'running', stage_since: '2026-11-03T10:00:00Z' });
+    const later = thread({ id: 'later', status: 'running', stage_since: '2026-11-03T10:00:00.001Z' });
+    const queue = homeQueue(groupThreads([project('a')], [whole, later]));
+
+    expect(queue.cards.map((card) => card.thread.id)).toEqual(['later', 'whole']);
   });
 
   it('caps waiting and running threads and counts the rest', () => {
@@ -468,7 +522,7 @@ describe('primaryCardAction', () => {
     return queue.cards[0];
   }
 
-  it('applies, catches up and replies from Decide', () => {
+  it('applies, catches up and replies on a change to apply or a failure', () => {
     const ready = card({ change: changed() });
     expect(primaryCardAction(ready, [])).toBe('apply');
     expect(primaryCardAction(ready, [{ id: 'change:apply' }])).toBe('apply');

@@ -11,7 +11,7 @@
     @if (!view.expanded) {
       <button type="button" class="home-card-compact" (click)="toggled.emit()">
         <span class="home-dot" [class.home-pulse]="view.card.word === 'running'" [attr.data-word]="view.card.word" aria-hidden="true"></span>
-        <span class="home-card-title" [class.home-card-unread]="view.card.section === 'read' && view.card.thread.unread">{{ view.title }}</span>
+        <span class="home-card-title" [class.home-card-unread]="view.card.word === 'new' && view.card.thread.unread">{{ view.title }}</span>
         <span class="home-card-meta home-dim">
           <span>{{ agentLabel(view.card.thread.agent) }}</span>
           @if (view.card.projectName) { <span>{{ view.card.projectName }}</span> }
@@ -22,7 +22,7 @@
       <header class="home-card-head">
         <span class="home-dot" [class.home-pulse]="view.card.word === 'running'" [attr.data-word]="view.card.word" aria-hidden="true"></span>
         <span class="home-card-heading">
-          <span class="home-card-title" [class.home-card-unread]="view.card.section === 'read' && view.card.thread.unread">{{ view.title }}</span>
+          <span class="home-card-title" [class.home-card-unread]="view.card.word === 'new' && view.card.thread.unread">{{ view.title }}</span>
           <span class="home-dim">{{ view.stage }}</span>
         </span>
         <span class="home-card-meta home-dim">

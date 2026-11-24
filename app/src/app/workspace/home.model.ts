@@ -1,5 +1,5 @@
 /**
- * What Home shows: threads to decide, answer or read, and threads still at work.
+ * What Home shows: one queue of threads waiting for the person, and threads still at work.
  *
  * Home is where a thread is started and where its latest turn is handled, so
  * a person can reply, answer questions and apply a change without opening the
@@ -25,11 +25,8 @@ import {
   type Workflows,
 } from './workspace.model';
 
-/** The word at the right of a thread on Home, which is also the order of the list. */
+/** The word at the right of a thread on Home, which says what the thread needs. */
 export type HomeWord = 'apply' | 'failed' | 'reply' | 'new';
-
-/** The words in the order the list shows them. */
-export const HOME_WORDS: readonly HomeWord[] = ['apply', 'failed', 'reply', 'new'];
 
 /** How many threads Home lists before pointing to the board. */
 export const HOME_LIMIT = 7;
@@ -93,13 +90,23 @@ export interface HomeList {
   readonly total: number;
 }
 
-/** When a thread last moved, the newest first order of its group. */
+/** When a thread last moved, which orders the queue. */
 function moved(thread: Thread): string {
   return thread.stage_since ?? thread.created_at;
 }
 
+/** When a thread last moved, with the same fractional precision for every thread so text order is chronological order. */
+function movedAt(thread: Thread): string {
+  const [seconds, fraction = ''] = moved(thread).replace(/Z$/, '').split('.');
+  return `${seconds}.${fraction.padEnd(9, '0')}`;
+}
+
 /**
- * The threads that need the person, apply first, then failed, reply and new, newest first within each.
+ * The threads that need the person, oldest first.
+ *
+ * A queue: whatever has waited longest is at the top, whatever it needs.
+ * The word on each card says what that is, so the order does not have to.
+ * Threads that moved at the same instant keep their order from the project groups.
  *
  * Project names are given only when the threads come from more than one project.
  */
@@ -110,9 +117,7 @@ export function homeList(groups: readonly ProjectGroup[], limit = HOME_LIMIT): H
       return word ? [{ thread, word, project: group.project.name }] : [];
     }),
   );
-  found.sort(
-    (a, b) => HOME_WORDS.indexOf(a.word) - HOME_WORDS.indexOf(b.word) || moved(b.thread).localeCompare(moved(a.thread)),
-  );
+  found.sort((a, b) => movedAt(a.thread).localeCompare(movedAt(b.thread)));
   const several = new Set(found.map((row) => row.thread.project_id)).size > 1;
   const rows = found.map((row) => ({ ...row, project: several ? row.project : '' }));
   return { rows: rows.slice(0, limit), more: Math.max(0, rows.length - limit), total: rows.length };
@@ -140,7 +145,7 @@ export function runningLines(groups: readonly ProjectGroup[], limit = RUNNING_LI
         .filter((thread) => thread.status === 'running')
         .map((thread) => ({ thread, project: group.project.name, doing: changeCard(thread, group.project)?.title.toLowerCase() ?? 'working' })),
     )
-    .sort((a, b) => moved(b.thread).localeCompare(moved(a.thread)));
+    .sort((a, b) => movedAt(b.thread).localeCompare(movedAt(a.thread)));
   return { lines: running.slice(0, limit), more: Math.max(0, running.length - limit) };
 }
 
@@ -218,26 +223,16 @@ export function homeAgentState(
 /** How many running threads Home shows before pointing to the board. */
 const PROGRESS_LIMIT = 7;
 
-/** Which group a waiting thread belongs to. */
-const SECTION_KIND: Readonly<Record<HomeWord, HomeSectionKind>> = {
-  apply: 'decide',
-  failed: 'decide',
-  reply: 'answer',
-  new: 'read',
-};
-
 /** The groups, in the order Home shows them. */
-const SECTION_ORDER: readonly HomeSectionKind[] = ['decide', 'answer', 'read', 'progress'];
+const SECTION_ORDER: readonly HomeSectionKind[] = ['waiting', 'progress'];
 
 const SECTION_TITLE: Readonly<Record<HomeSectionKind, string>> = {
-  decide: 'Decide',
-  answer: 'Answer',
-  read: 'Read',
+  waiting: 'Waiting for you',
   progress: 'In progress',
 };
 
 /** A group of threads on Home. */
-export type HomeSectionKind = 'decide' | 'answer' | 'read' | 'progress';
+export type HomeSectionKind = 'waiting' | 'progress';
 
 /**
  * One thread on Home.
@@ -273,7 +268,7 @@ export interface HomeQueue {
 }
 
 /**
- * The threads Home shows, grouped into Decide, Answer, Read and In progress.
+ * The threads Home shows: Waiting for you, then In progress.
  *
  * Waiting threads keep the order and the cap of `homeList`, so the count in
  * the bar and the `+N more` link stay the ones Home already had. Running
@@ -286,11 +281,11 @@ export function homeQueue(groups: readonly ProjectGroup[], workflows: Workflows 
   const projects = new Map(groups.map((group) => [group.project.id, group.project]));
   const waiting = listed.rows.flatMap((row) => {
     const project = projects.get(row.thread.project_id);
-    return project ? [cardOf(row.thread, project, SECTION_KIND[row.word], row.word, row.project, workflows)] : [];
+    return project ? [cardOf(row.thread, project, 'waiting', row.word, row.project, workflows)] : [];
   });
   const running = groups
     .flatMap((group) => group.threads.filter((thread) => thread.status === 'running').map((thread) => ({ thread, project: group.project })))
-    .sort((a, b) => moved(b.thread).localeCompare(moved(a.thread)));
+    .sort((a, b) => movedAt(b.thread).localeCompare(movedAt(a.thread)));
   const progress = running
     .slice(0, PROGRESS_LIMIT)
     .map(({ thread, project }) => cardOf(thread, project, 'progress', 'running', project.name, workflows));
@@ -329,9 +324,9 @@ function cardOf(
 /**
  * The one line under a thread's title.
  *
- * Decide reads the change (`Ready to apply · 2 files changed · fix-login`).
- * A failed run that never made a change says so in a sentence. Answer and
- * Read use the preview the service stored, then the plan's title, then the
+ * A change to apply or a failed one reads the change (`Ready to apply · 2
+ * files changed · fix-login`). A failed run that never made a change says so
+ * in a sentence. A reply or a new result uses the preview the service stored, then the plan's title, then the
  * stage, so a thread from before previews still says something. A thread at
  * work says what it is doing.
  */
@@ -392,8 +387,8 @@ export function primaryCardAction(card: HomeCard, commands: readonly { id: strin
   if (card.section === 'progress') return 'open';
   if (card.word === 'apply' && offered('change:apply')) return 'apply';
   if (card.word === 'failed' && card.thread.change?.state?.fit === 'overlaps' && offered('change:catchUp')) return 'catchUp';
-  if (card.section === 'answer') return card.thread.asking === true ? 'questions' : 'reply';
-  if (card.section === 'read') return 'markRead';
+  if (card.word === 'reply') return card.thread.asking === true ? 'questions' : 'reply';
+  if (card.word === 'new') return 'markRead';
   return 'reply';
 }
 

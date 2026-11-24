@@ -167,10 +167,10 @@ describe('HomeComponent', () => {
       expect(rows(home)).toHaveLength(0);
     });
 
-    it('lists a thread in Decide, and opens the card on a click', () => {
+    it('lists a thread in Waiting for you, and opens the card on a click', () => {
       const waiting = thread({ id: 'w', title: 'Fix it', ended: 'failed' });
       const home = scene([waiting]);
-      expect(home.element.querySelector('[data-section="decide"]')).toBeTruthy();
+      expect(home.element.querySelector('[data-section="waiting"]')).toBeTruthy();
       expect(rows(home)).toHaveLength(1);
       expect(rows(home)[0].textContent).toContain('Fix it');
       expect(rows(home)[0].textContent).toContain('The run failed');
@@ -213,7 +213,7 @@ describe('HomeComponent', () => {
   });
 
   describe('the keys of the list', () => {
-    const waiting = [thread({ id: 'a', title: 'First', asking: true, created_at: '2026-11-05T10:00:00' }), thread({ id: 'b', title: 'Second', asking: true, created_at: '2026-11-04T10:00:00' })];
+    const waiting = [thread({ id: 'a', title: 'First', asking: true, created_at: '2026-11-04T10:00:00' }), thread({ id: 'b', title: 'Second', asking: true, created_at: '2026-11-05T10:00:00' })];
 
     it('hands the keys to the list on Tab, opening the first card', () => {
       const home = scene(waiting);

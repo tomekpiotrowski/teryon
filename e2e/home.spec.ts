@@ -264,7 +264,7 @@ test("a thread whose agent asks questions waits as a reply, and leaves the count
   await finishOnHome(page, "please ask questions");
 
   const row = waiting(page).getByRole("listitem").filter({ hasText: /please ask questions/ });
-  await expect(row).toHaveAttribute("data-section", "answer");
+  await expect(row).toHaveAttribute("data-section", "waiting");
   await expect(page.getByRole("button", { name: "1 need you" })).toBeVisible();
 
   await row.locator(".home-card-compact").click();
@@ -278,7 +278,7 @@ test("a failed run is listed as failed, and stays until the thread runs again", 
   await finishOnHome(page, "please fail");
 
   const row = waiting(page).getByRole("listitem").filter({ hasText: /please fail/ });
-  await expect(row).toHaveAttribute("data-section", "decide");
+  await expect(row).toHaveAttribute("data-section", "waiting");
   await expect(row).toContainText("The run failed");
   await expect(row.locator(".home-dot")).toHaveAttribute("data-word", "failed");
 
@@ -286,12 +286,12 @@ test("a failed run is listed as failed, and stays until the thread runs again", 
   // The open card shows the failure itself; the short line belongs to the collapsed card.
   await row.locator(".home-card-compact").click();
   await expect(page.getByLabel("Thread", { exact: true })).toHaveCount(0);
-  await expect(row).toHaveAttribute("data-section", "decide");
+  await expect(row).toHaveAttribute("data-section", "waiting");
   await expect(row.locator(".home-dot")).toHaveAttribute("data-word", "failed");
   await expect(row).toContainText("the fake agent was told to fail");
 });
 
-test("a change ready to apply is listed as apply, first", async ({ page }) => {
+test("a change ready to apply is listed as apply, after threads that waited longer", async ({ page }) => {
   await addProject(page, "Sample", (folder) => {
     git(folder, "init", "-q", "-b", "main");
     put(folder, "README.md", "# Sample\n");
@@ -302,9 +302,10 @@ test("a change ready to apply is listed as apply, first", async ({ page }) => {
 
   const rows = waiting(page).getByRole("listitem");
   await expect(rows).toHaveCount(2);
-  await expect(rows.first()).toContainText("start a change fix-login");
-  await expect(rows.first()).toContainText("Ready to apply");
-  await expect(rows.last()).toContainText("The run failed");
+  await expect(rows.first()).toContainText("The run failed");
+  await expect(rows.last()).toContainText("start a change fix-login");
+  await expect(rows.last()).toContainText("Ready to apply");
+  await expect(rows.last().locator(".home-dot")).toHaveAttribute("data-word", "apply");
 });
 
 test("Tab hands the keys to the list, where j, k and Enter move and open", async ({ page }) => {
@@ -321,7 +322,7 @@ test("Tab hands the keys to the list, where j, k and Enter move and open", async
   await expect(waiting(page)).toBeFocused();
   await page.keyboard.press("j");
   await page.keyboard.press("Enter");
-  // Failed comes before the questions, so the second card is the one that asked. Enter answers it here.
+  // The failure waited longer than the questions, so the second card is the one that asked. Enter answers it here.
   await expect(home(page)).toBeVisible();
   await expect(page.getByRole("group", { name: "The agent’s questions" })).toBeVisible();
 });
