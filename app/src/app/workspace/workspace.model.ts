@@ -738,10 +738,14 @@ export function codePlace(place: Place, projectId: string, thread: Thread | null
   return copyPlace(thread, change);
 }
 
-/** What the bar at the top names: the selected project, and the open thread after it. */
-export function barTitle(project: Project | null, thread: Thread | null): string {
-  if (!project) return '';
-  return thread ? `${project.name} · ${threadLabel(thread)}` : project.name;
+/** The heading for a project view, or Teryon for a view across projects. */
+export function headerName(projectName: string | null | undefined, projectScoped: boolean): string {
+  return projectScoped && projectName ? projectName : 'TERYON';
+}
+
+/** The part of the workspace shown beside its heading. */
+export function headerScope(thread: Thread | null): string {
+  return thread ? threadLabel(thread) : 'all projects';
 }
 
 /** How many agents are working, across every project. */

@@ -24,6 +24,7 @@ interface PlanView {
   standalone: false,
 })
 export class PlanComponent {
+  @Input({ required: true }) projectName!: string;
   @Output() readonly menuOpened = new EventEmitter<void>();
   @Output() readonly shortcutsOpened = new EventEmitter<void>();
 

@@ -40,7 +40,8 @@ import { UsageComponent } from './usage.component';
 import { WorkspaceApi } from './workspace.api';
 import {
   agentLabel,
-  barTitle,
+  headerName,
+  headerScope,
   coversThread,
   type Choice,
   choiceLabel,
@@ -174,10 +175,11 @@ export class WorkspacePage implements OnDestroy {
   private readonly host: ElementRef<HTMLElement> = inject(ElementRef);
 
   readonly threadLabel = threadLabel;
+  readonly headerName = headerName;
+  readonly headerScope = headerScope;
   readonly agentLabel = agentLabel;
   readonly choiceLabel = choiceLabel;
   readonly threadChoice = threadChoice;
-  readonly barTitle = barTitle;
   readonly coversThread = coversThread;
   readonly runningCount = runningCount;
   readonly installed$ = this.store.installed$;

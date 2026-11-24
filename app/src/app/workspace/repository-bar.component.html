@@ -1,6 +1,6 @@
 <header class="files-bar">
-  <span class="files-mark">TERYON</span>
-  <span class="files-muted files-project">{{ projectName }}@if (live) { · {{ live }} }</span>
+  <span class="files-mark">{{ projectName }}</span>
+  @if (live) { <span class="files-muted files-project">{{ live }}</span> }
   @if (branches.length) {
     <label class="files-branch">
       <span class="files-muted">{{ commit ? 'commit' : 'branch' }}</span>

@@ -1,6 +1,8 @@
 import {
   AGENTS,
   agentLabel,
+  headerName,
+  headerScope,
   allChoices,
   choiceLabel,
   choicesOf,
@@ -18,7 +20,6 @@ import {
   reviewerLabel,
   reviewerOf,
   reviewersFor,
-  barTitle,
   coversThread,
   CATCH_UP_REQUEST,
   type Change,
@@ -623,20 +624,19 @@ describe('isBareLetter', () => {
   });
 });
 
-describe('barTitle', () => {
-  const selected = project('a', '2026-11-01T10:00:00');
-
-  it('is empty without a project', () => {
-    expect(barTitle(null, null)).toBe('');
+describe('workspace header', () => {
+  it('names the project only for a project view', () => {
+    expect(headerName('My project', true)).toBe('My project');
+    expect(headerName('My project', false)).toBe('TERYON');
+    expect(headerName(null, true)).toBe('TERYON');
+    expect(headerName(undefined, true)).toBe('TERYON');
+    expect(headerName('', true)).toBe('TERYON');
   });
 
-  it('names the project alone when no thread is open', () => {
-    expect(barTitle(selected, null)).toBe('Project a');
-  });
-
-  it('names the open thread after its project', () => {
-    expect(barTitle(selected, { ...thread('t', 'a', '2026-11-03T10:00:00'), title: 'Fix the parser' })).toBe('Project a · Fix the parser');
-    expect(barTitle(selected, thread('t', 'a', '2026-11-03T10:00:00'))).toBe('Project a · New thread');
+  it('shows the thread label or all projects as the scope', () => {
+    expect(headerScope(null)).toBe('all projects');
+    expect(headerScope({ ...thread('t', 'a', '2026-11-03T10:00:00'), title: 'Fix the parser' })).toBe('Fix the parser');
+    expect(headerScope(thread('t', 'a', '2026-11-03T10:00:00'))).toBe('New thread');
   });
 });
 

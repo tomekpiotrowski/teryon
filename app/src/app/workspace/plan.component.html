@@ -4,7 +4,7 @@
       <button class="menu-button" type="button" aria-label="Open menu" aria-keyshortcuts="/ Control+K" (click)="menuOpened.emit()">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"></path></svg>
       </button>
-      <span class="files-mark">TERYON</span>
+      <span class="files-mark">{{ projectName }}</span>
       <span class="files-muted files-project">plan · {{ view.title }}</span>
     </header>
     <main class="plan-body" aria-label="Plan">

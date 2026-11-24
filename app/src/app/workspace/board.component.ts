@@ -3,15 +3,15 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { BehaviorSubject, combineLatest, distinctUntilChanged, map, type Observable, shareReplay } from 'rxjs';
 import { type BoardColumn, type BoardCursor, type SeenFinish, boardColumns, cardAt, cursorOn, movedCursor, rememberedFinishes, settledCursor } from './board.model';
 import { WorkspaceStore } from './workspace.store';
-import { isQuiet, type Thread } from './workspace.model';
+import { headerName, isQuiet, type Thread } from './workspace.model';
 
 interface BoardView {
   readonly columns: readonly BoardColumn[];
   readonly cursor: BoardCursor;
   /** Whether the board shows every project's threads rather than one project's. */
   readonly everyProject: boolean;
-  /** What the bar says the board covers: the project's name, or "every project". */
-  readonly scope: string;
+  /** The project heading, or Teryon for the board across projects. */
+  readonly heading: string;
   /** Every thread, so a finish seen on another screen of this visit is still remembered. */
   readonly threads: readonly Thread[];
   /** How many quiet threads the board is showing, and so can put away. */
@@ -83,7 +83,7 @@ export class BoardComponent implements OnDestroy {
         columns,
         cursor: cursor === null ? cursorOn(columns, startOn) : settledCursor(columns, cursor),
         everyProject: every,
-        scope: every ? 'every project' : projectName,
+        heading: headerName(projectName, !every),
         threads,
         quiet: scoped.filter(isQuiet).length,
       };

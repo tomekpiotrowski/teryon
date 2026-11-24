@@ -10,7 +10,7 @@
         } @else if (screen === 'usage') {
           <app-usage (closed)="screen$.next('thread')" (menuOpened)="openMenu()" (shortcutsOpened)="openShortcuts()"></app-usage>
         } @else if (screen === 'plan') {
-          <app-plan [thread]="view.thread" (menuOpened)="openMenu()" (shortcutsOpened)="openShortcuts()"></app-plan>
+          <app-plan [projectName]="headerName(view.project?.name, true)" [thread]="view.thread" (menuOpened)="openMenu()" (shortcutsOpened)="openShortcuts()"></app-plan>
         } @else if (screen === 'board') {
           <app-board
             [project]="view.project"
@@ -59,7 +59,8 @@
       }
       <div class="workspace-shell" [class.workspace-covered]="covered" [inert]="covered">
         <app-top-bar
-          [scope]="view.thread ? barTitle(view.project, view.thread) : 'all projects'"
+          [projectName]="headerName(view.project?.name, !!view.thread)"
+          [scope]="headerScope(view.thread)"
           [running]="runningCount(view.groups)"
           [waiting]="view.needing"
           [leader]="leader$ | async"

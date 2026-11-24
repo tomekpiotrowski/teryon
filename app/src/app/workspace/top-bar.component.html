@@ -2,7 +2,7 @@
   <button class="top-icon" type="button" aria-label="Open menu" aria-keyshortcuts="/ Control+K" (click)="menuOpened.emit()">
     <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"></path></svg>
   </button>
-  <button class="top-mark" type="button" aria-label="Home" (click)="homeOpened.emit()">TERYON</button>
+  <button class="top-mark" type="button" aria-label="Home" (click)="homeOpened.emit()">{{ projectName }}</button>
   <span class="top-scope">{{ scope }}</span>
   <span class="top-spacer"></span>
   @if (leader) { <span class="top-leader" role="status">{{ leader.toUpperCase() }} …</span> }
