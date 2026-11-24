@@ -93,7 +93,7 @@
                 [text]="(draft$ | async) ?? ''"
                 (textChanged)="draft$.next($event)"
                 (started)="startThread($event)"
-                (agentPressed)="pressAgent($event)"
+                (agentChosen)="chooseAgent($event)"
                 (continued)="continueThread($event)"
                 (opened)="openThread($event)"
                 (boardOpened)="showBoard(true)"

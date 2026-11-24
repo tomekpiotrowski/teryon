@@ -38,7 +38,7 @@
           <div class="home-options">
             <div class="home-chooser">
               <button type="button" class="home-option" aria-haspopup="listbox" [attr.aria-expanded]="view.chooser === 'project'" (click)="toggleChooser('project')">
-                <span class="home-badge">{{ initial(view.project) }}</span>{{ view.project?.name ?? 'No project' }}
+                {{ view.project?.name ?? 'No project' }}
                 <svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 4l2.5 2.5L7.5 4"></path></svg>
               </button>
               @if (view.chooser === 'project') {
@@ -50,11 +50,19 @@
               }
             </div>
             <span class="home-separator"></span>
-            @for (agent of view.agents; track agent) {
-              <button type="button" class="home-option home-agent" [attr.aria-pressed]="agent === view.agent" (click)="pressAgent(agent)">
-                <span class="home-badge">{{ agentInitial(agent) }}</span>{{ agentLabel(agent) }}
+            <div class="home-chooser">
+              <button type="button" class="home-option home-agent" aria-haspopup="listbox" [attr.aria-expanded]="view.chooser === 'agent'" [disabled]="!view.agents.length" (click)="toggleChooser('agent')">
+                {{ view.agent ? agentLabel(view.agent) : 'No agent' }}
+                <svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 4l2.5 2.5L7.5 4"></path></svg>
               </button>
-            }
+              @if (view.chooser === 'agent') {
+                <div class="home-popover" role="listbox" aria-label="Agent">
+                  @for (agent of view.agents; track agent) {
+                    <button type="button" role="option" [attr.aria-selected]="agent === view.agent" (click)="chooseAgent(agent)">{{ agentLabel(agent) }}</button>
+                  }
+                </div>
+              }
+            </div>
             <div class="home-chooser">
               <button type="button" class="home-option" aria-haspopup="listbox" [attr.aria-expanded]="view.chooser === 'workflow'" (click)="toggleChooser('workflow')">
                 {{ view.workflow }}

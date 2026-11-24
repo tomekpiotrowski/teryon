@@ -222,14 +222,8 @@ export function choosing(newThreads: NewThreads, choice: Choice): NewThreads {
   return { agent: choice.agent, models: { ...newThreads.models, [choice.agent]: choice.model }, picked: true };
 }
 
-/**
- * New threads after an agent's button was pressed on Home.
- *
- * The agent is picked, on the model remembered for it. Pressing the picked
- * agent again lifts the pick, so the workflow's first stage chooses again.
- */
-export function pressingAgent(newThreads: NewThreads, agent: AgentName): NewThreads {
-  if (newThreads.picked && newThreads.agent === agent) return { ...newThreads, picked: false };
+/** Picks an agent for new threads on its remembered model. */
+export function pickingAgent(newThreads: NewThreads, agent: AgentName): NewThreads {
   return choosing(newThreads, { agent, model: newThreads.models[agent] });
 }
 

@@ -121,9 +121,15 @@ export async function addProject(page: Page, name: string, prepare?: (directory:
   return directory;
 }
 
-/** The button for an agent beside Home's prompt. It is pressed while new threads start with that agent. */
-export function agentButton(page: Page, agent: string): Locator {
-  return page.locator(".home-agent", { hasText: agent });
+/** The button that shows the agent selected for new threads on Home. */
+export function agentChooser(page: Page): Locator {
+  return page.locator("app-home .home-agent");
+}
+
+/** Selects an installed agent from Home's dropdown. */
+export async function chooseAgent(page: Page, agent: string): Promise<void> {
+  await agentChooser(page).click();
+  await page.getByRole("listbox", { name: "Agent", exact: true }).getByRole("option", { name: agent, exact: true }).click();
 }
 
 /**

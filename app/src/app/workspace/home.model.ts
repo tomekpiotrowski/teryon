@@ -6,7 +6,7 @@
  * thread. Free of Angular so it can be tested on its own.
  */
 
-import { agentLabel, AGENTS, changeCard, type AgentName, type Project, type ProjectGroup, type Thread } from './workspace.model';
+import { AGENTS, changeCard, defaultWorkflow, type AgentName, type Project, type ProjectGroup, type Starting, type Thread, type Workflows } from './workspace.model';
 
 /** The word at the right of a thread on Home, which is also the order of the list. */
 export type HomeWord = 'apply' | 'failed' | 'reply' | 'new';
@@ -192,14 +192,43 @@ export function startWorkflow(known: readonly string[], fallback: string, choice
   return choice.workflow !== null && known.includes(choice.workflow) ? choice.workflow : fallback;
 }
 
-/** The agents to offer as buttons: the installed ones, in Teryon's order. */
-export function agentButtons(installed: readonly string[]): AgentName[] {
+/**
+ * Lists the installed agents for Home.
+ *
+ * Teryon's standard order keeps the choices stable as the installed agents change.
+ */
+export function agentOptions(installed: readonly string[]): AgentName[] {
   return AGENTS.filter((agent) => installed.includes(agent));
 }
 
-/** The agent's initial, for its small badge. */
-export function agentInitial(agent: AgentName): string {
-  return agentLabel(agent).charAt(0);
+/**
+ * Chooses the agent name displayed on Home.
+ *
+ * Showing the first stage's choice lets the person see which agent is due to
+ * start without turning that choice into an override.
+ *
+ * The service reports a choice for the default workflow's first stage. Use it
+ * for workflows that share that stage. Otherwise show Claude or the first
+ * installed agent, while leaving the actual choice to the service.
+ */
+export function startAgent(
+  agents: readonly AgentName[],
+  picked: AgentName | null,
+  starting: Starting | null,
+  workflow: string,
+  workflows: Workflows,
+): AgentName | null {
+  if (!agents.length) return null;
+  if (picked) return picked;
+
+  const active = workflows.workflows.find((candidate) => candidate.name === workflow);
+  if (starting?.type === 'provider' && active &&
+      (active.stages[0] ?? 'talking') === (defaultWorkflow(workflows).stages[0] ?? 'talking')) {
+    const provider = agents.find((agent) => agent === starting.agent);
+    if (provider) return provider;
+  }
+
+  return agents.includes('claude') ? 'claude' : agents[0];
 }
 
 /** Reads what was remembered, ignoring anything that is not what this version writes. */

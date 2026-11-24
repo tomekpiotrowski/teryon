@@ -1,8 +1,7 @@
 import { ChangeDetectionStrategy, Component, ElementRef, EventEmitter, HostListener, inject, Input, Output, ViewChild } from '@angular/core';
 import { BehaviorSubject, combineLatest, distinctUntilChanged, map, type Observable, shareReplay } from 'rxjs';
 import {
-  agentButtons,
-  agentInitial,
+  agentOptions,
   continueMatches,
   type ContinueRow,
   type HomeChoice,
@@ -14,13 +13,14 @@ import {
   readHomeChoice,
   runningLines,
   type RunningLines,
+  startAgent,
   startProject,
   startWorkflow,
 } from './home.model';
 import { stepped } from './commands.model';
 import { agentLabel, type AgentName, type Project, type ProjectGroup, type Starting, type Thread, type Workflows, NO_WORKFLOWS } from './workspace.model';
 
-/** Where the browser remembers the project, agent and workflow last chosen on Home. */
+/** Where the browser remembers the project and workflow last chosen on Home. */
 const MEMORY_KEY = 'teryon.home';
 
 /** What the person asked Home to start. */
@@ -38,7 +38,7 @@ export interface ContinueRequest {
 }
 
 /** Which small list under the prompt's buttons is open. */
-type Chooser = 'project' | 'workflow' | null;
+type Chooser = 'project' | 'agent' | 'workflow' | null;
 
 /** Everything the template shows, at one moment. */
 interface HomeView {
@@ -53,7 +53,7 @@ interface HomeView {
   readonly projects: readonly Project[];
   readonly project: Project | null;
   readonly agents: readonly AgentName[];
-  /** The agent whose button is pressed: the person's pick, or the one the first stage chooses. */
+  /** The agent displayed in the chooser. */
   readonly agent: AgentName | null;
   readonly workflows: readonly string[];
   readonly workflow: string;
@@ -88,8 +88,8 @@ export class HomeComponent {
   @Output() readonly historyOpened = new EventEmitter<void>();
   @Output() readonly menuOpened = new EventEmitter<void>();
   @Output() readonly shortcutsOpened = new EventEmitter<void>();
-  /** An agent's button was pressed. */
-  @Output() readonly agentPressed = new EventEmitter<AgentName>();
+  /** An agent was chosen for new threads. */
+  @Output() readonly agentChosen = new EventEmitter<AgentName>();
   /** The prompt's text changed by typing, or by Home itself when it sends or clears it. */
   @Output() readonly textChanged = new EventEmitter<string>();
 
@@ -125,7 +125,7 @@ export class HomeComponent {
     this.workflows$.next(workflows);
   }
 
-  /** Who the default workflow's first stage chooses for a new thread, shown as the pressed agent while nobody picked one. */
+  /** Who the default workflow's first stage chooses for a new thread, shown in the chooser while nobody picked one. */
   @Input() set starting(starting: Starting | null) {
     this.starting$.next(starting);
   }
@@ -166,15 +166,14 @@ export class HomeComponent {
   ]).pipe(
     map(([groups, installed, workflows, starting, picked, open, choice]) => {
       const { project, workflow } = this.resolve(groups, workflows, open, choice);
-      // The stage's choice shown is the default workflow's; another workflow's first stage may choose differently.
-      const fromStage = starting?.type === 'provider' && workflow === workflows.default ? (starting.agent as AgentName) : null;
+      const agents = agentOptions(installed);
       return {
         list: homeList(groups),
         running: runningLines(groups),
         projects: groups.map((group) => group.project),
         project,
-        agents: agentButtons(installed),
-        agent: picked ?? fromStage,
+        agents,
+        agent: startAgent(agents, picked, starting, workflow, workflows),
         workflows: workflows.workflows.map((candidate) => candidate.name),
         workflow,
       };
@@ -215,12 +214,6 @@ export class HomeComponent {
   );
 
   readonly agentLabel = agentLabel;
-  readonly agentInitial = agentInitial;
-
-  /** The project's initial, for its badge. */
-  initial(project: Project | null): string {
-    return (project?.name ?? '?').charAt(0).toUpperCase();
-  }
 
   updateText(event: Event): void {
     this.setText((event.target as HTMLInputElement).value);
@@ -293,12 +286,15 @@ export class HomeComponent {
       case 'Escape':
         event.preventDefault();
         event.stopPropagation();
+        if (event.key === 'Escape') this.chooser$.next(null);
         return this.focusPrompt();
     }
   }
 
   /**
-   * Keys pressed with nothing typed in: `j` and `k` start moving through the list, `@` starts a search.
+   * Handles Home keys outside the prompt.
+   *
+   * Escape dismisses the open chooser, `j` and `k` move through the list, and `@` starts a search.
    *
    * Left alone while another screen covers Home, and while the person types.
    */
@@ -307,8 +303,14 @@ export class HomeComponent {
     if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return;
     if (this.host.nativeElement.closest('[inert]')) return;
     const target = event.target instanceof HTMLElement ? event.target : null;
-    if (target && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable)) return;
     if (document.querySelector('app-command-menu, ion-alert')) return;
+    if (event.key === 'Escape' && !event.isComposing && this.chooser$.value) {
+      event.preventDefault();
+      this.chooser$.next(null);
+      target?.closest('.home-popover')?.closest('.home-chooser')?.querySelector<HTMLButtonElement>('.home-option')?.focus();
+      return;
+    }
+    if (target && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable)) return;
     if (target?.closest('[data-home-list]')) return;
     if (event.key === '@') {
       event.preventDefault();
@@ -357,9 +359,10 @@ export class HomeComponent {
     if (project) this.started.emit({ projectId: project.id, workflow, text });
   }
 
-  /** Presses an agent's button. The workspace decides what that means for new threads, see `pressingAgent`. */
-  pressAgent(agent: AgentName): void {
-    this.agentPressed.emit(agent);
+  chooseAgent(agent: AgentName): void {
+    this.chooser$.next(null);
+    this.agentChosen.emit(agent);
+    this.focusPrompt();
   }
 
   chooseProject(project: Project): void {
@@ -376,6 +379,13 @@ export class HomeComponent {
 
   toggleChooser(which: Exclude<Chooser, null>): void {
     this.chooser$.next(this.chooser$.value === which ? null : which);
+  }
+
+  @HostListener('document:click', ['$event'])
+  dismissChooser(event: MouseEvent): void {
+    if (this.chooser$.value && !(event.target instanceof Element && event.target.closest('.home-chooser'))) {
+      this.chooser$.next(null);
+    }
   }
 
   markRow(index: number): void {

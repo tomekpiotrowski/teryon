@@ -6,7 +6,7 @@
 
 import type { Page } from "@playwright/test";
 
-import { addProject, agentButton, choose, commit, expect, git, menu, openWorkspace, put, test } from "./support";
+import { addProject, agentChooser, choose, chooseAgent, commit, expect, git, menu, openWorkspace, put, test } from "./support";
 
 test.beforeEach(openWorkspace);
 
@@ -87,12 +87,36 @@ test("Home opens searchable shortcuts from the keyboard, the bottom bar and the 
   await expect(button).toBeFocused();
 });
 
-test("a thread starts with the agent and workflow pressed on Home", async ({ page }) => {
+test("Escape closes shortcuts before the open Agent dropdown", async ({ page }) => {
+  await addProject(page, "Sample");
+  const prompt = page.getByLabel("New thread");
+  const agent = agentChooser(page);
+  const choices = home(page).getByRole("listbox", { name: "Agent", exact: true });
+  const dialog = page.getByRole("dialog", { name: "Shortcuts" });
+
+  await prompt.fill("keep this");
+  await agent.click();
+  await expect(choices).toBeVisible();
+  await agent.press("?");
+  await expect(dialog.getByRole("textbox", { name: "Filter shortcuts" })).toBeFocused();
+
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(agent).toBeFocused();
+  await expect(choices).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(choices).toBeHidden();
+  await expect(prompt).toHaveValue("keep this");
+});
+
+test("a thread starts with the agent and workflow chosen on Home", async ({ page }) => {
   await addProject(page, "Sample");
 
-  await agentButton(page, "Grok").click();
-  await expect(agentButton(page, "Grok")).toHaveAttribute("aria-pressed", "true");
-  await expect(agentButton(page, "Claude")).toHaveAttribute("aria-pressed", "false");
+  await chooseAgent(page, "Grok");
+  await expect(agentChooser(page)).toHaveAccessibleName("Grok");
+  await chooseAgent(page, "Grok");
+  await expect(agentChooser(page)).toHaveAttribute("aria-expanded", "false");
+  await expect(page.getByLabel("New thread")).toBeFocused();
   await home(page).getByRole("button", { name: "default" }).click();
   await home(page).getByRole("option", { name: "small" }).click();
 
@@ -105,6 +129,40 @@ test("a thread starts with the agent and workflow pressed on Home", async ({ pag
   await page.keyboard.press("Control+k");
   await expect(menu(page).getByRole("option", { name: /^Use the default workflow/ })).toBeVisible();
   await expect(menu(page).getByRole("option", { name: /^Use the small workflow/ })).toHaveCount(0);
+});
+
+test.describe("with Grok configured for the first stage", () => {
+  test.use({ settings: '[stages.talking]\nprovider = "only grok"\n' });
+
+  test("Home shows the first stage's agent and plain chooser labels", async ({ page }) => {
+    await addProject(page, "Sample");
+
+    const project = home(page).getByRole("button", { name: "Sample", exact: true });
+    const agent = agentChooser(page);
+    const prompt = page.getByLabel("New thread");
+    await expect(project).toBeVisible();
+    await expect(agent).toHaveAccessibleName("Grok");
+
+    await prompt.fill("use tools");
+    await agent.click();
+    const choices = home(page).getByRole("listbox", { name: "Agent", exact: true });
+    await expect(choices.getByRole("option")).toHaveText(["Claude", "Codex", "Grok", "Gemini"]);
+    const grok = choices.getByRole("option", { name: "Grok", exact: true });
+    await expect(grok).toHaveAttribute("aria-selected", "true");
+    await grok.focus();
+    await page.keyboard.press("Escape");
+    await expect(choices).toBeHidden();
+    await expect(agent).toBeFocused();
+
+    await agent.click();
+    await home(page).getByText("Nothing needs you.", { exact: true }).click();
+    await expect(choices).toBeHidden();
+    await expect(prompt).toHaveValue("use tools");
+
+    await prompt.press("Enter");
+    await expect(page.locator(".thread-meta").getByText("Grok")).toBeVisible();
+    await expect(page.getByText("run_terminal_command  Count bytes in note.txt")).toBeVisible();
+  });
 });
 
 test("Run does nothing until something is typed", async ({ page }) => {
@@ -236,12 +294,12 @@ test("Backspace on an empty prompt drops the chosen thread", async ({ page }) =>
   await expect(home(page).getByRole("button", { name: /Stop continuing this thread/ })).toHaveCount(0);
 });
 
-test("the agent, project and workflow chosen on Home are there the next time", async ({ page }) => {
+test("the agent chosen on Home is there the next time", async ({ page }) => {
   await addProject(page, "Sample");
-  await agentButton(page, "Codex").click();
+  await chooseAgent(page, "Codex");
   await page.reload();
   await expect(page.getByLabel("New thread")).toBeVisible();
-  await expect(agentButton(page, "Codex")).toHaveAttribute("aria-pressed", "true");
+  await expect(agentChooser(page)).toHaveAccessibleName("Codex");
 });
 
 test("a project picked on Home is where the thread starts", async ({ page }) => {
@@ -287,15 +345,14 @@ test("a refused message keeps the text and the chosen thread on Home", async ({ 
   await expect(home(page).getByRole("button", { name: /Stop continuing this thread/ })).toContainText("be slow");
 });
 
-test("an agent picked in the menu shows on Home, and one pressed on Home shows in the menu", async ({ page }) => {
+test("Home and the menu share the agent for new threads", async ({ page }) => {
   await addProject(page, "Sample");
 
-  await agentButton(page, "Codex").click();
-  await expect(agentButton(page, "Codex")).toHaveAttribute("aria-pressed", "true");
+  await chooseAgent(page, "Codex");
+  await expect(agentChooser(page)).toHaveAccessibleName("Codex");
 
   await choose(page, "Use Grok · default for new threads");
-  await expect(agentButton(page, "Grok")).toHaveAttribute("aria-pressed", "true");
-  await expect(agentButton(page, "Codex")).toHaveAttribute("aria-pressed", "false");
+  await expect(agentChooser(page)).toHaveAccessibleName("Grok");
 
   // The thread starts on what Home shows.
   await page.getByLabel("New thread").fill("hello");

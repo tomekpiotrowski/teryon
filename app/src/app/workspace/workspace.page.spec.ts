@@ -358,7 +358,7 @@ describe('WorkspacePage', () => {
   });
 
   describe('the agent for new threads', () => {
-    it('is shared by Home\'s buttons and the menu\'s commands', () => {
+    it('is shared by Home\'s dropdown and the menu\'s commands', () => {
       const picked = () => {
         let value: string | null = 'unset';
         page.pickedAgent$.subscribe((agent) => (value = agent)).unsubscribe();
@@ -366,14 +366,14 @@ describe('WorkspacePage', () => {
       };
       expect(picked()).toBeNull();
 
-      page.pressAgent('codex');
+      page.chooseAgent('codex');
       expect(picked()).toBe('codex');
 
       page.run({ id: 'x', title: 'x', detail: '', group: 'action', key: null, leader: null, live: false, asking: false, badge: '', action: { kind: 'useChoice', choice: { agent: 'grok', model: null } } });
       expect(picked()).toBe('grok');
 
-      page.pressAgent('grok');
-      expect(picked()).toBeNull();
+      page.chooseAgent('grok');
+      expect(picked()).toBe('grok');
     });
   });
 

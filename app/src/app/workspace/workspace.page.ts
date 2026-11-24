@@ -76,7 +76,7 @@ import {
   type Selection,
   type AgentName,
   seenNow,
-  pressingAgent,
+  pickingAgent,
   readNewThreads,
   startingChoice,
   stageLabel,
@@ -834,9 +834,9 @@ export class WorkspacePage implements OnDestroy {
     });
   }
 
-  /** Presses an agent's button on Home: picks it for new threads, or lifts the pick when it was the picked one. */
-  pressAgent(agent: AgentName): void {
-    this.newThreads$.next(pressingAgent(this.newThreads$.value, agent));
+  /** Uses the agent chosen on Home for new threads. */
+  chooseAgent(agent: AgentName): void {
+    this.newThreads$.next(pickingAgent(this.newThreads$.value, agent));
   }
 
   /** Goes to Home: no thread open, every project's waiting threads and the prompt. */

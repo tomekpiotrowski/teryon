@@ -2,7 +2,7 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import { vi } from 'vitest';
 
 import { HomeComponent, type ContinueRequest, type StartRequest } from './home.component';
-import { type AgentName, groupThreads, NO_WORKFLOWS, type Project, type Thread, type Workflows } from './workspace.model';
+import { type AgentName, groupThreads, NO_WORKFLOWS, type Project, type Starting, type Thread, type Workflows } from './workspace.model';
 
 const project = (id: string): Project => ({ id, name: `Project ${id}`, directory: `/work/${id}`, created_at: '2026-11-01T10:00:00' });
 
@@ -23,11 +23,12 @@ function thread(overrides: Partial<Thread> = {}): Thread {
   };
 }
 
-const TWO_WORKFLOWS: Workflows = {
+const TEST_WORKFLOWS: Workflows = {
   ...NO_WORKFLOWS,
   workflows: [
     { name: 'default', description: '', stages: ['talking', 'ready', 'done'] },
     { name: 'small', description: '', stages: ['talking', 'ready', 'done'] },
+    { name: 'planned', description: '', stages: ['planning', 'ready', 'done'] },
   ],
 };
 
@@ -38,32 +39,31 @@ interface Scene {
   readonly continued: ContinueRequest[];
   readonly opened: Thread[];
   readonly texts: string[];
-  readonly pressed: string[];
+  readonly chosen: AgentName[];
 }
 
 /** Home on projects `a` and `b`, with the given threads, and a record of what it emits. */
-function scene(threads: Thread[] = [], inputs: { installed?: string[]; text?: string; workflows?: Workflows; picked?: AgentName | null } = {}): Scene {
+function scene(threads: Thread[] = [], inputs: { installed?: string[]; text?: string; workflows?: Workflows; starting?: Starting | null } = {}): Scene {
   const fixture = TestBed.createComponent(HomeComponent);
   const home = fixture.componentInstance;
   const started: StartRequest[] = [];
   const continued: ContinueRequest[] = [];
   const opened: Thread[] = [];
   const texts: string[] = [];
-  const pressed: string[] = [];
-  home.agentPressed.subscribe((agent) => pressed.push(agent));
+  const chosen: AgentName[] = [];
+  home.agentChosen.subscribe((agent) => chosen.push(agent));
   home.started.subscribe((request) => started.push(request));
   home.continued.subscribe((request) => continued.push(request));
   home.opened.subscribe((item) => opened.push(item));
   home.textChanged.subscribe((text) => texts.push(text));
   home.groups = groupThreads([project('a'), project('b')], threads);
   home.installed = inputs.installed ?? ['claude', 'codex', 'grok'];
-  home.workflows = inputs.workflows ?? TWO_WORKFLOWS;
-  home.pickedAgent = inputs.picked ?? null;
-  home.starting = { type: 'provider', agent: 'claude', model: null };
+  home.workflows = inputs.workflows ?? TEST_WORKFLOWS;
+  home.starting = inputs.starting === undefined ? { type: 'provider', agent: 'claude', model: null } : inputs.starting;
   home.project = project('a');
   if (inputs.text !== undefined) home.text = inputs.text;
   fixture.detectChanges();
-  return { fixture, element: fixture.nativeElement as HTMLElement, started, continued, opened, texts, pressed };
+  return { fixture, element: fixture.nativeElement as HTMLElement, started, continued, opened, texts, chosen };
 }
 
 function prompt(of: Scene): HTMLInputElement {
@@ -88,6 +88,15 @@ function button(of: Scene, text: string): HTMLButtonElement {
   const found = Array.from(of.element.querySelectorAll('button')).find((candidate) => candidate.textContent?.includes(text));
   if (!found) throw new Error(`no button with ${text}`);
   return found as HTMLButtonElement;
+}
+
+function agentChooser(of: Scene): HTMLButtonElement {
+  return of.element.querySelector<HTMLButtonElement>('.home-agent')!;
+}
+
+function clickButton(of: Scene, label: string): void {
+  button(of, label).click();
+  of.fixture.detectChanges();
 }
 
 function rows(of: Scene): HTMLElement[] {
@@ -262,7 +271,7 @@ describe('HomeComponent', () => {
       home.fixture.detectChanges();
       (Array.from(home.element.querySelectorAll('.home-popover button')).find((item) => item.textContent?.trim() === 'small') as HTMLElement).click();
       home.fixture.detectChanges();
-      home.fixture.componentInstance.workflows = { ...TWO_WORKFLOWS, workflows: TWO_WORKFLOWS.workflows.filter((workflow) => workflow.name !== 'small') };
+      home.fixture.componentInstance.workflows = { ...TEST_WORKFLOWS, workflows: TEST_WORKFLOWS.workflows.filter((workflow) => workflow.name !== 'small') };
       home.fixture.detectChanges();
       expect(button(home, 'default')).toBeDefined();
       type(home, 'hello');
@@ -271,59 +280,82 @@ describe('HomeComponent', () => {
     });
 
     it('sends the workflow it names after a rename too', () => {
-      const home = scene([], { workflows: { ...TWO_WORKFLOWS, default: 'main', workflows: [{ ...TWO_WORKFLOWS.workflows[0], name: 'main' }] } });
+      const home = scene([], { workflows: { ...TEST_WORKFLOWS, default: 'main', workflows: [{ ...TEST_WORKFLOWS.workflows[0], name: 'main' }] } });
       type(home, 'hello');
       key(home, prompt(home), 'Enter');
       expect(home.started[0].workflow).toBe('main');
     });
 
-    it('shows the agent the first stage chooses as pressed, and the picked one in its place', () => {
-      const staged = scene();
-      expect(button(staged, 'Claude').getAttribute('aria-pressed')).toBe('true');
-      TestBed.resetTestingModule();
-      TestBed.configureTestingModule({ declarations: [HomeComponent] });
-      const picked = scene([], { picked: 'codex' });
-      expect(button(picked, 'Claude').getAttribute('aria-pressed')).toBe('false');
-      expect(button(picked, 'Codex').getAttribute('aria-pressed')).toBe('true');
+    it('uses the stage choice on workflows sharing the first stage and falls back on a different stage', () => {
+      const home = scene([], { starting: { type: 'provider', agent: 'grok', model: null } });
+      expect(agentChooser(home).textContent?.trim()).toBe('Grok');
+      clickButton(home, 'default');
+      clickButton(home, 'small');
+      expect(agentChooser(home).textContent?.trim()).toBe('Grok');
+      clickButton(home, 'small');
+      clickButton(home, 'planned');
+      expect(agentChooser(home).textContent?.trim()).toBe('Claude');
     });
 
-    it('shows no agent pressed for a workflow whose first stage is not the one shown', () => {
+    it('tells the workspace which agent was chosen and shows the workspace choice', () => {
       const home = scene();
-      button(home, 'default').click();
-      home.fixture.detectChanges();
-      (Array.from(home.element.querySelectorAll('.home-popover button')).find((item) => item.textContent?.trim() === 'small') as HTMLElement).click();
-      home.fixture.detectChanges();
-      expect(Array.from(home.element.querySelectorAll('.home-agent')).map((agent) => agent.getAttribute('aria-pressed'))).toEqual(['false', 'false', 'false']);
-    });
-
-    it('keeps a picked agent pressed on any workflow', () => {
-      const home = scene([], { picked: 'grok' });
-      button(home, 'default').click();
-      home.fixture.detectChanges();
-      (Array.from(home.element.querySelectorAll('.home-popover button')).find((item) => item.textContent?.trim() === 'small') as HTMLElement).click();
-      home.fixture.detectChanges();
-      expect(button(home, 'Grok').getAttribute('aria-pressed')).toBe('true');
-    });
-
-    it('tells the workspace which agent was pressed, and holds no pick of its own', () => {
-      const home = scene();
-      button(home, 'Codex').click();
-      home.fixture.detectChanges();
-      expect(home.pressed).toEqual(['codex']);
-      expect(button(home, 'Codex').getAttribute('aria-pressed')).toBe('false');
+      clickButton(home, 'Claude');
+      expect(agentChooser(home).getAttribute('aria-expanded')).toBe('true');
+      const options = Array.from(home.element.querySelectorAll('[aria-label="Agent"] [role="option"]'));
+      expect(options.map((option) => [option.textContent?.trim(), option.getAttribute('aria-selected')])).toEqual([
+        ['Claude', 'true'],
+        ['Codex', 'false'],
+        ['Grok', 'false'],
+      ]);
+      clickButton(home, 'Codex');
+      expect(home.chosen).toEqual(['codex']);
+      expect(agentChooser(home).getAttribute('aria-expanded')).toBe('false');
+      expect(agentChooser(home).textContent?.trim()).toBe('Claude');
       home.fixture.componentInstance.pickedAgent = 'codex';
       home.fixture.detectChanges();
-      expect(button(home, 'Codex').getAttribute('aria-pressed')).toBe('true');
+      expect(agentChooser(home).textContent?.trim()).toBe('Codex');
       home.fixture.componentInstance.pickedAgent = 'grok';
       home.fixture.detectChanges();
-      expect(button(home, 'Grok').getAttribute('aria-pressed')).toBe('true');
-      expect(button(home, 'Codex').getAttribute('aria-pressed')).toBe('false');
+      expect(agentChooser(home).textContent?.trim()).toBe('Grok');
     });
 
-    it('offers only the agents installed', () => {
-      const home = scene([], { installed: ['codex'] });
-      const names = Array.from(home.element.querySelectorAll('.home-agent')).map((agent) => agent.textContent?.replace(/\s+/g, ' ').trim());
-      expect(names).toEqual(['CCodex']);
+    it('uses plain text for the project and agent and only offers installed agents', () => {
+      const home = scene([], { installed: ['codex'], starting: null });
+      expect(button(home, 'Project a').textContent?.trim()).toBe('Project a');
+      expect(agentChooser(home).textContent?.trim()).toBe('Codex');
+      clickButton(home, 'Codex');
+      const options = Array.from(home.element.querySelectorAll('[aria-label="Agent"] [role="option"]'));
+      expect(options.map((option) => option.textContent?.trim())).toEqual(['Codex']);
+      expect(home.element.querySelector('.home-badge')).toBeNull();
+    });
+
+    it('disables the chooser when no agent is installed', () => {
+      const home = scene([], { installed: [] });
+      expect(agentChooser(home).textContent?.trim()).toBe('No agent');
+      expect(agentChooser(home).disabled).toBe(true);
+    });
+
+    it.each(['Project a', 'Claude', 'default'])('closes the %s chooser on outside click or Escape and keeps the draft', (label) => {
+      const home = scene([], { text: 'keep this' });
+      document.body.appendChild(home.element);
+      const trigger = button(home, label);
+      const expanded = () => trigger.getAttribute('aria-expanded');
+      const outside = home.element.querySelector<HTMLElement>('.home-nothing')!;
+      clickButton(home, label);
+      expect(expanded()).toBe('true');
+      outside.click();
+      home.fixture.detectChanges();
+      expect(expanded()).toBe('false');
+      clickButton(home, label);
+      const option = home.element.querySelector<HTMLElement>('.home-popover button')!;
+      option.focus();
+      expect(key(home, option, 'Escape').defaultPrevented).toBe(true);
+      expect(expanded()).toBe('false');
+      expect(document.activeElement).toBe(trigger);
+      clickButton(home, label);
+      key(home, prompt(home), 'Escape');
+      expect(expanded()).toBe('false');
+      expect(prompt(home).value).toBe('keep this');
     });
 
     it('is not sent twice while a request is on its way', () => {

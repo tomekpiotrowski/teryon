@@ -9,7 +9,7 @@ import {
   FIRST_NEW_THREADS,
   firstStageChooses,
   pendingChoice,
-  pressingAgent,
+  pickingAgent,
   readNewThreads,
   startingChoice,
   modelLabel,
@@ -483,24 +483,23 @@ describe('choices', () => {
     expect(firstStageChooses(STAGE_DEFAULTS)).toBe(false);
   });
 
-  it('picks an agent pressed on Home, on the model remembered for it', () => {
+  it('picks an agent chosen on Home, on the model remembered for it', () => {
     const remembered = choosing(FIRST_NEW_THREADS, { agent: 'codex', model: 'gpt-6-astra' });
-    const pressed = pressingAgent({ ...remembered, agent: 'claude', picked: false }, 'codex');
-    expect(pressed).toEqual({ ...remembered, picked: true });
-    expect(startingChoice(pressed)).toEqual({ agent: 'codex', model: 'gpt-6-astra' });
+    const picked = pickingAgent({ ...remembered, agent: 'claude', picked: false }, 'codex');
+    expect(picked).toEqual({ ...remembered, picked: true });
+    expect(startingChoice(picked)).toEqual({ agent: 'codex', model: 'gpt-6-astra' });
   });
 
-  it('lifts the pick when the picked agent is pressed again, and keeps the models', () => {
-    const picked = pressingAgent(FIRST_NEW_THREADS, 'grok');
-    const lifted = pressingAgent(picked, 'grok');
-    expect(lifted.picked).toBe(false);
-    expect(startingChoice(lifted)).toBeNull();
-    expect(pressingAgent(lifted, 'grok').picked).toBe(true);
+  it('keeps the pick and remembered model when the same agent is chosen again', () => {
+    const picked = choosing(FIRST_NEW_THREADS, { agent: 'grok', model: 'grok-4.6' });
+    const pickedAgain = pickingAgent(picked, 'grok');
+    expect(pickedAgain).toEqual(picked);
+    expect(startingChoice(pickedAgain)).toEqual({ agent: 'grok', model: 'grok-4.6' });
   });
 
-  it('moves the pick to another agent pressed, and one chosen in the menu replaces a press', () => {
-    const codex = pressingAgent(FIRST_NEW_THREADS, 'codex');
-    expect(startingChoice(pressingAgent(codex, 'grok'))).toEqual({ agent: 'grok', model: null });
+  it('moves the pick to another agent from Home or the menu', () => {
+    const codex = pickingAgent(FIRST_NEW_THREADS, 'codex');
+    expect(startingChoice(pickingAgent(codex, 'grok'))).toEqual({ agent: 'grok', model: null });
     expect(startingChoice(choosing(codex, { agent: 'grok', model: null }))).toEqual({ agent: 'grok', model: null });
   });
 

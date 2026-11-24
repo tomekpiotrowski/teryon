@@ -1,5 +1,5 @@
 import {
-  agentButtons,
+  agentOptions,
   CONTINUE_LIMIT,
   continueMatches,
   HOME_LIMIT,
@@ -9,10 +9,11 @@ import {
   promptOf,
   readHomeChoice,
   runningLines,
+  startAgent,
   startProject,
   startWorkflow,
 } from './home.model';
-import { type Change, type ChangeState, groupThreads, type Project, type Thread } from './workspace.model';
+import { type Change, type ChangeState, groupThreads, NO_WORKFLOWS, type Project, type Starting, type Thread, type Workflows } from './workspace.model';
 
 function project(id: string): Project {
   return { id, name: `Project ${id}`, directory: `/work/${id}`, created_at: '2026-11-01T10:00:00' };
@@ -281,14 +282,58 @@ describe('startProject', () => {
   });
 });
 
-describe('agentButtons', () => {
+describe('agentOptions', () => {
   it('lists the installed agents in Teryon\'s order', () => {
-    expect(agentButtons(['grok', 'claude'])).toEqual(['claude', 'grok']);
+    expect(agentOptions(['grok', 'claude'])).toEqual(['claude', 'grok']);
   });
 
   it('ignores names Teryon does not know, and lists nothing when none is installed', () => {
-    expect(agentButtons(['mistral'])).toEqual([]);
-    expect(agentButtons([])).toEqual([]);
+    expect(agentOptions(['mistral'])).toEqual([]);
+    expect(agentOptions([])).toEqual([]);
+  });
+});
+
+describe('startAgent', () => {
+  const agents = ['claude', 'codex', 'grok'] as const;
+  const grok: Starting = { type: 'provider', agent: 'grok', model: 'grok-4.6' };
+  const workflows: Workflows = {
+    ...NO_WORKFLOWS,
+    workflows: [
+      { name: 'default', description: '', stages: ['talking', 'planning', 'done'] },
+      { name: 'small', description: '', stages: ['talking', 'done'] },
+      { name: 'planned', description: '', stages: ['planning', 'done'] },
+    ],
+  };
+
+  it('shows a picked agent ahead of the stage choice, on any workflow', () => {
+    expect(startAgent(agents, 'codex', grok, 'default', workflows)).toBe('codex');
+    expect(startAgent(agents, 'codex', grok, 'planned', workflows)).toBe('codex');
+  });
+
+  it.each(['default', 'small'])('shows the service choice on %s', (workflow) => {
+    expect(startAgent(agents, null, grok, workflow, workflows)).toBe('grok');
+  });
+
+  it.each(['planned', 'missing'])('falls back to Claude when the stage choice does not describe %s', (workflow) => {
+    expect(startAgent(agents, null, grok, workflow, workflows)).toBe('claude');
+  });
+
+  it.each<Starting | null>([
+    null,
+    { type: 'unavailable', problem: 'All agents are at their limits.' },
+    { type: 'provider', agent: 'unknown', model: null },
+  ])('falls back to Claude without an installed provider from the service (%j)', (starting) => {
+    expect(startAgent(agents, null, starting, 'default', workflows)).toBe('claude');
+  });
+
+  it('falls back to the first installed agent when Claude is missing', () => {
+    expect(startAgent(['codex', 'gemini'], null, null, 'default', workflows)).toBe('codex');
+    expect(startAgent(['codex', 'gemini'], null, grok, 'default', workflows)).toBe('codex');
+  });
+
+  it('shows no agent with nothing installed, even with a remembered choice', () => {
+    expect(startAgent([], null, grok, 'default', workflows)).toBeNull();
+    expect(startAgent([], 'grok', grok, 'default', workflows)).toBeNull();
   });
 });
 
