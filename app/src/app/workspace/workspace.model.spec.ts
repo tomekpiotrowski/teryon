@@ -9,7 +9,6 @@ import {
   FIRST_NEW_THREADS,
   firstStageChooses,
   pendingChoice,
-  pickingAgent,
   readNewThreads,
   startingChoice,
   modelLabel,
@@ -486,24 +485,12 @@ describe('choices', () => {
     expect(firstStageChooses(STAGE_DEFAULTS)).toBe(false);
   });
 
-  it('picks an agent chosen on Home, on the model remembered for it', () => {
-    const remembered = choosing(FIRST_NEW_THREADS, { agent: 'codex', model: 'gpt-6-astra' });
-    const picked = pickingAgent({ ...remembered, agent: 'claude', picked: false }, 'codex');
-    expect(picked).toEqual({ ...remembered, picked: true });
-    expect(startingChoice(picked)).toEqual({ agent: 'codex', model: 'gpt-6-astra' });
-  });
-
-  it('keeps the pick and remembered model when the same agent is chosen again', () => {
-    const picked = choosing(FIRST_NEW_THREADS, { agent: 'grok', model: 'grok-4.6' });
-    const pickedAgain = pickingAgent(picked, 'grok');
-    expect(pickedAgain).toEqual(picked);
-    expect(startingChoice(pickedAgain)).toEqual({ agent: 'grok', model: 'grok-4.6' });
-  });
-
-  it('moves the pick to another agent from Home or the menu', () => {
-    const codex = pickingAgent(FIRST_NEW_THREADS, 'codex');
-    expect(startingChoice(pickingAgent(codex, 'grok'))).toEqual({ agent: 'grok', model: null });
-    expect(startingChoice(choosing(codex, { agent: 'grok', model: null }))).toEqual({ agent: 'grok', model: null });
+  it('updates the selected agent’s model and keeps the previous agent’s model', () => {
+    const codex = choosing(FIRST_NEW_THREADS, { agent: 'codex', model: 'gpt-6-astra' });
+    const grok = choosing(codex, { agent: 'grok', model: 'grok-4.6' });
+    const defaultGrok = choosing(grok, { agent: 'grok', model: null });
+    expect(startingChoice(defaultGrok)).toEqual({ agent: 'grok', model: null });
+    expect(defaultGrok.models).toEqual({ ...FIRST_NEW_THREADS.models, codex: 'gpt-6-astra' });
   });
 
   it('reads what was remembered of the choice for new threads', () => {

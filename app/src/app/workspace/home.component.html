@@ -20,7 +20,7 @@
 
           <div class="home-options">
             <div class="home-chooser">
-              <button type="button" class="home-option" aria-haspopup="listbox" [attr.aria-expanded]="view.chooser === 'project'" (click)="toggleChooser('project')">
+              <button type="button" class="home-option" aria-haspopup="listbox" [attr.aria-expanded]="view.chooser === 'project'" (click)="toggleProjectChooser()">
                 {{ view.project?.name ?? 'No project' }}
                 <svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 4l2.5 2.5L7.5 4"></path></svg>
               </button>
@@ -33,15 +33,26 @@
               }
             </div>
             <span class="home-separator"></span>
-            <div class="home-chooser">
-              <button type="button" class="home-option home-agent" aria-haspopup="listbox" [attr.aria-expanded]="view.chooser === 'agent'" [disabled]="!view.agents.length" (click)="toggleChooser('agent')">
-                {{ view.agent ? agentLabel(view.agent) : 'No agent' }}
+            <div class="home-chooser home-agent-chooser" (keydown)="handleAgentKey($event, view)">
+              <button #agentButton type="button" class="home-option home-agent" aria-haspopup="listbox" [attr.aria-expanded]="view.choosingAgent" [disabled]="!view.agents.length" (click)="toggleAgentChooser(view.choosingAgent)">
+                <span>{{ view.choice ? choiceLabel(view.choice) : 'No agent' }}</span>
                 <svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 4l2.5 2.5L7.5 4"></path></svg>
               </button>
-              @if (view.chooser === 'agent') {
-                <div class="home-popover" role="listbox" aria-label="Agent">
-                  @for (agent of view.agents; track agent) {
-                    <button type="button" role="option" [attr.aria-selected]="agent === view.agent" (click)="chooseAgent(agent)">{{ agentLabel(agent) }}</button>
+              @if (view.choosingAgent) {
+                <div #agentOptions class="home-popover home-agent-popover">
+                  @if (view.modelOptions.length) {
+                    <button type="button" class="home-agent-back" tabindex="-1" (click)="showAgents()">‹ Agents</button>
+                    <div class="home-model-options" role="listbox" aria-label="Model">
+                      @for (choice of view.modelOptions; track choice.model) {
+                        <button type="button" role="option" tabindex="-1" [attr.aria-selected]="choice.model === view.selectedModel" [attr.title]="choice.model" (click)="chooseModel(choice)">{{ choice.model === null ? 'Default' : modelLabel(choice.model) }}</button>
+                      }
+                    </div>
+                  } @else {
+                    <div class="home-model-options" role="listbox" aria-label="Agent">
+                      @for (agent of view.agents; track agent) {
+                        <button type="button" role="option" tabindex="-1" [attr.aria-selected]="agent === view.choice?.agent" (click)="chooseAgent(agent, view.choices)">{{ agentLabel(agent) }}</button>
+                      }
+                    </div>
                   }
                 </div>
               }
@@ -96,7 +107,6 @@
     } @else {
       <span><kbd>↵</kbd>run</span>
     }
-    <span><kbd>&#64;</kbd>continue a thread</span>
     <button type="button" (click)="boardOpened.emit()"><kbd>b</kbd>board</button>
     <button type="button" (click)="historyOpened.emit()"><kbd>h</kbd>history</button>
     <span class="home-spacer"></span>

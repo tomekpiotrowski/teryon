@@ -59,6 +59,7 @@ import {
   pendingQuestions,
   threadLines,
   groupThreads,
+  NO_MODELS,
   NO_PLACE,
   NO_WORKFLOWS,
   NOTHING_SELECTED,
@@ -75,9 +76,7 @@ import {
   type Screen,
   screenAfter,
   type Selection,
-  type AgentName,
   seenNow,
-  pickingAgent,
   readNewThreads,
   startingChoice,
   isQuiet,
@@ -182,6 +181,8 @@ export class WorkspacePage implements OnDestroy {
   readonly coversThread = coversThread;
   readonly runningCount = runningCount;
   readonly installed$ = this.store.installed$;
+  readonly models$ = this.store.models$;
+  readonly emptyModels = NO_MODELS;
   readonly workflows$ = this.store.workflows$;
   readonly emptyWorkflows = NO_WORKFLOWS;
   readonly connectionText = connectionText;
@@ -192,11 +193,8 @@ export class WorkspacePage implements OnDestroy {
   /** The agent and model new threads start with, and the model remembered for each agent. */
   readonly newThreads$ = new BehaviorSubject<NewThreads>(readNewThreads(rememberedNewThreads()));
   private readonly remembering: Subscription = this.newThreads$.pipe(skip(1)).subscribe(rememberNewThreads);
-  /** The agent the person picked for new threads, on Home or in the menu. Nothing while the first stage chooses. */
-  readonly pickedAgent$: Observable<AgentName | null> = this.newThreads$.pipe(
-    map((newThreads) => (newThreads.picked ? newThreads.agent : null)),
-    distinctUntilChanged(),
-  );
+  /** The agent and model picked for new threads. Nothing while the first stage chooses. */
+  readonly pickedChoice$: Observable<Choice | null> = this.newThreads$.pipe(map(startingChoice));
   /** Who the default workflow's first stage chooses for new threads. */
   readonly starting$ = this.store.starting$;
   readonly menuOpen$ = new BehaviorSubject(false);
@@ -298,7 +296,7 @@ export class WorkspacePage implements OnDestroy {
     this.newThreads$,
     toObservable(this.theme.theme),
     this.store.opens$,
-    this.store.models$,
+    this.models$,
     this.target$,
     this.store.workflows$,
     combineLatest([this.pending$, this.putAway$]).pipe(map(([pending, putAway]) => pending !== null && pending.id === putAway)),
@@ -599,7 +597,7 @@ export class WorkspacePage implements OnDestroy {
       case 'removeProject':
         return void this.confirmRemoveProject(action.project);
       case 'useChoice':
-        return this.newThreads$.next(choosing(this.newThreads$.value, action.choice));
+        return this.chooseForNewThreads(action.choice);
       case 'useChoiceInThread':
         return this.changeAgent(action.thread, action.to, action.choice);
       case 'toggleTheme':
@@ -815,8 +813,8 @@ export class WorkspacePage implements OnDestroy {
   /**
    * Starts a thread from Home with its first message, and opens it.
    *
-   * The agent is the one picked for new threads, here or in the menu, or
-   * else the workflow's first stage chooses. What was typed stays in the
+   * The agent and model come from the Home or menu selection when present.
+   * Otherwise the workflow's first stage chooses. What was typed stays in the
    * message box until the message is sent, so a refusal loses nothing: if
    * the thread was made but the message was refused, it is in the new
    * thread's message box to send again.
@@ -842,9 +840,9 @@ export class WorkspacePage implements OnDestroy {
       });
   }
 
-  /** Uses the agent chosen on Home for new threads. */
-  chooseAgent(agent: AgentName): void {
-    this.newThreads$.next(pickingAgent(this.newThreads$.value, agent));
+  /** Uses the agent and model chosen on Home or in the command menu for new threads. */
+  chooseForNewThreads(choice: Choice): void {
+    this.newThreads$.next(choosing(this.newThreads$.value, choice));
   }
 
   /** Goes to Home: no thread open, every project's waiting threads and the prompt. */

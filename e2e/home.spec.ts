@@ -113,10 +113,10 @@ test("a thread starts with the agent chosen on Home", async ({ page }) => {
   await addProject(page, "Sample");
 
   await chooseAgent(page, "Grok");
-  await expect(agentChooser(page)).toHaveAccessibleName("Grok");
+  await expect(agentChooser(page)).toHaveAccessibleName("Grok · default");
   await chooseAgent(page, "Grok");
   await expect(agentChooser(page)).toHaveAttribute("aria-expanded", "false");
-  await expect(page.getByLabel("New thread")).toBeFocused();
+  await expect(agentChooser(page)).toBeFocused();
 
   await page.getByLabel("New thread").fill("use tools");
   await page.getByLabel("New thread").press("Enter");
@@ -137,7 +137,7 @@ test.describe("with Grok configured for the first stage", () => {
     const agent = agentChooser(page);
     const prompt = page.getByLabel("New thread");
     await expect(project).toBeVisible();
-    await expect(agent).toHaveAccessibleName("Grok");
+    await expect(agent).toHaveAccessibleName("Grok · default");
 
     await prompt.fill("use tools");
     await agent.click();
@@ -247,12 +247,28 @@ test("@ starts a new thread as ordinary text", async ({ page }) => {
   await expect(page.getByLabel("Thread", { exact: true }).getByText("@hello", { exact: true })).toBeVisible();
 });
 
-test("the agent chosen on Home is there the next time", async ({ page }) => {
+test("a model chosen with the keyboard on Home is there the next time", async ({ page }) => {
   await addProject(page, "Sample");
-  await chooseAgent(page, "Codex");
+  const agent = agentChooser(page);
+
+  await agent.press("Enter");
+  const agents = home(page).getByRole("listbox", { name: "Agent", exact: true });
+  await expect(agents.getByRole("option", { name: "Claude", exact: true })).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(agents.getByRole("option", { name: "Codex", exact: true })).toBeFocused();
+  await page.keyboard.press("Enter");
+
+  const models = home(page).getByRole("listbox", { name: "Model", exact: true });
+  await expect(models.getByRole("option", { name: "Default", exact: true })).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(models.getByRole("option", { name: "GPT 6 astra", exact: true })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(agent).toBeFocused();
+  await expect(agent).toHaveAccessibleName("Codex · GPT 6 astra");
+
   await page.reload();
   await expect(page.getByLabel("New thread")).toBeVisible();
-  await expect(agentChooser(page)).toHaveAccessibleName("Codex");
+  await expect(agent).toHaveAccessibleName("Codex · GPT 6 astra");
 });
 
 test("a project picked on Home is where the thread starts", async ({ page }) => {
@@ -279,19 +295,25 @@ test("Escape from a thread goes to Home", async ({ page }) => {
   await expect(home(page)).toBeVisible();
 });
 
-test("Home and the menu share the agent for new threads", async ({ page }) => {
+test("Home and the menu share the model for new threads", async ({ page }) => {
   await addProject(page, "Sample");
 
-  await chooseAgent(page, "Codex");
-  await expect(agentChooser(page)).toHaveAccessibleName("Codex");
+  await choose(page, "Use Grok · Grok 4\\.6 for new threads");
+  await expect(agentChooser(page)).toHaveAccessibleName("Grok · Grok 4.6");
 
-  await choose(page, "Use Grok · default for new threads");
-  await expect(agentChooser(page)).toHaveAccessibleName("Grok");
+  await chooseAgent(page, "Codex", "GPT 6 astra");
+  await expect(agentChooser(page)).toHaveAccessibleName("Codex · GPT 6 astra");
+  await expect(agentChooser(page)).toBeFocused();
 
-  // The thread starts on what Home shows.
+  await page.keyboard.press("Control+k");
+  await expect(menu(page).getByRole("option", { name: "Use Codex · GPT 6 sol for new threads", exact: true })).toBeVisible();
+  await expect(menu(page).getByRole("option", { name: "Use Codex · GPT 6 astra for new threads", exact: true })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+
   await page.getByLabel("New thread").fill("hello");
   await page.getByRole("button", { name: "Run ↵" }).click();
-  await expect(page.locator(".thread-meta").getByText("Grok")).toBeVisible();
+  await expect(page.locator(".thread-meta")).toContainText("Codex · GPT 6 astra");
+  await expect(page.getByText(/^Done in \d+s · GPT 6 astra ·/)).toBeVisible();
 });
 
 test("G then H goes home from the code, the history and the board", async ({ page }) => {

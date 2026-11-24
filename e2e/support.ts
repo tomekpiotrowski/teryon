@@ -121,15 +121,22 @@ export async function addProject(page: Page, name: string, prepare?: (directory:
   return directory;
 }
 
-/** The button that shows the agent selected for new threads on Home. */
+/** The button that shows the agent and model selected for new threads on Home. */
 export function agentChooser(page: Page): Locator {
   return page.locator("app-home .home-agent");
 }
 
-/** Selects an installed agent from Home's dropdown. */
-export async function chooseAgent(page: Page, agent: string): Promise<void> {
+/** Selects an agent and, when it has a model list, a model from Home's dropdown. */
+export async function chooseAgent(page: Page, agent: string, model = "Default"): Promise<void> {
   await agentChooser(page).click();
   await page.getByRole("listbox", { name: "Agent", exact: true }).getByRole("option", { name: agent, exact: true }).click();
+  const models = page.getByRole("listbox", { name: "Model", exact: true });
+  // An agent with only a default may already have been selected.
+  if (model === "Default") {
+    await expect(models.or(agentChooser(page).and(page.locator('[aria-expanded="false"]')))).toBeVisible();
+    if (!(await models.isVisible())) return;
+  }
+  await models.getByRole("option", { name: model, exact: true }).click();
 }
 
 /**

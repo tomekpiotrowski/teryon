@@ -6,7 +6,7 @@ import { BehaviorSubject, EMPTY, type Observable, of, Subject, throwError } from
 import { vi } from 'vitest';
 
 import { WorkspaceApi } from './workspace.api';
-import { choosing, FIRST_NEW_THREADS, NO_MODELS, NO_WORKFLOWS, type Change, type Opens, type Project, type Screen, type Thread, type ThreadEntry } from './workspace.model';
+import { type Choice, FIRST_NEW_THREADS, NO_MODELS, NO_WORKFLOWS, type Change, type Opens, type Project, type Screen, type Thread, type ThreadEntry } from './workspace.model';
 import { WorkspaceModule } from './workspace.module';
 import { WorkspacePage } from './workspace.page';
 import { WorkspaceStore } from './workspace.store';
@@ -82,6 +82,11 @@ describe('WorkspacePage', () => {
   let alerts: { error: ReturnType<typeof vi.fn> };
 
   beforeEach(() => {
+    const stored = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => stored.get(key) ?? null,
+      setItem: (key: string, value: string) => void stored.set(key, value),
+    });
     store = new StoreDouble();
     api = { markSeen: () => of(undefined), createThread: vi.fn(), sendMessage: vi.fn() };
     alerts = { error: vi.fn() };
@@ -98,7 +103,10 @@ describe('WorkspacePage', () => {
     page = TestBed.createComponent(WorkspacePage).componentInstance;
   });
 
-  afterEach(() => page.ngOnDestroy());
+  afterEach(() => {
+    page.ngOnDestroy();
+    vi.unstubAllGlobals();
+  });
 
   describe('Shortcuts', () => {
     it.each(['Escape', '?'])('opens with ? and closes with %s without leaving the screen', (key) => {
@@ -282,14 +290,15 @@ describe('WorkspacePage', () => {
       expect(page.sending$.value).toBe(false);
     });
 
-    it('starts on the agent picked, on the model remembered for it', () => {
+    it.each(['gpt-6-astra', null])('starts with the exact Home selection (%s)', (model) => {
       api.createThread.mockReturnValue(of(created));
       api.sendMessage.mockReturnValue(of({}));
-      page.newThreads$.next(choosing(FIRST_NEW_THREADS, { agent: 'codex', model: 'gpt-6-astra' }));
+      const choice = { agent: 'codex' as const, model };
+      page.chooseForNewThreads(choice);
 
       page.startThread(request);
 
-      expect(api.createThread).toHaveBeenCalledWith('p', { agent: 'codex', model: 'gpt-6-astra' }, 'small');
+      expect(api.createThread).toHaveBeenCalledWith('p', choice, 'small');
     });
 
     it('keeps the text and says so when the thread cannot be created', () => {
@@ -326,23 +335,26 @@ describe('WorkspacePage', () => {
     });
   });
 
-  describe('the agent for new threads', () => {
-    it('is shared by Home\'s dropdown and the menu\'s commands', () => {
-      const picked = () => {
-        let value: string | null = 'unset';
-        page.pickedAgent$.subscribe((agent) => (value = agent)).unsubscribe();
-        return value;
-      };
-      expect(picked()).toBeNull();
+  describe('the model for new threads', () => {
+    it('uses the same state for Home and menu choices and remembers each agent’s model', () => {
+      const picked = vi.fn();
+      const subscription = page.pickedChoice$.subscribe(picked);
+      expect(picked).toHaveBeenLastCalledWith(null);
 
-      page.chooseAgent('codex');
-      expect(picked()).toBe('codex');
+      const codex: Choice = { agent: 'codex', model: 'gpt-6-astra' };
+      page.chooseForNewThreads(codex);
+      expect(picked).toHaveBeenLastCalledWith(codex);
 
-      page.run({ id: 'x', title: 'x', detail: '', group: 'action', key: null, leader: null, live: false, asking: false, badge: '', action: { kind: 'useChoice', choice: { agent: 'grok', model: null } } });
-      expect(picked()).toBe('grok');
-
-      page.chooseAgent('grok');
-      expect(picked()).toBe('grok');
+      const grok: Choice = { agent: 'grok', model: 'grok-4.6' };
+      page.run({ id: 'x', title: 'x', detail: '', group: 'action', key: null, leader: null, live: false, asking: false, badge: '', action: { kind: 'useChoice', choice: grok } });
+      expect(picked).toHaveBeenLastCalledWith(grok);
+      expect(page.newThreads$.value).toEqual({
+        agent: 'grok',
+        models: { ...FIRST_NEW_THREADS.models, codex: codex.model, grok: grok.model },
+        picked: true,
+      });
+      expect(JSON.parse(localStorage.getItem('teryon.newThreads')!)).toEqual(page.newThreads$.value);
+      subscription.unsubscribe();
     });
   });
 

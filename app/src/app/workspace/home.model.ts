@@ -6,7 +6,7 @@
  * thread. Free of Angular so it can be tested on its own.
  */
 
-import { AGENTS, changeCard, defaultWorkflow, type AgentName, type Project, type ProjectGroup, type Starting, type Thread, type Workflows } from './workspace.model';
+import { AGENTS, changeCard, type Choice, choicesOf, type ModelLists, type Project, type ProjectGroup, type Starting, type Thread } from './workspace.model';
 
 /** The word at the right of a thread on Home, which is also the order of the list. */
 export type HomeWord = 'apply' | 'failed' | 'reply' | 'new';
@@ -140,42 +140,35 @@ export function startProject(projects: readonly Project[], choice: HomeChoice, o
 }
 
 /**
- * Lists the installed agents for Home.
+ * The choices on Home, in agent order, with each agent's default before its models.
  *
- * Teryon's standard order keeps the choices stable as the installed agents change.
+ * Only installed agents are offered, even when discovery has models for other agents.
  */
-export function agentOptions(installed: readonly string[]): AgentName[] {
-  return AGENTS.filter((agent) => installed.includes(agent));
+export function homeChoices(installed: readonly string[], models: ModelLists): Choice[] {
+  return AGENTS.filter((agent) => installed.includes(agent)).flatMap((agent) => choicesOf(agent, models));
 }
 
 /**
- * Chooses the agent name displayed on Home.
+ * The agent and model displayed on Home for the next thread.
  *
- * Showing the first stage's choice lets the person see which agent is due to
- * start without turning that choice into an override.
- *
- * The service reports a choice for the default workflow's first stage. Use it
- * for workflows that share that stage. Otherwise show Claude or the first
- * installed agent, while leaving the actual choice to the service.
+ * The person's pick takes precedence, even when its model is missing from discovery.
+ * Otherwise Home shows the service's choice for the default workflow's first
+ * stage. A fallback label leaves the actual choice to the service.
  */
-export function startAgent(
-  agents: readonly AgentName[],
-  picked: AgentName | null,
+export function startChoice(
+  choices: readonly Choice[],
+  picked: Choice | null,
   starting: Starting | null,
-  workflow: string,
-  workflows: Workflows,
-): AgentName | null {
-  if (!agents.length) return null;
+): Choice | null {
+  if (!choices.length) return null;
   if (picked) return picked;
 
-  const active = workflows.workflows.find((candidate) => candidate.name === workflow);
-  if (starting?.type === 'provider' && active &&
-      (active.stages[0] ?? 'talking') === (defaultWorkflow(workflows).stages[0] ?? 'talking')) {
-    const provider = agents.find((agent) => agent === starting.agent);
-    if (provider) return provider;
+  if (starting?.type === 'provider') {
+    const provider = choices.find((choice) => choice.agent === starting.agent);
+    if (provider) return { agent: provider.agent, model: starting.model };
   }
 
-  return agents.includes('claude') ? 'claude' : agents[0];
+  return choices.find((choice) => choice.agent === 'claude') ?? choices[0];
 }
 
 /** Reads what was remembered, ignoring anything that is not what this version writes. */

@@ -2704,7 +2704,28 @@ app-home {
 
 .home-popover button { border-radius: 5px; padding: 6px 10px !important; color: var(--t-soft) !important; }
 .home-popover button:hover,
+.home-popover button:focus-visible,
 .home-popover button[aria-selected='true'] { background: color-mix(in srgb, var(--t-blue) 12%, transparent) !important; color: var(--t-text) !important; }
+
+.home-agent-chooser { min-width: 0; }
+.home-agent { max-width: 100%; }
+.home-agent span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-agent svg { flex: none; }
+
+.home-agent-popover {
+  width: max-content;
+  max-width: min(24rem, 55vw);
+  max-height: min(22rem, 40dvh);
+  overflow-y: auto;
+}
+
+.home-model-options { display: flex; flex-direction: column; }
+.home-model-options button { overflow-wrap: anywhere; }
+.home-agent-popover .home-agent-back {
+  border-bottom: 1px solid var(--t-line);
+  border-radius: 5px 5px 0 0;
+  margin-bottom: 4px;
+}
 
 .home-run { display: flex; align-items: center; gap: 8px; color: var(--t-text) !important; }
 .home-option:disabled,

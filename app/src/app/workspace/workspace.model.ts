@@ -266,11 +266,6 @@ export function choosing(newThreads: NewThreads, choice: Choice): NewThreads {
   return { agent: choice.agent, models: { ...newThreads.models, [choice.agent]: choice.model }, picked: true };
 }
 
-/** Picks an agent for new threads on its remembered model. */
-export function pickingAgent(newThreads: NewThreads, agent: AgentName): NewThreads {
-  return choosing(newThreads, { agent, model: newThreads.models[agent] });
-}
-
 /** Reads what was remembered of the choice for new threads, ignoring anything this version does not write. */
 export function readNewThreads(stored: string | null): NewThreads {
   if (!stored) return FIRST_NEW_THREADS;

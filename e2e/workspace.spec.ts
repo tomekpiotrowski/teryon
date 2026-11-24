@@ -337,12 +337,12 @@ test("a thread can be started with Codex", async ({ page }) => {
 test("Codex models appear when searching from Codex default", async ({ page }) => {
   await addProject(page, "Sample");
   await chooseAgent(page, "Codex");
-  await expect(agentChooser(page)).toHaveAccessibleName("Codex");
+  await expect(agentChooser(page)).toHaveAccessibleName("Codex · default");
 
   await page.getByLabel("New thread").press("/");
   await page.getByRole("combobox", { name: "Search the menu" }).fill("codex");
   await menu(page).getByRole("option", { name: "Use Codex · GPT 6 astra for new threads", exact: true }).click();
-  await expect(agentChooser(page)).toHaveAccessibleName("Codex");
+  await expect(agentChooser(page)).toHaveAccessibleName("Codex · GPT 6 astra");
   await page.getByLabel("New thread").fill("hello");
   await page.getByRole("button", { name: "Run ↵" }).click();
   await expect(page.locator(".thread-meta")).toContainText("Codex · GPT 6 astra");
@@ -361,7 +361,7 @@ test("a thread runs on the model chosen for it, and each turn says which model r
   await page.keyboard.press("Escape");
 
   await choose(page, "Use Claude · Sonnet for new threads");
-  await expect(agentChooser(page)).toHaveAccessibleName("Claude");
+  await expect(agentChooser(page)).toHaveAccessibleName("Claude · Sonnet");
   await page.getByLabel("New thread").fill("hello");
   await page.getByRole("button", { name: "Run ↵" }).click();
 
@@ -408,7 +408,7 @@ test("a thread can be started with Gemini on a discovered model", async ({ page 
   await page.keyboard.press("Control+k");
   await expect(menu(page).getByRole("option", { name: /^Use Gemini · Gemini 4 neon high for new threads/ })).toBeVisible();
   await menu(page).getByRole("option", { name: /^Use Gemini · Gemini 4 neon high for new threads/ }).click();
-  await expect(agentChooser(page)).toHaveAccessibleName("Gemini");
+  await expect(agentChooser(page)).toHaveAccessibleName("Gemini · Gemini 4 neon high");
 
   await page.getByLabel("New thread").fill("use tools");
   await page.getByRole("button", { name: "Run ↵" }).click();
@@ -641,7 +641,7 @@ test("the keys and the menu start a new thread and show the running agents", asy
 
   // The agent for new threads is changed from the menu too.
   await choose(page, "Use Grok · default for new threads");
-  await expect(agentChooser(page)).toHaveAccessibleName("Grok");
+  await expect(agentChooser(page)).toHaveAccessibleName("Grok · default");
 });
 
 test("a thread whose agent stopped while it was out of sight waits to be looked at", async ({ page }) => {
