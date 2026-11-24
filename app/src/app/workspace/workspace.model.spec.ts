@@ -3,8 +3,6 @@ import { modelOptionForTest as model } from './model.testing';
 import {
   AGENTS,
   agentLabel,
-  headerName,
-  headerScope,
   allChoices,
   choiceLabel,
   choicesOf,
@@ -141,8 +139,8 @@ describe('resolveSelection', () => {
     [thread('t1', 'b', '2026-11-03T10:00:00')],
   );
 
-  it('shows the first project when nothing is selected', () => {
-    expect(resolveSelection(groups, NOTHING_SELECTED)).toEqual({ project: groups[0].project, thread: null });
+  it('shows no project when nothing is selected', () => {
+    expect(resolveSelection(groups, NOTHING_SELECTED)).toEqual({ project: null, thread: null });
   });
 
   it('shows the selected project', () => {
@@ -162,8 +160,8 @@ describe('resolveSelection', () => {
     });
   });
 
-  it('falls back to the first project when the selected one is gone', () => {
-    expect(resolveSelection(groups, { projectId: 'gone', threadId: null }).project?.id).toBe('a');
+  it('shows nothing when the selected project is gone', () => {
+    expect(resolveSelection(groups, { projectId: 'gone', threadId: null })).toEqual({ project: null, thread: null });
   });
 
   it('shows nothing when there are no projects', () => {
@@ -790,21 +788,6 @@ describe('isBareLetter', () => {
 
   it('is the letter pressed on a button', () => {
     expect(isBareLetter(press({ element: 'BUTTON' }), 'c')).toBe(true);
-  });
-});
-
-describe('workspace header', () => {
-  it('names the project, or all projects when there is none', () => {
-    expect(headerName('My project')).toBe('My project');
-    expect(headerName(null)).toBe('ALL PROJECTS');
-    expect(headerName(undefined)).toBe('ALL PROJECTS');
-    expect(headerName('')).toBe('ALL PROJECTS');
-  });
-
-  it('shows the thread label as the scope, or nothing with no thread open', () => {
-    expect(headerScope(null)).toBe('');
-    expect(headerScope({ ...thread('t', 'a', '2026-11-03T10:00:00'), title: 'Fix the parser' })).toBe('Fix the parser');
-    expect(headerScope(thread('t', 'a', '2026-11-03T10:00:00'))).toBe('New thread');
   });
 });
 

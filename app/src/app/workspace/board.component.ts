@@ -3,7 +3,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { BehaviorSubject, combineLatest, distinctUntilChanged, map, type Observable, shareReplay } from 'rxjs';
 import { type BoardColumn, type BoardCursor, type SeenFinish, boardColumns, cardAt, cursorOn, movedCursor, rememberedFinishes, settledCursor } from './board.model';
 import { WorkspaceStore } from './workspace.store';
-import { headerName, isQuiet, type Thread } from './workspace.model';
+import { isQuiet, type Thread } from './workspace.model';
 
 interface BoardView {
   readonly columns: readonly BoardColumn[];
@@ -84,7 +84,7 @@ export class BoardComponent implements OnDestroy {
         columns,
         cursor: cursor === null ? cursorOn(columns, startOn) : settledCursor(columns, cursor),
         everyProject: every,
-        heading: headerName(every ? null : projectName),
+        heading: every || !projectName ? 'ALL PROJECTS' : projectName,
         threads,
         quiet: scoped.filter(isQuiet).length,
       };

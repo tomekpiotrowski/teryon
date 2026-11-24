@@ -652,14 +652,12 @@ test("the menu lists threads, projects and actions, and typing narrows them", as
 test("the keys and the menu start a new thread and show the running agents", async ({ page }) => {
   await addProject(page, "Sample");
   await startThread(page, "be slow");
-  await expect(page.locator(".top-bar")).toContainText("1 running");
 
   // The menu marks the thread an agent is working in, and can stop it.
   await page.keyboard.press("Control+k");
   await expect(menu(page).getByRole("option", { name: /^be slow/ })).toContainText("running");
   await menu(page).getByRole("option", { name: /^Stop the agent/ }).click();
   await expect(page.getByText("Stopped by you.")).toBeVisible();
-  await expect(page.locator(".top-bar")).not.toContainText("running");
 
   // N starts a new thread in the same project.
   await page.getByLabel("Reply").press("Escape");
@@ -688,15 +686,14 @@ test("a thread whose agent stopped while it was out of sight waits to be looked 
   await page.keyboard.press("Escape");
   await expect(menu(page)).toHaveCount(0);
 
-  // A new thread is not the one waiting, so the bar still names it.
+  // A new thread is not the one waiting. Home lists the one that is.
   await page.keyboard.press("n");
-  await expect(page.getByRole("button", { name: "1 need you" })).toBeVisible();
+  await expect(page.locator("app-home").getByRole("listitem").filter({ hasText: "be slow" })).toBeVisible();
 
   // Opening it is looking at it.
   await page.keyboard.press("Control+k");
   await menu(page).getByRole("option", { name: /^be slow/ }).click();
   await expect(page.getByText("Stopped by you.")).toBeVisible();
-  await expect(page.getByRole("button", { name: /need you$/ })).toHaveCount(0);
   await page.keyboard.press("Control+k");
   await expect(menu(page).locator(".menu-heading").first()).toHaveText("Threads");
 });
@@ -744,7 +741,6 @@ test("an agent's questions are answered with number keys, and the answers go to 
   await expect
     .poll(() => readFileSync(join(directory, ".fake-agent-invocations"), "utf8"))
     .toContain("Answers to your questions: 1. Where should answers be kept? → On the record 2. Which screens should show it? → Window title, Notification");
-  await expect(page.getByRole("button", { name: /need you$/ })).toHaveCount(0);
 });
 
 test("own words still in their field are sent by the button", async ({ page }) => {

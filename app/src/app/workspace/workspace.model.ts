@@ -668,8 +668,9 @@ export function groupThreads(projects: readonly Project[], threads: readonly Thr
  * Finds what the selection points at.
  *
  * A selection can outlive what it names, because a project or thread can be
- * removed elsewhere. With nothing valid selected the first project is shown,
- * so the screen is never empty while there is something to show.
+ * removed elsewhere. The project is the open thread's project, or the one
+ * explicitly selected, or nothing. Home selects nothing, so it is not tied
+ * to a project: the files and the history are what select one.
  */
 export function resolveSelection(
   groups: readonly ProjectGroup[],
@@ -678,8 +679,8 @@ export function resolveSelection(
   const threads = groups.flatMap((group) => group.threads);
   const thread = threads.find((candidate) => candidate.id === selection.threadId) ?? null;
   const projectId = thread?.project_id ?? selection.projectId;
-  const group = groups.find((candidate) => candidate.project.id === projectId) ?? groups[0];
-  return { project: group?.project ?? null, thread };
+  const project = groups.find((candidate) => candidate.project.id === projectId)?.project ?? null;
+  return { project, thread };
 }
 
 /**
@@ -957,27 +958,6 @@ function presentCopy(projectId: string, thread: Thread | null): Change | null {
   const change = thread.change;
   if (!change || change.state?.copy_present === false) return null;
   return change;
-}
-
-/**
- * The mark in the top-left corner: the project's name, or `ALL PROJECTS`.
- *
- * The corner always says what the screen covers, never the product's name.
- * Screens across every project, and those belonging to none, pass nothing.
- *
- * Styles show the mark in uppercase; the name stays as typed.
- */
-export function headerName(projectName: string | null | undefined): string {
-  return projectName || 'ALL PROJECTS';
-}
-
-/**
- * The part of the workspace shown beside its mark: the open thread's label.
- *
- * Empty with no thread open, since the mark already says what the screen covers.
- */
-export function headerScope(thread: Thread | null): string {
-  return thread ? threadLabel(thread) : '';
 }
 
 /** How many agents are working, across every project. */

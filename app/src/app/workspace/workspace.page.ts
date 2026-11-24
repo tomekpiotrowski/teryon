@@ -42,8 +42,6 @@ import { UsageComponent } from './usage.component';
 import { WorkspaceApi } from './workspace.api';
 import {
   agentLabel,
-  headerName,
-  headerScope,
   coversThread,
   type Choice,
   allowedThreadAgents,
@@ -132,13 +130,13 @@ interface WorkspaceView {
   readonly thread: Thread | null;
   readonly lines: readonly EntryLine[];
   readonly running: boolean;
-  /** How many agents are running in the selected project. */
+  /** How many agents are running in the open project. */
   readonly liveAgents: number;
-  /** How many threads need the person, for the bar and Home. */
+  /** How many threads need the person, across every project, for Home. */
   readonly needing: number;
-  /** The selected project's threads, for the history to name where a commit came from. */
+  /** The open project's threads, for the history to name where a commit came from. */
   readonly projectThreads: readonly Thread[];
-  /** The part of the selected project's repository the files and the history show. */
+  /** The part of the open project's repository the files and the history show. */
   readonly place: Place;
   /** The project directory and, when the open thread has a copy, that copy. Citations resolve against them. */
   readonly roots: readonly string[];
@@ -187,14 +185,11 @@ export class WorkspacePage implements OnDestroy {
   private readonly host: ElementRef<HTMLElement> = inject(ElementRef);
 
   readonly threadLabel = threadLabel;
-  readonly headerName = headerName;
-  readonly headerScope = headerScope;
   readonly agentLabel = agentLabel;
   readonly allowedThreadAgents = allowedThreadAgents;
   readonly firstNewThreads = FIRST_NEW_THREADS;
   readonly threadChoice = threadChoice;
   readonly coversThread = coversThread;
-  readonly runningCount = runningCount;
   readonly installed$ = this.store.installed$;
   readonly models$ = this.store.models$;
   readonly emptyModels = NO_MODELS;
@@ -204,6 +199,8 @@ export class WorkspacePage implements OnDestroy {
   readonly offersRestart = offersRestart;
 
   readonly selection$ = new BehaviorSubject<Selection>(NOTHING_SELECTED);
+  /** The project the menu picked for Home's prompt. Separate from the open project, which Home does not have. */
+  readonly promptProject$ = new BehaviorSubject<Project | null>(null);
   readonly draft$ = new BehaviorSubject('');
   /** The card open on Home. Separate from the thread open on its own screen. */
   readonly homeThreadId$ = new BehaviorSubject<string | null>(null);
@@ -234,7 +231,7 @@ export class WorkspacePage implements OnDestroy {
   readonly to$ = new BehaviorSubject<Voice>('author');
   /** True while a request is on its way, so a second press does not send it twice. */
   readonly sending$ = new BehaviorSubject(false);
-  /** Whether the selected project's threads, files or history fill the screen. */
+  /** Which screen fills the workspace. Home and a thread are both `thread`. */
   readonly screen$ = new BehaviorSubject<Screen>('thread');
   /** Whether the board shows every project's threads rather than the open project's. */
   readonly boardEvery$ = new BehaviorSubject(false);
@@ -536,9 +533,16 @@ export class WorkspacePage implements OnDestroy {
     this.store.start();
   }
 
-  /** Drops a citation once the code is left, whichever way the person left it. */
-  private readonly leavingCode: Subscription = this.screen$.pipe(distinctUntilChanged(), pairwise()).subscribe(([before, after]) => {
+  /**
+   * Drops a citation once the code is left, and drops a project kept only so the files or the history could open.
+   *
+   * Home names no project. A card's project is kept while the files, the
+   * history or the plan of that card are open, and let go on the way back,
+   * so those screens are offered only for an expanded card.
+   */
+  private readonly leavingScreen: Subscription = this.screen$.pipe(distinctUntilChanged(), pairwise()).subscribe(([before, after]) => {
     if (before === 'files' && after !== 'files') this.citation$.next(null);
+    if (after === 'thread' && !this.selection$.value.threadId && this.selection$.value.projectId) this.selection$.next(NOTHING_SELECTED);
   });
 
   ngOnDestroy(): void {
@@ -548,7 +552,7 @@ export class WorkspacePage implements OnDestroy {
     this.typing.unsubscribe();
     this.seeing.unsubscribe();
     this.listed.unsubscribe();
-    this.leavingCode.unsubscribe();
+    this.leavingScreen.unsubscribe();
     clearTimeout(this.highlightTimer);
   }
 
@@ -675,9 +679,7 @@ export class WorkspacePage implements OnDestroy {
         return this.openThread(action.thread);
       case 'openProject':
         // A new thread is started from the prompt, so the card that was open is closed.
-        this.homeThreadId$.next(null);
-        this.selectProject(action.project);
-        return this.screen$.next('thread');
+        return this.usePromptProject(action.project);
       case 'showHome':
         return this.openHome();
       case 'showBoard':
@@ -686,6 +688,7 @@ export class WorkspacePage implements OnDestroy {
         return this.chooseWorkflow(action.thread, action.workflow);
       case 'showScreen':
         if (action.screen === 'files') return this.showCode();
+        if (action.screen === 'history') return this.showHistory();
         if (action.screen === 'plan') {
           this.keepHomeProject();
           return this.screen$.next(screenAfter(this.screen$.value, 'plan'));
@@ -807,6 +810,7 @@ export class WorkspacePage implements OnDestroy {
    */
   showCode(): void {
     if (this.screen$.value === 'thread') {
+      this.keepHomeProject();
       this.selected$.pipe(take(1)).subscribe(({ groups, project, thread }) => {
         const active = thread ?? groups.flatMap((group) => group.threads).find((candidate) => candidate.id === this.homeThreadId$.value) ?? null;
         const owner = active ? groups.find((group) => group.project.id === active.project_id)?.project ?? project : project;
@@ -814,6 +818,22 @@ export class WorkspacePage implements OnDestroy {
       });
     }
     this.screen$.next(screenAfter(this.screen$.value, 'files'));
+  }
+
+  /**
+   * Shows the history, or goes back when it is already shown.
+   *
+   * From Home the history is the expanded card's project, kept before the
+   * screen changes so the history has a project to open.
+   */
+  showHistory(): void {
+    this.keepHomeProject();
+    this.screen$.next(screenAfter(this.screen$.value, 'history'));
+  }
+
+  /** The name of a thread's project, for the plan screen's own header. */
+  projectLabel(thread: Thread | null, groups: readonly ProjectGroup[]): string {
+    return groups.find((group) => group.project.id === thread?.project_id)?.project.name ?? '';
   }
 
   /** Opens the files on what a thread's agent changed. */
@@ -1048,12 +1068,24 @@ export class WorkspacePage implements OnDestroy {
     this.newThreads$.next(choosingAutomatic(this.newThreads$.value));
   }
 
-  /** Goes to Home: no thread open, every project's waiting threads and the prompt. */
+  /** Goes to Home: no project and no thread open, every project's waiting threads and the prompt. */
   openHome(): void {
     this.leader$.next(null);
-    this.selection$.next({ projectId: this.selection$.value.projectId, threadId: null });
+    this.selection$.next(NOTHING_SELECTED);
     this.draft$.next('');
     this.screen$.next('thread');
+  }
+
+  /**
+   * Points Home's prompt at a project and shows Home.
+   *
+   * The project is not opened. Home has no open project; the pick only
+   * decides where the next thread starts, and Home remembers it.
+   */
+  private usePromptProject(project: Project): void {
+    this.homeThreadId$.next(null);
+    this.promptProject$.next({ ...project });
+    this.openHome();
   }
 
   stop(thread: Thread): void {
@@ -1215,12 +1247,11 @@ export class WorkspacePage implements OnDestroy {
     });
   }
 
-  /** Adds a project and opens it. A refused one leaves the menu open, to be corrected. */
+  /** Adds a project and points Home's prompt at it. A refused one leaves the menu open, to be corrected. */
   addProject({ name, directory }: NewProject): void {
     this.api.createProject(name, directory).subscribe({
       next: (project) => {
-        this.selectProject(project);
-        this.screen$.next('thread');
+        this.usePromptProject(project);
         this.closeMenu();
       },
       error: (failure: unknown) => this.alerts.error(refusalText(failure, 'The project could not be added.')),

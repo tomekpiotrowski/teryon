@@ -86,7 +86,7 @@ function scene(threads: Thread[] = [], inputs: SceneInputs = {}): Scene {
   home.starting = inputs.starting === undefined ? { type: 'provider', agent: 'claude', model: null, effort: null } : inputs.starting;
   home.models = inputs.models ?? NO_MODELS;
   home.pickedChoice = inputs.pickedChoice ?? null;
-  home.project = project('a');
+  home.project = null;
   if (inputs.text !== undefined) home.text = inputs.text;
   fixture.detectChanges();
   return { fixture, element: fixture.nativeElement as HTMLElement, started, opened, texts, chosen, automatic: () => automatic };
@@ -289,7 +289,7 @@ describe('HomeComponent', () => {
       expect(button(home, 'Run').disabled).toBe(true);
     });
 
-    it('asks to start in the open project on the default workflow', () => {
+    it('asks to start in the first project when nothing was chosen', () => {
       const home = scene();
       type(home, ' Fix the parser ');
       key(home, prompt(home), 'Enter');
@@ -406,6 +406,27 @@ describe('HomeComponent', () => {
       type(home, 'hello');
       key(home, prompt(home), 'Enter');
       expect(home.started).toEqual([]);
+    });
+
+    it('shows the history key only while a card is open', () => {
+      const home = scene([thread({ id: 'w', asking: true, title: 'Fix it' })]);
+      const keys = () => home.element.querySelector('.home-keys')?.textContent ?? '';
+      expect(keys()).not.toContain('history');
+      rows(home)[0].querySelector('button')?.click();
+      home.fixture.detectChanges();
+      expect(keys()).toContain('history');
+    });
+
+    it('shows the project picked from the menu and remembers it', () => {
+      const home = scene();
+      expect(button(home, 'Project a')).toBeTruthy();
+      home.fixture.componentInstance.project = project('b');
+      home.fixture.detectChanges();
+      expect(button(home, 'Project b')).toBeTruthy();
+      expect(JSON.parse(localStorage.getItem('teryon.home')!).projectId).toBe('b');
+      type(home, 'hello');
+      key(home, prompt(home), 'Enter');
+      expect(home.started[0].projectId).toBe('b');
     });
 
     it('remembers the project and ignores an old workflow choice', () => {

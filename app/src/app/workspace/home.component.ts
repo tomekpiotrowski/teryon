@@ -128,7 +128,8 @@ export class HomeComponent implements AfterViewChecked, OnDestroy {
   private readonly picked$ = new BehaviorSubject<Choice | null>(null);
   private readonly models$ = new BehaviorSubject<ModelLists>(NO_MODELS);
   private readonly rememberedAgents$ = new BehaviorSubject<NewThreads>(FIRST_NEW_THREADS);
-  private readonly open$ = new BehaviorSubject<Project | null>(null);
+  /** The project the menu picked for the next thread. Nothing until it picks one. */
+  private readonly menuProject$ = new BehaviorSubject<Project | null>(null);
   private readonly sending$ = new BehaviorSubject(false);
   private readonly text$ = new BehaviorSubject('');
   private readonly choice$ = new BehaviorSubject<HomeChoice>(this.remembered());
@@ -180,9 +181,15 @@ export class HomeComponent implements AfterViewChecked, OnDestroy {
     this.rememberedAgents$.next(remembered);
   }
 
-  /** The project open before Home, which a new thread starts in until the person picks another. */
+  /**
+   * The project the menu picked for the next thread.
+   *
+   * Remembered at once, so the dropdown and the menu name the same project.
+   * Nothing leaves the remembered choice, or the first project, as it was.
+   */
   @Input() set project(project: Project | null) {
-    this.open$.next(project);
+    this.menuProject$.next(project);
+    if (project && project.id !== this.choice$.value.projectId) this.remember({ projectId: project.id });
   }
 
   /**
@@ -260,15 +267,15 @@ export class HomeComponent implements AfterViewChecked, OnDestroy {
     this.workflows$,
     this.starting$,
     this.picked$,
-    this.open$,
+    this.menuProject$,
     this.choice$,
   ]).pipe(
-    map(([groups, installed, models, workflows, starting, picked, open, choice]) => {
+    map(([groups, installed, models, workflows, starting, picked, menuProject, choice]) => {
       const projects = groups.map((group) => group.project);
       return {
         queue: homeQueue(groups, workflows),
         projects,
-        project: startProject(projects, choice, open),
+        project: startProject(projects, choice, menuProject),
         installed,
         models,
         agent: homeAgentState(installed, models, workflows, picked, starting),
@@ -452,7 +459,7 @@ export class HomeComponent implements AfterViewChecked, OnDestroy {
     const text = this.text$.value.trim();
     if (!text || this.sending$.value) return;
     const projects = this.groups$.value.map((group) => group.project);
-    const project = startProject(projects, this.choice$.value, this.open$.value);
+    const project = startProject(projects, this.choice$.value, this.menuProject$.value);
     if (!project) return;
     const workflows = this.workflows$.value;
     const { sendChoice } = homeAgentState(this.installed$.value, this.models$.value, workflows, this.picked$.value, this.starting$.value);

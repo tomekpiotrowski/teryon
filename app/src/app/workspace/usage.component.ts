@@ -17,7 +17,7 @@ import {
   withLine,
 } from './usage.model';
 import { WorkspaceApi } from './workspace.api';
-import { type AgentName, agentLabel, headerName, refusalText } from './workspace.model';
+import { type AgentName, agentLabel, refusalText } from './workspace.model';
 
 /** How often the times on the screen ("as of 12 minutes ago", "resets in 2h") are worked out again. */
 const CLOCK_EVERY = 60_000;
@@ -64,7 +64,8 @@ interface UsageView {
   standalone: false,
 })
 export class UsageComponent {
-  readonly projectName = headerName(null);
+  /** The mark in this screen's header. Usage covers every project. */
+  readonly projectName = 'ALL PROJECTS';
   @Output() readonly closed = new EventEmitter<void>();
   @Output() readonly menuOpened = new EventEmitter<void>();
   @Output() readonly shortcutsOpened = new EventEmitter<void>();

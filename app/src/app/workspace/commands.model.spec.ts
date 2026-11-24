@@ -115,6 +115,23 @@ describe('commandList', () => {
     expect(keyHint(commands.find((command) => command.id === 'action:shortcuts')!)).toBe('?');
   });
 
+  it('on Home with no card has no files or history, and the board is every project', () => {
+    const commands = commandList(situation({ groups }));
+    expect(commands.find((command) => command.id === 'action:files')).toBeUndefined();
+    expect(commands.find((command) => command.id === 'action:history')).toBeUndefined();
+    expect(commands.find((command) => command.id === 'action:board')).toMatchObject({
+      detail: 'every project',
+      action: { kind: 'showBoard', everyProject: true },
+    });
+    expect(commands.find((command) => command.id === 'action:boardEvery')).toBeUndefined();
+  });
+
+  it('on Home with a card names files and history after that card’s project', () => {
+    const commands = commandList(situation({ groups, project: second, thread: newest }));
+    expect(commands.find((command) => command.id === 'action:files')).toMatchObject({ detail: 'Website', key: 'c' });
+    expect(commands.find((command) => command.id === 'action:history')).toMatchObject({ detail: 'Website', key: 'h' });
+  });
+
   it('offers only what needs no project when there is none', () => {
     expect(ids(commandList(situation()))).toEqual([
       'action:home',

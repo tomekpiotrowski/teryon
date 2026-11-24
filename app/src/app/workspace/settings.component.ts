@@ -28,7 +28,7 @@ import {
   withoutWorkflow,
 } from './settings.model';
 import { WorkspaceApi } from './workspace.api';
-import { headerName, type AgentName, isEffort, refusalText } from './workspace.model';
+import { type AgentName, isEffort, refusalText } from './workspace.model';
 import { WorkspaceStore } from './workspace.store';
 
 /** The draft on screen, the last one the service confirmed, and why the last save was refused. */
@@ -56,7 +56,8 @@ const EMPTY_EDITOR: EditorState = { draft: null, saved: null, problem: null, sav
   standalone: false,
 })
 export class SettingsComponent {
-  readonly projectName = headerName(null);
+  /** The mark in this screen's header. Settings cover every project. */
+  readonly projectName = 'ALL PROJECTS';
   @Output() readonly closed = new EventEmitter<void>();
   @Output() readonly menuOpened = new EventEmitter<void>();
   @Output() readonly shortcutsOpened = new EventEmitter<void>();

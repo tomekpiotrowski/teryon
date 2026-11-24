@@ -48,8 +48,7 @@ test("with nothing waiting Home says so and offers only the prompt", async ({ pa
 
   await expect(home(page).getByText("Nothing needs you.")).toBeVisible();
   await expect(waiting(page)).toHaveCount(0);
-  await expect(page.locator(".top-bar")).toContainText("all projects");
-  await expect(page.getByRole("button", { name: /need you$/ })).toHaveCount(0);
+  await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toHaveText(">");
   await expect(page.getByLabel("New thread")).toHaveAttribute("placeholder", "Start a thread");
 });
 
@@ -265,7 +264,6 @@ test("a thread whose agent asks questions waits as a reply, and leaves the count
 
   const row = waiting(page).getByRole("listitem").filter({ hasText: /please ask questions/ });
   await expect(row).toHaveAttribute("data-section", "waiting");
-  await expect(page.getByRole("button", { name: "1 need you" })).toBeVisible();
 
   await row.locator(".home-card-compact").click();
   await expect(home(page)).toBeVisible();

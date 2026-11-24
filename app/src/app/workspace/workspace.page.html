@@ -10,7 +10,7 @@
         } @else if (screen === 'usage') {
           <app-usage (closed)="screen$.next('thread')" (menuOpened)="openMenu()" (shortcutsOpened)="openShortcuts()"></app-usage>
         } @else if (screen === 'plan') {
-          <app-plan [projectName]="headerName(view.project?.name)" [thread]="(activeThread$ | async) ?? view.thread" [roots]="(activeRoots$ | async) ?? view.roots" (menuOpened)="openMenu()" (shortcutsOpened)="openShortcuts()"></app-plan>
+          <app-plan [projectName]="projectLabel((activeThread$ | async) ?? view.thread, view.groups)" [thread]="(activeThread$ | async) ?? view.thread" [roots]="(activeRoots$ | async) ?? view.roots" (menuOpened)="openMenu()" (shortcutsOpened)="openShortcuts()"></app-plan>
         } @else if (screen === 'board') {
           <app-board
             [project]="view.project"
@@ -59,16 +59,18 @@
         </div>
       }
       <div class="workspace-shell" [class.workspace-covered]="covered" [inert]="covered">
-        <app-top-bar
-          [projectName]="headerName(view.project?.name)"
-          [scope]="headerScope(view.thread)"
-          [running]="runningCount(view.groups)"
-          [waiting]="view.needing"
-          [leader]="leader$ | async"
-          (menuOpened)="openMenu()"
-          (homeOpened)="openHome()"
-          (settingsOpened)="screen$.next('settings')"
-        ></app-top-bar>
+        <nav class="crumbs" aria-label="Breadcrumb">
+          <button type="button" (click)="openHome()">></button>
+          @if (view.thread) {
+            <span class="crumb-project">{{ view.project?.name }}</span>
+            <span class="crumb-sep" aria-hidden="true">›</span>
+            <span class="crumb-thread">{{ threadLabel(view.thread) }}</span>
+          }
+          <span class="crumb-spacer"></span>
+          @if (leader$ | async; as leader) {
+            <span class="crumb-leader" role="status">{{ leader.toUpperCase() }} …</span>
+          }
+        </nav>
 
         <div class="workspace-body">
           <main class="project-view">
@@ -82,9 +84,9 @@
                   }
                 </div>
               </section>
-            } @else if (!view.project) {
+            } @else if (view.groups.length === 0) {
               <section class="empty-project">
-                <p class="empty-workspace">Add a project to get started. A project is a directory on this machine that agents work in. Press <kbd>/</kbd> or the menu button and choose New project.</p>
+                <p class="empty-workspace">Add a project to get started. A project is a directory on this machine that agents work in. Press <kbd>/</kbd> and choose New project.</p>
               </section>
             } @else if (!view.thread) {
               <app-home
@@ -95,7 +97,7 @@
                 [models]="(models$ | async) ?? emptyModels"
                 [pickedChoice]="pickedChoice$ | async"
                 [rememberedAgents]="(newThreads$ | async) ?? firstNewThreads"
-                [project]="view.project"
+                [project]="(promptProject$ | async) ?? null"
                 [sending]="(sending$ | async) ?? false"
                 [text]="(draft$ | async) ?? ''"
                 [expandedId]="homeThreadId$ | async"
@@ -122,7 +124,7 @@
                 (linesChange)="homeLines$.next($event)"
                 (sourceOpened)="openSourceThread($event)"
                 (boardOpened)="showBoard(true)"
-                (historyOpened)="screen$.next('history')"
+                (historyOpened)="showHistory()"
                 (menuOpened)="openMenu()"
                 (shortcutsOpened)="openShortcuts()"
               ></app-home>

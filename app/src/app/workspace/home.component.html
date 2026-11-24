@@ -78,7 +78,9 @@
       <span><kbd>↵</kbd>run</span>
     }
     <button type="button" (click)="boardOpened.emit()"><kbd>b</kbd>board</button>
-    <button type="button" (click)="historyOpened.emit()"><kbd>h</kbd>history</button>
+    @if (view.expandedId) {
+      <button type="button" (click)="historyOpened.emit()"><kbd>h</kbd>history</button>
+    }
     <span class="home-spacer"></span>
     <button type="button" (click)="menuOpened.emit()"><kbd>/</kbd>menu</button>
     <button type="button" class="code-link shortcuts-link" aria-keyshortcuts="?" (click)="shortcutsOpened.emit()"><kbd>?</kbd>all shortcuts</button>

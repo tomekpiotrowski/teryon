@@ -70,7 +70,7 @@
 }
 
 :root[data-theme='dark'] {
-  /* The unified look of the new designs: Home and the top bar use these; other screens move over one at a time. */
+  /* The unified look of the new designs: Home and the breadcrumb use these; other screens move over one at a time. */
   --t-bg: #161719;
   --t-surface: #1a1b1e;
   --t-raised: #1f2023;
@@ -2576,15 +2576,15 @@ ion-alert {
 .change-strip .plan-action { --tone: var(--color-accent-700); }
 
 /* ------------------------------------------------------------------ */
-/* The top bar and Home, in the look of the new designs.               */
+/* The breadcrumb and Home, in the look of the new designs.            */
 /* ------------------------------------------------------------------ */
 
-.top-bar {
+.crumbs {
   display: flex;
   height: 52px;
   flex: none;
   align-items: center;
-  gap: 16px;
+  gap: 10px;
   border-bottom: 1px solid var(--t-line);
   padding: 0 20px;
   background: var(--t-bg);
@@ -2592,31 +2592,16 @@ ion-alert {
   font: 400 13px/1.4 var(--t-font);
 }
 
-.top-bar button { border: 0; padding: 0; cursor: pointer; background: transparent; color: inherit; }
-
-.top-icon {
-  display: grid;
-  width: 28px;
-  height: 28px;
-  place-items: center;
-  color: var(--t-dim) !important;
-}
-
-.top-icon:hover { color: var(--t-text) !important; }
-.top-icon svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.4; }
-
-.top-mark { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 13px/1 var(--t-mono); letter-spacing: 0.24em; text-transform: uppercase; }
-.top-scope { min-width: 0; overflow: hidden; color: var(--t-dim); text-overflow: ellipsis; white-space: nowrap; }
-.top-spacer { flex: 1; }
-.top-leader { color: var(--t-blue); font: 400 11.5px/1 var(--t-mono); }
-
-.top-count { display: flex; flex: none; align-items: center; gap: 8px; font-size: 12px; }
-.top-running { color: var(--t-blue); }
-.top-waiting { color: var(--t-amber) !important; }
-.top-dot { width: 6px; height: 6px; flex: none; border-radius: 50%; background: currentColor; }
+.crumbs button { font: 500 14px/1 var(--t-mono); color: var(--t-dim); }
+.crumbs button:hover { color: var(--t-text); }
+.crumb-project,
+.crumb-thread { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crumb-project,
+.crumb-sep { color: var(--t-dim); }
+.crumb-spacer { flex: 1; }
+.crumb-leader { color: var(--t-blue); font: 400 11.5px/1 var(--t-mono); }
 
 @keyframes top-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-.top-pulse { animation: top-pulse 1.6s ease-in-out infinite; }
 
 app-home {
   display: flex;

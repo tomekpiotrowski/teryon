@@ -1,4 +1,4 @@
-import { TestBed } from '@angular/core/testing';
+import { type ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { AlertController } from '@ionic/angular/alert-controller';
 import { ErnoAlertsService } from 'erno-angular';
@@ -572,7 +572,8 @@ describe('WorkspacePage', () => {
 
       page.run(started!);
 
-      expect(page.selection$.value).toEqual({ projectId: project.id, threadId: null });
+      expect(page.selection$.value).toEqual({ projectId: null, threadId: null });
+      expect(page.promptProject$.value?.id).toBe(project.id);
       expect(page.homeThreadId$.value).toBeNull();
       expect(page.screen$.value).toBe('thread');
       commands.unsubscribe();
@@ -613,6 +614,27 @@ describe('WorkspacePage', () => {
       expect(api.catchUp).toHaveBeenCalledWith(planned.id);
       expect(page.draft$.value).toBe('');
       expect(page.cardNote$.value?.text).toContain('newer work');
+    });
+
+    it('opens the history and the code of the expanded card’s project', () => {
+      const other: Project = { id: 'q', name: 'Other', directory: '/other', created_at: '2026-11-01T10:00:00' };
+      const cardThread = { ...changed('t2', 'card-fix', 'card-fix'), project_id: 'q' };
+      store.projects$.next([project, other]);
+      store.threads$.next([cardThread]);
+      page.homeThreadId$.next('t2');
+
+      page.showHistory();
+
+      expect(page.screen$.value).toBe('history');
+      expect(page.selection$.value).toEqual({ projectId: 'q', threadId: null });
+
+      page.screen$.next('thread');
+      expect(page.selection$.value).toEqual({ projectId: null, threadId: null });
+
+      page.showCode();
+      expect(page.screen$.value).toBe('files');
+      expect(page.selection$.value).toEqual({ projectId: 'q', threadId: null });
+      expect(page.place$.value).toEqual({ projectId: 'q', threadId: 't2', branch: 'card-fix', commit: null });
     });
 
     it('does not mark the card read just because Home is showing it', () => {
@@ -771,5 +793,86 @@ describe('WorkspacePage', () => {
       expect(alertController.create.mock.calls[0][0].header).toBe('Send for review on GitHub');
       expect(present).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+describe('the breadcrumb', () => {
+  let fixture: ComponentFixture<WorkspacePage>;
+  let page: WorkspacePage;
+  let store: StoreDouble;
+
+  beforeEach(() => {
+    const stored = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => stored.get(key) ?? null,
+      setItem: (key: string, value: string) => void stored.set(key, value),
+    });
+    store = new StoreDouble();
+    store.projects$.next([project]);
+    TestBed.configureTestingModule({
+      imports: [WorkspaceModule],
+      providers: [
+        provideRouter([]),
+        { provide: WorkspaceStore, useValue: store },
+        { provide: WorkspaceApi, useValue: { markSeen: vi.fn(() => of(undefined)) } },
+        { provide: ErnoAlertsService, useValue: { error: vi.fn(), info: vi.fn(), success: vi.fn() } },
+        { provide: AlertController, useValue: { create: vi.fn() } },
+      ],
+    });
+    fixture = TestBed.createComponent(WorkspacePage);
+    page = fixture.componentInstance;
+    fixture.detectChanges();
+  });
+
+  afterEach(() => {
+    page.ngOnDestroy();
+    vi.unstubAllGlobals();
+  });
+
+  function crumbs(): HTMLElement {
+    const found = fixture.nativeElement.querySelector('nav.crumbs');
+    if (!(found instanceof HTMLElement)) throw new Error('no breadcrumb');
+    return found;
+  }
+
+  function text(): string {
+    // Angular drops the whitespace between these elements. The gaps on screen come from CSS.
+    return [...crumbs().children]
+      .map((child) => child.textContent?.trim() ?? '')
+      .filter((part) => part.length > 0)
+      .join(' ');
+  }
+
+  it('is > on Home, and the project and thread title are only labels', () => {
+    expect(fixture.nativeElement.querySelector('app-top-bar, .top-bar')).toBeNull();
+    expect(text()).toBe('>');
+    expect(crumbs().querySelectorAll('button')).toHaveLength(1);
+
+    const thread = changed('t1', 'fix-login', 'fix-login');
+    store.threads$.next([thread]);
+    page.selectThread(thread);
+    fixture.detectChanges();
+    store.answer('t1');
+    fixture.detectChanges();
+
+    expect(text()).toBe('> App › fix-login');
+    const projectName = crumbs().querySelector('.crumb-project');
+    const title = crumbs().querySelector('.crumb-thread');
+    expect(projectName?.tagName).toBe('SPAN');
+    expect(title?.tagName).toBe('SPAN');
+    projectName?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    title?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(page.selection$.value).toEqual({ projectId: 'p', threadId: 't1' });
+
+    crumbs().querySelector('button')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    fixture.detectChanges();
+    expect(page.selection$.value).toEqual({ projectId: null, threadId: null });
+    expect(text()).toBe('>');
+  });
+
+  it('shows a leader hint at the end of the line', () => {
+    page.leader$.next('g');
+    fixture.detectChanges();
+    expect(text()).toBe('> G …');
   });
 });

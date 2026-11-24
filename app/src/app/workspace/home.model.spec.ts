@@ -277,16 +277,10 @@ describe('runningLines', () => {
 describe('startProject', () => {
   const projects = [project('a'), project('b'), project('c')];
 
-  it('takes the remembered project while it exists', () => {
+  it('takes the remembered project, then the one picked from the menu, then the first, then nothing', () => {
     expect(startProject(projects, { ...NO_HOME_CHOICE, projectId: 'c' }, projects[0])?.id).toBe('c');
-  });
-
-  it('falls back to the open project, then the first', () => {
     expect(startProject(projects, { ...NO_HOME_CHOICE, projectId: 'gone' }, projects[1])?.id).toBe('b');
     expect(startProject(projects, NO_HOME_CHOICE, null)?.id).toBe('a');
-  });
-
-  it('is nothing without projects', () => {
     expect(startProject([], NO_HOME_CHOICE, null)).toBeNull();
   });
 });

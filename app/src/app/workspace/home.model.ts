@@ -156,9 +156,16 @@ export interface HomeChoice {
 
 export const NO_HOME_CHOICE: HomeChoice = { projectId: null };
 
-/** The project the next thread starts in: the remembered one while it still exists, else the open one, else the first. */
-export function startProject(projects: readonly Project[], choice: HomeChoice, open: Project | null): Project | null {
-  return projects.find((project) => project.id === choice.projectId) ?? open ?? projects[0] ?? null;
+/**
+ * The project the next thread starts in.
+ *
+ * The choice remembered on this machine wins while that project still
+ * exists. A pick from the menu is remembered too, so the dropdown and the
+ * menu cannot disagree; the pick itself is the fallback when nothing valid
+ * is remembered, and otherwise the first project.
+ */
+export function startProject(projects: readonly Project[], choice: HomeChoice, picked: Project | null): Project | null {
+  return projects.find((project) => project.id === choice.projectId) ?? picked ?? projects[0] ?? null;
 }
 
 /**
