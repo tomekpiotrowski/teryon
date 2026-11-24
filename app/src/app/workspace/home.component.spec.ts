@@ -247,33 +247,13 @@ describe('HomeComponent', () => {
       expect(home.started).toHaveLength(2);
     });
 
-    it('asks for the project and workflow chosen', () => {
+    it('starts in the chosen project on the default workflow', () => {
       const home = scene();
-      button(home, 'default').click();
-      home.fixture.detectChanges();
-      (Array.from(home.element.querySelectorAll('.home-popover button')).find((item) => item.textContent?.trim() === 'small') as HTMLElement).click();
-      home.fixture.detectChanges();
-      button(home, 'Project a').click();
-      home.fixture.detectChanges();
-      (Array.from(home.element.querySelectorAll('.home-popover button')).find((item) => item.textContent?.trim() === 'Project b') as HTMLElement).click();
-      home.fixture.detectChanges();
+      clickButton(home, 'Project a');
+      clickButton(home, 'Project b');
       type(home, 'hello');
       button(home, 'Run').click();
-      expect(home.started).toEqual([{ projectId: 'b', workflow: 'small', text: 'hello' }]);
-    });
-
-    it('sends the workflow shown, not one that was removed since it was chosen', () => {
-      const home = scene();
-      button(home, 'default').click();
-      home.fixture.detectChanges();
-      (Array.from(home.element.querySelectorAll('.home-popover button')).find((item) => item.textContent?.trim() === 'small') as HTMLElement).click();
-      home.fixture.detectChanges();
-      home.fixture.componentInstance.workflows = { ...TEST_WORKFLOWS, workflows: TEST_WORKFLOWS.workflows.filter((workflow) => workflow.name !== 'small') };
-      home.fixture.detectChanges();
-      expect(button(home, 'default')).toBeDefined();
-      type(home, 'hello');
-      key(home, prompt(home), 'Enter');
-      expect(home.started).toEqual([{ projectId: 'a', workflow: 'default', text: 'hello' }]);
+      expect(home.started).toEqual([{ projectId: 'b', workflow: 'default', text: 'hello' }]);
     });
 
     it('sends the workflow it names after a rename too', () => {
@@ -283,15 +263,10 @@ describe('HomeComponent', () => {
       expect(home.started[0].workflow).toBe('main');
     });
 
-    it('uses the stage choice on workflows sharing the first stage and falls back on a different stage', () => {
+    it('shows the default workflow stage choice', () => {
       const home = scene([], { starting: { type: 'provider', agent: 'grok', model: null } });
       expect(agentChooser(home).textContent?.trim()).toBe('Grok');
-      clickButton(home, 'default');
-      clickButton(home, 'small');
-      expect(agentChooser(home).textContent?.trim()).toBe('Grok');
-      clickButton(home, 'small');
-      clickButton(home, 'planned');
-      expect(agentChooser(home).textContent?.trim()).toBe('Claude');
+      expect(home.element.querySelector('[aria-label="Workflow"]')).toBeNull();
     });
 
     it('tells the workspace which agent was chosen and shows the workspace choice', () => {
@@ -332,7 +307,7 @@ describe('HomeComponent', () => {
       expect(agentChooser(home).disabled).toBe(true);
     });
 
-    it.each(['Project a', 'Claude', 'default'])('closes the %s chooser on outside click or Escape and keeps the draft', (label) => {
+    it.each(['Project a', 'Claude'])('closes the %s chooser on outside click or Escape and keeps the draft', (label) => {
       const home = scene([], { text: 'keep this' });
       document.body.appendChild(home.element);
       const trigger = button(home, label);
@@ -363,16 +338,13 @@ describe('HomeComponent', () => {
       expect(home.started).toEqual([]);
     });
 
-    it('remembers the project and workflow for the next visit', () => {
+    it('remembers the project and ignores an old workflow choice', () => {
+      localStorage.setItem('teryon.home', JSON.stringify({ projectId: 'b', workflow: 'small' }));
       const home = scene();
-      button(home, 'default').click();
-      home.fixture.detectChanges();
-      (Array.from(home.element.querySelectorAll('.home-popover button')).find((item) => item.textContent?.trim() === 'small') as HTMLElement).click();
-      home.fixture.detectChanges();
-      TestBed.resetTestingModule();
-      TestBed.configureTestingModule({ declarations: [HomeComponent] });
-      const next = scene();
-      expect(button(next, 'small')).toBeDefined();
+      expect(button(home, 'Project b')).toBeDefined();
+      type(home, 'hello');
+      key(home, prompt(home), 'Enter');
+      expect(home.started).toEqual([{ projectId: 'b', workflow: 'default', text: 'hello' }]);
     });
 
     it('shows text the workspace puts in the prompt', () => {
@@ -389,7 +361,7 @@ describe('HomeComponent', () => {
     expect(home.element.querySelector('[aria-label="Threads to continue"]')).toBeNull();
   });
 
-  describe('the project and workflow lists', () => {
+  describe('the project list', () => {
     it('close on Escape without leaving the prompt\'s text', () => {
       const home = scene();
       type(home, 'keep me');

@@ -8,7 +8,6 @@ import {
   runningLines,
   startAgent,
   startProject,
-  startWorkflow,
 } from './home.model';
 import { type Change, type ChangeState, groupThreads, NO_WORKFLOWS, type Project, type Starting, type Thread, type Workflows } from './workspace.model';
 
@@ -285,29 +284,13 @@ describe('startAgent', () => {
   });
 });
 
-describe('startWorkflow', () => {
-  const known = ['default', 'small'];
-
-  it('takes the remembered workflow while it is set up', () => {
-    expect(startWorkflow(known, 'default', { projectId: null, workflow: 'small' })).toBe('small');
-  });
-
-  it.each([null, 'removed'])('falls back to the default for %j', (workflow) => {
-    expect(startWorkflow(known, 'default', { projectId: null, workflow })).toBe('default');
-  });
-
-  it('falls back to the default when a workflow is renamed away', () => {
-    expect(startWorkflow(['default', 'tiny'], 'default', { projectId: null, workflow: 'small' })).toBe('default');
-  });
-});
-
 describe('readHomeChoice', () => {
   it('reads what was written', () => {
-    expect(readHomeChoice('{"projectId":"p","workflow":"small"}')).toEqual({ projectId: 'p', workflow: 'small' });
+    expect(readHomeChoice('{"projectId":"p","workflow":"small"}')).toEqual({ projectId: 'p' });
   });
 
   it('ignores an agent an earlier version wrote, which the workspace owns now', () => {
-    expect(readHomeChoice('{"projectId":"p","agent":"codex","workflow":"small"}')).toEqual({ projectId: 'p', workflow: 'small' });
+    expect(readHomeChoice('{"projectId":"p","agent":"codex","workflow":"small"}')).toEqual({ projectId: 'p' });
   });
 
   it('keeps nothing from a choice it does not understand', () => {

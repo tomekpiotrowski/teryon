@@ -12,11 +12,10 @@ import {
   type RunningLines,
   startAgent,
   startProject,
-  startWorkflow,
 } from './home.model';
 import { agentLabel, type AgentName, type Project, type ProjectGroup, type Starting, type Thread, type Workflows, NO_WORKFLOWS } from './workspace.model';
 
-/** Where the browser remembers the project and workflow last chosen on Home. */
+/** Where the browser remembers the project last chosen on Home. */
 const MEMORY_KEY = 'teryon.home';
 
 /** What the person asked Home to start. */
@@ -28,7 +27,7 @@ export interface StartRequest {
 }
 
 /** Which small list under the prompt's buttons is open. */
-type Chooser = 'project' | 'agent' | 'workflow' | null;
+type Chooser = 'project' | 'agent' | null;
 
 /** Everything the template shows, at one moment. */
 interface HomeView {
@@ -40,8 +39,6 @@ interface HomeView {
   readonly agents: readonly AgentName[];
   /** The agent displayed in the chooser. */
   readonly agent: AgentName | null;
-  readonly workflows: readonly string[];
-  readonly workflow: string;
   readonly chooser: Chooser;
   /** Which row of the list is marked. Nothing while the prompt has the keys. */
   readonly cursor: number | null;
@@ -136,7 +133,7 @@ export class HomeComponent {
     this.sending$.next(sending);
   }
 
-  private readonly rest$: Observable<Pick<HomeView, 'list' | 'running' | 'projects' | 'project' | 'agents' | 'agent' | 'workflows' | 'workflow'>> = combineLatest([
+  private readonly rest$: Observable<Pick<HomeView, 'list' | 'running' | 'projects' | 'project' | 'agents' | 'agent'>> = combineLatest([
     this.groups$,
     this.installed$,
     this.workflows$,
@@ -155,8 +152,6 @@ export class HomeComponent {
         project,
         agents,
         agent: startAgent(agents, picked, starting, workflow, workflows),
-        workflows: workflows.workflows.map((candidate) => candidate.name),
-        workflow,
       };
     }),
   );
@@ -295,12 +290,6 @@ export class HomeComponent {
     this.focusPrompt();
   }
 
-  chooseWorkflow(name: string): void {
-    this.chooser$.next(null);
-    this.remember({ ...this.choice$.value, workflow: name });
-    this.focusPrompt();
-  }
-
   toggleChooser(which: Exclude<Chooser, null>): void {
     this.chooser$.next(this.chooser$.value === which ? null : which);
   }
@@ -327,10 +316,9 @@ export class HomeComponent {
   }
 
   private resolve(groups: readonly ProjectGroup[], workflows: Workflows, open: Project | null, choice: HomeChoice): { project: Project | null; workflow: string } {
-    const known = workflows.workflows.map((workflow) => workflow.name);
     return {
       project: startProject(groups.map((group) => group.project), choice, open),
-      workflow: startWorkflow(known, workflows.default, choice),
+      workflow: workflows.default,
     };
   }
 

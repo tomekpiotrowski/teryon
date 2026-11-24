@@ -46,19 +46,6 @@
                 </div>
               }
             </div>
-            <div class="home-chooser">
-              <button type="button" class="home-option" aria-haspopup="listbox" [attr.aria-expanded]="view.chooser === 'workflow'" (click)="toggleChooser('workflow')">
-                {{ view.workflow }}
-                <svg viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 4l2.5 2.5L7.5 4"></path></svg>
-              </button>
-              @if (view.chooser === 'workflow') {
-                <div class="home-popover" role="listbox" aria-label="Workflow">
-                  @for (name of view.workflows; track name) {
-                    <button type="button" role="option" [attr.aria-selected]="name === view.workflow" (click)="chooseWorkflow(name)">{{ name }}</button>
-                  }
-                </div>
-              }
-            </div>
             <span class="home-spacer"></span>
             <button type="button" class="home-run" [disabled]="!view.text.trim()" (click)="send()">Run <kbd>↵</kbd></button>
           </div>

@@ -130,25 +130,13 @@ export function runningLines(groups: readonly ProjectGroup[], limit = RUNNING_LI
 /** What a person has chosen on Home for the next thread, remembered between visits. The agent is the workspace's, see `NewThreads`. */
 export interface HomeChoice {
   readonly projectId: string | null;
-  /** The workflow's name. Nothing means the default. */
-  readonly workflow: string | null;
 }
 
-export const NO_HOME_CHOICE: HomeChoice = { projectId: null, workflow: null };
+export const NO_HOME_CHOICE: HomeChoice = { projectId: null };
 
 /** The project the next thread starts in: the remembered one while it still exists, else the open one, else the first. */
 export function startProject(projects: readonly Project[], choice: HomeChoice, open: Project | null): Project | null {
   return projects.find((project) => project.id === choice.projectId) ?? open ?? projects[0] ?? null;
-}
-
-/**
- * The workflow the next thread follows: the remembered one while it is still set up, else the default.
- *
- * What Run sends is this too, so a workflow that was removed or renamed in
- * the settings is never sent, and never shown as chosen.
- */
-export function startWorkflow(known: readonly string[], fallback: string, choice: HomeChoice): string {
-  return choice.workflow !== null && known.includes(choice.workflow) ? choice.workflow : fallback;
 }
 
 /**
@@ -196,10 +184,9 @@ export function readHomeChoice(stored: string | null): HomeChoice {
   try {
     const value: unknown = JSON.parse(stored);
     if (typeof value !== 'object' || value === null) return NO_HOME_CHOICE;
-    const { projectId, workflow } = value as Record<string, unknown>;
+    const { projectId } = value as Record<string, unknown>;
     return {
       projectId: typeof projectId === 'string' ? projectId : null,
-      workflow: typeof workflow === 'string' ? workflow : null,
     };
   } catch {
     return NO_HOME_CHOICE;

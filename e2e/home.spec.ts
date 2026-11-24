@@ -109,7 +109,7 @@ test("Escape closes shortcuts before the open Agent dropdown", async ({ page }) 
   await expect(prompt).toHaveValue("keep this");
 });
 
-test("a thread starts with the agent and workflow chosen on Home", async ({ page }) => {
+test("a thread starts with the agent chosen on Home", async ({ page }) => {
   await addProject(page, "Sample");
 
   await chooseAgent(page, "Grok");
@@ -117,18 +117,14 @@ test("a thread starts with the agent and workflow chosen on Home", async ({ page
   await chooseAgent(page, "Grok");
   await expect(agentChooser(page)).toHaveAttribute("aria-expanded", "false");
   await expect(page.getByLabel("New thread")).toBeFocused();
-  await home(page).getByRole("button", { name: "default" }).click();
-  await home(page).getByRole("option", { name: "small" }).click();
 
   await page.getByLabel("New thread").fill("use tools");
   await page.getByLabel("New thread").press("Enter");
 
   await expect(page.locator(".thread-meta").getByText("Grok")).toBeVisible();
   await expect(page.getByText("run_terminal_command  Count bytes in note.txt")).toBeVisible();
-  // On the small workflow the menu offers the other one, and not the one in use.
   await page.keyboard.press("Control+k");
-  await expect(menu(page).getByRole("option", { name: /^Use the default workflow/ })).toBeVisible();
-  await expect(menu(page).getByRole("option", { name: /^Use the small workflow/ })).toHaveCount(0);
+  await expect(menu(page).getByRole("option", { name: /^Use the small workflow/ })).toBeVisible();
 });
 
 test.describe("with Grok configured for the first stage", () => {
@@ -296,18 +292,6 @@ test("Home and the menu share the agent for new threads", async ({ page }) => {
   await page.getByLabel("New thread").fill("hello");
   await page.getByRole("button", { name: "Run ↵" }).click();
   await expect(page.locator(".thread-meta").getByText("Grok")).toBeVisible();
-});
-
-test("a thread started on another workflow follows it", async ({ page }) => {
-  await addProject(page, "Sample");
-  await home(page).getByRole("button", { name: "default" }).click();
-  await home(page).getByRole("option", { name: "small" }).click();
-  await page.getByLabel("New thread").fill("hello");
-  await page.getByRole("button", { name: "Run ↵" }).click();
-  await expect(page.getByText(/^Done in/)).toBeVisible();
-
-  await page.keyboard.press("Control+k");
-  await expect(menu(page).getByRole("option", { name: /^Use the default workflow/ })).toBeVisible();
 });
 
 test("G then H goes home from the code, the history and the board", async ({ page }) => {
