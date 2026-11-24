@@ -601,3 +601,18 @@ test("a running agent is stopped from its card", async ({ page }) => {
   await expect(home(page)).toBeVisible();
   await expect(page.getByLabel("Thread", { exact: true })).toHaveCount(0);
 });
+
+test("an opened card starts at the bottom of its conversation and keeps where the person scrolled", async ({ page }) => {
+  await addProject(page, "Sample");
+  const card = await finishOnHome(page, "write markdown");
+  const body = card.locator(".home-card-body");
+
+  await expandCard(card);
+  await expect(card.getByRole("heading", { name: "Findings" })).toBeAttached();
+  expect(await body.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+  await expect.poll(() => body.evaluate((element) => element.scrollHeight - element.clientHeight - element.scrollTop)).toBeLessThanOrEqual(1);
+
+  await body.evaluate((element) => element.scrollTo({ top: 0 }));
+  await page.getByLabel("Reply").fill("A reply being written");
+  await expect.poll(() => body.evaluate((element) => element.scrollTop)).toBe(0);
+});

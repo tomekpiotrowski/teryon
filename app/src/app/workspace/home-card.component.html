@@ -40,7 +40,7 @@
         </span>
       </header>
 
-      <div class="home-card-body">
+      <div #body class="home-card-body" (scroll)="trackScroll()">
         @if (view.earlier.length) {
           <button type="button" class="home-earlier" [attr.aria-expanded]="view.showEarlier" (click)="toggleEarlier(!view.showEarlier)">
             {{ view.showEarlier ? 'Hide earlier messages' : 'Earlier in this thread' }}

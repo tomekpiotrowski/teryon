@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, ElementRef, EventEmitter, inject, Input, OnDestroy, Output, ViewChild } from '@angular/core';
+import { AfterViewChecked, ChangeDetectionStrategy, Component, ElementRef, EventEmitter, inject, Input, OnDestroy, Output, ViewChild } from '@angular/core';
 import { BehaviorSubject, combineLatest, distinctUntilChanged, map, type Observable, of, shareReplay, Subscription, switchMap } from 'rxjs';
 import type { Command } from './commands.model';
 import { keyHint } from './commands.model';
@@ -65,6 +65,11 @@ interface CardView {
  * Opening a card is how a person reads and answers without leaving Home, so
  * the card follows the thread's conversation only while it is open. The
  * latest turn is shown first; earlier messages stay one toggle away.
+ *
+ * An open card starts at the bottom of its conversation, where the newest
+ * messages are, and keeps following new ones while the person stays at the
+ * bottom. Once they scroll up or open earlier messages the card leaves the
+ * position alone until they come back down, collapse it, or send a reply.
  */
 @Component({
   selector: 'app-home-card',
@@ -72,7 +77,7 @@ interface CardView {
   changeDetection: ChangeDetectionStrategy.OnPush,
   standalone: false,
 })
-export class HomeCardComponent implements OnDestroy {
+export class HomeCardComponent implements AfterViewChecked, OnDestroy {
   private readonly store = inject(WorkspaceStore);
 
   @Output() readonly toggled = new EventEmitter<void>();
@@ -103,6 +108,11 @@ export class HomeCardComponent implements OnDestroy {
   private readonly showEarlier$ = new BehaviorSubject(false);
   private shownRoots: readonly string[] = [];
 
+  /** Whether the person is at the bottom of the conversation, so new messages should keep it there. */
+  private pinned = true;
+  /** Whether the next view check should scroll the conversation to the bottom. */
+  private scrollToBottom = false;
+
   /** The thread this card shows, for Home to find it among the others. */
   get threadId(): string | null {
     return this.card$.value?.thread.id ?? null;
@@ -116,16 +126,23 @@ export class HomeCardComponent implements OnDestroy {
   readonly isRecommended = isRecommended;
 
   @ViewChild('reply') private reply?: ElementRef<HTMLTextAreaElement>;
+  @ViewChild('body') private body?: ElementRef<HTMLElement>;
   @ViewChild(QuestionsComponent) private questions?: QuestionsComponent;
 
   @Input({ required: true }) set card(card: HomeCard) {
     const previous = this.card$.value;
-    if (previous && previous.thread.id !== card.thread.id) this.showEarlier$.next(false);
+    if (previous && previous.thread.id !== card.thread.id) {
+      this.showEarlier$.next(false);
+      this.pinned = true;
+    }
     this.card$.next(card);
   }
 
   @Input() set expanded(expanded: boolean) {
-    if (!expanded) this.showEarlier$.next(false);
+    if (!expanded) {
+      this.showEarlier$.next(false);
+      this.pinned = true;
+    }
     this.expanded$.next(expanded);
   }
 
@@ -225,8 +242,58 @@ export class HomeCardComponent implements OnDestroy {
     shareReplay({ bufferSize: 1, refCount: true }),
   );
 
+  /**
+   * Asks for a scroll to the bottom whenever what the conversation shows grows or changes.
+   *
+   * Only the parts that change the conversation's content count, so typing a
+   * reply or other changes around it never move the scroll position. The last
+   * line's text is part of the key because an entry can be updated in place.
+   */
+  private readonly following: Subscription = this.view$
+    .pipe(
+      map((view) => {
+        if (!view?.expanded) return '';
+        const last = view.latest.at(-1);
+        return JSON.stringify([
+          view.card.thread.id,
+          view.earlier.length,
+          view.latest.length,
+          last?.kind,
+          last?.text,
+          last?.asked?.id,
+          view.running,
+          view.reviewing,
+        ]);
+      }),
+      distinctUntilChanged(),
+    )
+    .subscribe((key) => {
+      if (key && this.pinned) this.scrollToBottom = true;
+    });
+
+  /**
+   * Scrolls the conversation to the bottom once its new lines are on screen.
+   *
+   * Doing it after the view is checked means the lines are already in the
+   * page, so the card never shows its top first.
+   */
+  ngAfterViewChecked(): void {
+    const body = this.body?.nativeElement;
+    if (!this.scrollToBottom || !body) return;
+    this.scrollToBottom = false;
+    body.scrollTop = body.scrollHeight;
+  }
+
   ngOnDestroy(): void {
     this.publishing.unsubscribe();
+    this.following.unsubscribe();
+  }
+
+  /** Notes whether the person scrolled to the bottom of the conversation or away from it. */
+  trackScroll(): void {
+    const body = this.body?.nativeElement;
+    if (!body) return;
+    this.pinned = body.scrollHeight - body.scrollTop - body.clientHeight <= 16;
   }
 
   private rootsFor(project: HomeCard['project'], thread: HomeCard['thread']): readonly string[] {
@@ -237,6 +304,7 @@ export class HomeCardComponent implements OnDestroy {
   }
 
   toggleEarlier(show: boolean): void {
+    if (show) this.pinned = false;
     this.showEarlier$.next(show);
   }
 
@@ -273,6 +341,7 @@ export class HomeCardComponent implements OnDestroy {
     const card = this.card$.value;
     if (!text || !card || card.thread.status === 'running') return;
     const to = card.thread.reviewer ? this.to$.value : 'author';
+    this.pinned = true;
     this.replied.emit({ text, to });
   }
 
