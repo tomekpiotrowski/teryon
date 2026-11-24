@@ -32,7 +32,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use chrono::{DateTime, Utc};
-use serde_json::Value;
+use serde_json::{json, Value};
 use thiserror::Error;
 use tokio::join;
 use tokio::sync::broadcast::{channel, Receiver, Sender};
@@ -83,6 +83,46 @@ const PREVIEW_LENGTH: usize = 180;
 
 /// How many changes a slow listener may fall behind before it must start over.
 const BACKLOG: usize = 1024;
+
+/// Who asked the workspace to do something.
+///
+/// Requests from the app or an ordinary terminal act as the person. Requests
+/// from `teryon` while an agent runs act for that agent's thread, so the
+/// affected thread says who acted and messages count toward automatic rounds.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Actor {
+    #[default]
+    Person,
+    Thread(Uuid),
+}
+
+/// Identifies another thread acting on this one, for message attribution and notices.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct ThreadSource {
+    pub thread_id: Uuid,
+    pub project_id: Uuid,
+    pub title: String,
+}
+
+impl ThreadSource {
+    /// Formats a notice sentence attributing `action` to this thread.
+    pub(super) fn notice(&self, action: &str) -> String {
+        if self.title.is_empty() {
+            format!("Another thread {action}")
+        } else {
+            format!("«{}» {action}", self.title)
+        }
+    }
+
+    /// Formats a stage-move reason attributing `action` to this thread.
+    pub(super) fn reason(&self, action: &str) -> String {
+        if self.title.is_empty() {
+            format!("another thread {action}")
+        } else {
+            format!("«{}» {action}", self.title)
+        }
+    }
+}
 
 /// Why a request was refused. The text is meant for the person.
 #[derive(Debug, Error)]
@@ -262,6 +302,22 @@ impl State {
             .flatten()
             .collect()
     }
+
+    /// Reads the attribution details for `actor`, when another thread acts.
+    fn source(&self, actor: Actor) -> Option<ThreadSource> {
+        let Actor::Thread(id) = actor else {
+            return None;
+        };
+        let thread = self.threads.values().find_map(|threads| match threads {
+            Threads::Ready(store) => store.thread(id).cloned(),
+            _ => None,
+        })?;
+        Some(ThreadSource {
+            thread_id: thread.id,
+            project_id: thread.project_id,
+            title: thread.title,
+        })
+    }
 }
 
 struct Inner {
@@ -302,6 +358,24 @@ impl Inner {
             return Err(WorkspaceError::Busy(
                 "Teryon is finishing this thread's changes. Send the message once it is done.",
             ));
+        }
+        Ok(())
+    }
+
+    /// Refuses to start a turn when the thread is busy, being finished, or stopped before an automatic hand-over.
+    fn check_can_start(&self, thread: &Thread, starter: &Starter) -> Result<(), WorkspaceError> {
+        let handing_over = matches!(starter, Starter::Teryon { handing_over: true, .. });
+        if !handing_over {
+            self.check_free(thread)?;
+        } else if self.finishing_threads().contains(&thread.id) {
+            return Err(WorkspaceError::Busy(
+                "Teryon is finishing this thread's changes. Send the message once it is done.",
+            ));
+        }
+        if matches!(starter, Starter::Teryon { .. })
+            && (thread.held || self.stopping.load(Ordering::SeqCst))
+        {
+            return Err(WorkspaceError::Busy("The thread was stopped."));
         }
         Ok(())
     }
@@ -466,6 +540,11 @@ impl Workspace {
                 stopping: AtomicBool::new(false),
             }),
         })
+    }
+
+    /// Whether `thread_id` belongs to any ready project in the workspace.
+    pub fn has_thread(&self, thread_id: Uuid) -> bool {
+        self.inner.state().holding(thread_id).is_ok()
     }
 
     /// Every project and thread as they are now.
@@ -951,14 +1030,33 @@ impl Workspace {
         text: &str,
         to: Voice,
     ) -> Result<Entry, WorkspaceError> {
-        self.send(thread_id, text, to, Starter::Person)
+        self.send_message_by(thread_id, text, to, Actor::Person)
     }
 
-    /// Sends a message, from the person or from Teryon carrying the thread on to its next stage.
+    /// Sends a message on behalf of `actor`, attributing it when another thread acts.
+    pub fn send_message_by(
+        &self,
+        thread_id: Uuid,
+        text: &str,
+        to: Voice,
+        actor: Actor,
+    ) -> Result<Entry, WorkspaceError> {
+        let starter = match actor {
+            Actor::Person => Starter::Person,
+            Actor::Thread(id) => Starter::Thread(id),
+        };
+        self.send(thread_id, text, to, starter)
+    }
+
+    /// Sends a message, from the person, from another thread, or from Teryon carrying the thread on to its next stage.
     ///
     /// A message from the person clears what holds Teryon back from starting
     /// agents by itself: the count of rounds without them, and a stop. A
-    /// thread whose change is done starts its workflow over, since the
+    /// message from another thread lifts a stop and brings the thread back,
+    /// adds one to `rounds`, and is capped by consecutive turns from other
+    /// threads since the person last wrote so two agents messaging each other
+    /// still stop without blocking a thread that already ran unattended stages.
+    /// A thread whose change is done starts its workflow over, since the
     /// message can start a new change.
     fn send(
         &self,
@@ -974,9 +1072,18 @@ impl Workspace {
             ));
         }
 
+        let limit = self.inner.setup().workflow.automatic_rounds;
         let mut state = self.inner.state();
+        let source = match &starter {
+            Starter::Thread(id) => state.source(Actor::Thread(*id)),
+            _ => None,
+        };
         let (store, thread) = state.holding(thread_id)?;
-        self.inner.check_free(&thread)?;
+        self.inner.check_can_start(&thread, &starter)?;
+        if matches!(starter, Starter::Thread(_)) {
+            let from_threads = thread_turns_since_person(&store.entries(thread_id)?);
+            check_thread_limit(from_threads, limit)?;
+        }
         if to == Voice::Reviewer && (thread.reviewer.is_none() || thread.change.is_none()) {
             return Err(WorkspaceError::Invalid(
                 "Nobody reviews this thread yet. Ask for a review first.".to_string(),
@@ -987,7 +1094,7 @@ impl Workspace {
         let mut early: Vec<Entry> = Vec::new();
         let mut remembered: Option<(Stage, Agent)> = None;
         match (&starter, to) {
-            (Starter::Person, Voice::Author) => {
+            (Starter::Person | Starter::Thread(_), Voice::Author) => {
                 // A thread starting over from Done gets its first stage's agent, as a new thread does.
                 let workflow = self.inner.workflow_of(&thread);
                 let next = stage_after(&workflow, thread.stage, Happening::PersonWrote);
@@ -1002,11 +1109,15 @@ impl Workspace {
                     }
                     None => None,
                 };
+                let reason = match &source {
+                    Some(source) => source.reason("wrote again"),
+                    None => "you wrote again".to_string(),
+                };
                 if let Some((entry, after)) = self.inner.happen(
                     store,
                     &thread,
                     Happening::PersonWrote,
-                    Mover::Person("you wrote again".to_string()),
+                    Mover::Person(reason),
                 )? {
                     early.push(entry);
                     thread = after;
@@ -1019,7 +1130,7 @@ impl Workspace {
                     remembered = Some((stage, pick.agent));
                 }
             }
-            (Starter::Teryon { stage, pick }, _) => {
+            (Starter::Teryon { stage, pick, .. }, _) => {
                 let (entries, after) =
                     self.inner
                         .hand_over(store, &thread, *stage, pick, to == Voice::Author)?;
@@ -1027,7 +1138,7 @@ impl Workspace {
                 thread = after;
                 remembered = Some((*stage, pick.agent));
             }
-            (Starter::Person, Voice::Reviewer) => {}
+            (Starter::Person | Starter::Thread(_), Voice::Reviewer) => {}
         }
         let message = handover_message(store, &thread, to, text)?;
         let mut draft = EntryDraft::user_message(text).by(to);
@@ -1037,6 +1148,13 @@ impl Workspace {
         }
         if let Starter::Teryon { .. } = starter {
             draft.body["automatic"] = true.into();
+        }
+        if let Some(source) = &source {
+            draft.body["from"] = json!({
+                "thread_id": source.thread_id,
+                "project_id": source.project_id,
+                "title": source.title,
+            });
         }
         if let Some(reviewer) = thread
             .reviewer
@@ -1051,13 +1169,15 @@ impl Workspace {
             thread.ended = None;
             // The line on the main screen belongs to the turn that just ended.
             thread.preview = None;
-            // A message the person sends picks the thread up. One Teryon
-            // sends to carry a stage on does not: the thread stays put away.
+            // A message from the person or another thread picks the thread up.
+            // One Teryon sends to carry a stage on does not: the thread stays put away.
             if stages::brings_back(&starter) {
                 thread.asking = false;
-                thread.rounds = 0;
                 thread.held = false;
                 thread.put_away = false;
+            }
+            if stages::resets_rounds(&starter) {
+                thread.rounds = 0;
             } else {
                 thread.rounds += 1;
             }
@@ -1070,6 +1190,7 @@ impl Workspace {
             if let Some(reviewer) = &mut thread.reviewer {
                 match to {
                     Voice::Author => {
+                        reviewer.reviewing = false;
                         if let Some(verdict) = &mut reviewer.verdict {
                             verdict.answered = true;
                         }
@@ -1106,16 +1227,32 @@ impl Workspace {
         model: Option<&str>,
         effort: Option<Effort>,
     ) -> Result<Entry, WorkspaceError> {
+        self.review_change_by(thread_id, reviewer, model, effort, Actor::Person)
+    }
+
+    /// Asks a second agent to review a thread's change on behalf of `actor`.
+    pub fn review_change_by(
+        &self,
+        thread_id: Uuid,
+        reviewer: &str,
+        model: Option<&str>,
+        effort: Option<Effort>,
+        actor: Actor,
+    ) -> Result<Entry, WorkspaceError> {
         let agent = Agent::parse(reviewer).ok_or_else(|| {
             WorkspaceError::Invalid(
                 "Choose Claude, Codex, Grok or Gemini as the reviewer.".to_string(),
             )
         })?;
         let model = checked_model(model)?;
-        self.review(thread_id, agent, model, effort, Starter::Person)
+        let starter = match actor {
+            Actor::Person => Starter::Person,
+            Actor::Thread(id) => Starter::Thread(id),
+        };
+        self.review(thread_id, agent, model, effort, starter)
     }
 
-    /// Starts a review, asked for by the person or by Teryon when the thread reached its review stage.
+    /// Starts a review, asked for by the person, by another thread, or by Teryon when the thread reached its review stage.
     fn review(
         &self,
         thread_id: Uuid,
@@ -1125,9 +1262,18 @@ impl Workspace {
         starter: Starter,
     ) -> Result<Entry, WorkspaceError> {
         let (model, effort) = self.inner.resolve_choice(agent, model, effort);
+        let limit = self.inner.setup().workflow.automatic_rounds;
         let mut state = self.inner.state();
+        let source = match &starter {
+            Starter::Thread(id) => state.source(Actor::Thread(*id)),
+            _ => None,
+        };
         let (store, thread) = state.holding(thread_id)?;
-        self.inner.check_free(&thread)?;
+        self.inner.check_can_start(&thread, &starter)?;
+        if matches!(starter, Starter::Thread(_)) {
+            let from_threads = thread_turns_since_person(&store.entries(thread_id)?);
+            check_thread_limit(from_threads, limit)?;
+        }
         let change = thread.change.as_deref().ok_or(FinishError::NoChange)?;
         if let Some(changed) = &change.state {
             if !changed.copy_present {
@@ -1169,19 +1315,41 @@ impl Workspace {
             .naming(agent);
         let mut body = notice.body;
         body["starts_review"] = true.into();
-        let taking = match &starter {
-            Starter::Teryon { stage, pick } => {
+        let mut taking = match &starter {
+            Starter::Teryon { stage, pick, .. } => {
                 self.inner.hand_over(store, &thread, *stage, pick, false)?.0
             }
-            Starter::Person => Vec::new(),
+            Starter::Person | Starter::Thread(_) => Vec::new(),
         };
+        if let Some(source) = &source {
+            let mut asked = EntryDraft::notice(&source.notice(&format!(
+                "asked {} to review this change.",
+                agent.label()
+            )));
+            asked.body["from"] = json!({
+                "thread_id": source.thread_id,
+                "project_id": source.project_id,
+                "title": source.title,
+            });
+            taking.push(store.append(thread_id, asked.kind.name(), asked.body)?);
+        }
         let entry = store.append(thread_id, notice.kind.name(), body)?;
-        let moved = match starter {
+        let moved = match &starter {
             Starter::Person => self.inner.happen(
                 store,
                 &thread,
                 Happening::ReviewAsked,
                 Mover::Person("you asked for a review".to_string()),
+            )?,
+            Starter::Thread(_) => self.inner.happen(
+                store,
+                &thread,
+                Happening::ReviewAsked,
+                Mover::Person(
+                    source
+                        .as_ref()
+                        .map_or_else(|| "another thread asked for a review".to_string(), |s| s.reason("asked for a review")),
+                ),
             )?,
             Starter::Teryon { .. } => None,
         };
@@ -1189,9 +1357,15 @@ impl Workspace {
             thread.status = Status::Running;
             thread.ended = None;
             thread.preview = None;
-            if let Starter::Teryon { stage, .. } = &starter {
-                thread.rounds += 1;
-                thread.picks.insert(*stage, agent.name().to_string());
+            match &starter {
+                Starter::Teryon { stage, .. } => {
+                    thread.rounds += 1;
+                    thread.picks.insert(*stage, agent.name().to_string());
+                }
+                Starter::Thread(_) => {
+                    thread.rounds += 1;
+                }
+                Starter::Person => {}
             }
             if !same_reviewer {
                 thread.reviewer = Some(Reviewer {
@@ -1295,9 +1469,16 @@ impl Workspace {
     /// again: they stopped it for a reason, and the next stage's agent
     /// starting a moment later would undo that.
     pub fn stop(&self, thread_id: Uuid) -> Result<(), WorkspaceError> {
+        self.stop_by(thread_id, Actor::Person).map(|_| ())
+    }
+
+    /// Asks a thread's agent to stop on behalf of `actor`, returning whether one was running.
+    pub fn stop_by(&self, thread_id: Uuid, actor: Actor) -> Result<bool, WorkspaceError> {
         let mut state = self.inner.state();
+        let source = state.source(actor);
         let (store, thread) = state.holding(thread_id)?;
-        let held = match thread.status == Status::Running && !thread.held {
+        let running = thread.status == Status::Running;
+        let held = match running && !thread.held {
             true => Some(store.change(thread_id, |thread| thread.held = true)?),
             false => None,
         };
@@ -1305,8 +1486,16 @@ impl Workspace {
         if let Some(thread) = held {
             self.inner.announce(Event::ThreadChanged { thread });
         }
-        self.inner.runner.stop(thread_id);
-        Ok(())
+        if running {
+            match source {
+                Some(source) => self
+                    .inner
+                    .runner
+                    .stop_by_thread(thread_id, source.notice("stopped this thread.")),
+                None => self.inner.runner.stop(thread_id),
+            }
+        }
+        Ok(running)
     }
 
     /// Switches a thread's agent, or its reviewer, to another agent or model, from the next message on.
@@ -1330,12 +1519,26 @@ impl Workspace {
         model: Option<&str>,
         effort: Option<Effort>,
     ) -> Result<Thread, WorkspaceError> {
+        self.change_agent_by(thread_id, to, agent, model, effort, Actor::Person)
+    }
+
+    /// Switches a thread's agent or reviewer on behalf of `actor`, leaving a notice when another thread acts.
+    pub fn change_agent_by(
+        &self,
+        thread_id: Uuid,
+        to: Voice,
+        agent: &str,
+        model: Option<&str>,
+        effort: Option<Effort>,
+        actor: Actor,
+    ) -> Result<Thread, WorkspaceError> {
         let agent = Agent::parse(agent).ok_or_else(|| {
             WorkspaceError::Invalid("Choose Claude, Codex, Grok or Gemini.".to_string())
         })?;
         let model = checked_model(model)?;
         let (model, effort) = self.inner.resolve_choice(agent, model, effort);
         let mut state = self.inner.state();
+        let source = state.source(actor);
         let (store, thread) = state.holding(thread_id)?;
         let (current, other) = match to {
             Voice::Author => (
@@ -1375,23 +1578,33 @@ impl Workspace {
                 return Err(WorkspaceError::Invalid(text));
             }
         }
-        let notice = switching.then(|| {
-            EntryDraft::notice(&format!(
+        let mut entries = Vec::new();
+        if let Some(source) = &source {
+            let role = match to {
+                Voice::Author => "agent",
+                Voice::Reviewer => "reviewer",
+            };
+            let description = choice_description(agent, model.as_deref(), effort);
+            let notice = EntryDraft::notice(&source.notice(&format!(
+                "switched the {role} to {description}."
+            )));
+            let mut body = notice.body;
+            body["takes_over"] = true.into();
+            entries.push(store.append(thread_id, notice.kind.name(), body)?);
+        }
+        if switching {
+            let notice = EntryDraft::notice(&format!(
                 "{} takes over from {}.",
                 agent.label(),
                 current.label()
             ))
             .by(to)
-            .naming(agent)
-        });
-        let entry = notice
-            .map(|notice| {
-                let mut body = notice.body;
-                // Written while nobody works, so it ends no turn, see `history::turns`.
-                body["takes_over"] = true.into();
-                store.append(thread_id, notice.kind.name(), body)
-            })
-            .transpose()?;
+            .naming(agent);
+            let mut body = notice.body;
+            // Written while nobody works, so it ends no turn, see `history::turns`.
+            body["takes_over"] = true.into();
+            entries.push(store.append(thread_id, notice.kind.name(), body)?);
+        }
         let thread = store.change(thread_id, |thread| match to {
             Voice::Author => {
                 thread.model = model;
@@ -1418,7 +1631,7 @@ impl Workspace {
             }
         })?;
         drop(state);
-        if let Some(entry) = entry {
+        for entry in entries {
             self.inner.announce(Event::EntryAdded { entry });
         }
         self.inner.announce(Event::ThreadChanged {
@@ -1611,18 +1824,15 @@ impl Journal for WorkspaceJournal {
             }
             return;
         }
-        let finished = change == ThreadChange::Finished;
+        if change == ThreadChange::Finished {
+            Workspace {
+                inner: self.0.clone(),
+            }
+            .finish_turn(thread_id);
+            return;
+        }
         // How a run ended is announced with the thread's finish, which follows at once.
         let silent = matches!(change, ThreadChange::Ended(_));
-        // The plan is read before the thread shows as done, so its line comes before the person is called.
-        let authored = self
-            .0
-            .turns()
-            .get(&thread_id)
-            .is_some_and(|start| start.voice == Voice::Author);
-        if finished && authored {
-            self.0.look_at_plan(thread_id);
-        }
         let reviewed = match &change {
             ThreadChange::Reviewed(findings) => Some(*findings),
             _ => None,
@@ -1632,14 +1842,6 @@ impl Journal for WorkspaceJournal {
             .holding(thread_id)
             .map_err(|problem| problem.to_string())
             .and_then(|(store, _)| {
-                // Entries are already stored, so the preview is the turn's last word.
-                let preview = match finished {
-                    true => store
-                        .entries(thread_id)
-                        .ok()
-                        .and_then(|entries| preview_of(&entries)),
-                    false => None,
-                };
                 let thread = store
                     .change(thread_id, |thread| match change {
                         ThreadChange::Conversation(Voice::Author, named) => {
@@ -1677,16 +1879,8 @@ impl Journal for WorkspaceJournal {
                                 }
                             }
                         }
-                        ThreadChange::Finished => {
-                            thread.status = Status::Idle;
-                            thread.unread = true;
-                            thread.preview = preview.clone();
-                            if let Some(reviewer) = &mut thread.reviewer {
-                                reviewer.reviewing = false;
-                            }
-                        }
                         ThreadChange::Ended(end) => thread.ended = Some(end),
-                        ThreadChange::RanOut(_) => {}
+                        ThreadChange::Finished | ThreadChange::RanOut(_) => {}
                     })
                     .map_err(|problem| problem.to_string())?;
                 let moved = match reviewed {
@@ -1711,15 +1905,6 @@ impl Journal for WorkspaceJournal {
                 self.0.announce_moved(moved);
             }
             Err(problem) => error!("could not store a change to a thread: {problem}"),
-        }
-        if finished {
-            let start = self.0.turns().remove(&thread_id);
-            if let Some(start) = start {
-                Workspace {
-                    inner: self.0.clone(),
-                }
-                .carry_on(thread_id, start);
-            }
         }
     }
 
@@ -1963,7 +2148,7 @@ fn preview_text(text: &str) -> String {
 /// Anything earlier belongs to a turn the person has already seen. A question
 /// the agent asked beats the text that came before it, because that question
 /// is what the main screen has to show. Nothing when the turn said none of these.
-fn preview_of(entries: &[Entry]) -> Option<String> {
+pub(super) fn preview_of(entries: &[Entry]) -> Option<String> {
     let start = entries
         .iter()
         .rposition(|entry| entry.kind == "user_message")
@@ -2052,6 +2237,58 @@ fn strip_inline(text: &str) -> String {
     out
 }
 
+/// Counts turns started by other threads since the person's last message.
+///
+/// Messages written by the person carry neither `from` nor `automatic`, so any
+/// message or review asked for by another thread after the newest person
+/// message counts toward the consecutive cross-thread limit.
+fn thread_turns_since_person(entries: &[Entry]) -> u32 {
+    let start = entries
+        .iter()
+        .rposition(|entry| {
+            entry.kind == EntryKind::UserMessage.name()
+                && entry.body.get("from").is_none()
+                && entry.body.get("automatic") != Some(&Value::Bool(true))
+        })
+        .map_or(0, |index| index + 1);
+    entries[start..]
+        .iter()
+        .filter(|entry| {
+            (entry.kind == EntryKind::UserMessage.name() || entry.kind == EntryKind::Notice.name())
+                && entry.body.get("from").is_some()
+        })
+        .count() as u32
+}
+
+/// Refuses another turn from another thread once consecutive cross-thread turns reach the cap.
+///
+/// The cap follows `automatic_rounds`, with a minimum of 1 so turning off
+/// automatic stage hand-overs (`automatic_rounds = 0`) still allows one
+/// person-requested message or review from another thread while preventing
+/// unprompted follow-up loops.
+fn check_thread_limit(from_threads: u32, automatic_rounds: u32) -> Result<(), WorkspaceError> {
+    let cap = automatic_rounds.max(1);
+    if from_threads >= cap {
+        return Err(WorkspaceError::Invalid(format!(
+            "This thread has reached the limit of {cap} automatic {} from other threads. Send a message yourself to carry on.",
+            if cap == 1 { "round" } else { "rounds" }
+        )));
+    }
+    Ok(())
+}
+
+/// Formats an agent, optional model and optional effort for notices, e.g. `Codex · gpt-6-astra · High`.
+fn choice_description(agent: Agent, model: Option<&str>, effort: Option<Effort>) -> String {
+    let mut parts = vec![agent.label().to_string()];
+    if let Some(model) = model {
+        parts.push(model.to_string());
+    }
+    if let Some(effort) = effort {
+        parts.push(effort.label().to_string());
+    }
+    parts.join(" · ")
+}
+
 fn title_from(text: &str) -> String {
     shortened(text.lines().next().unwrap_or_default().trim())
 }
@@ -2095,6 +2332,20 @@ mod tests {
             "questions",
             json!({ "turn": Uuid::nil(), "questions": [{ "question": question }] }),
         )
+    }
+
+    fn from_thread(kind: &str) -> Entry {
+        entry(
+            kind,
+            json!({
+                "text": "from another thread",
+                "from": { "thread_id": Uuid::nil(), "project_id": Uuid::nil(), "title": "Other" }
+            }),
+        )
+    }
+
+    fn automatic_message() -> Entry {
+        entry("user_message", json!({ "text": "carry on", "automatic": true }))
     }
 
     lets_expect! {
@@ -2179,6 +2430,39 @@ mod tests {
                 said("agent_message", "before anyone wrote"),
                 said("user_message", "hello"),
             ]) as a_message_from_before to ignore_it { equal(None) }
+        }
+
+        // requirement: only turns started by other threads since the person last wrote count toward the cross-thread cap
+        expect(thread_turns_since_person(&entries)) {
+            when(entries = Vec::<Entry>::new()) as empty to be_zero { equal(0) }
+            when(entries = vec![
+                said("user_message", "start"),
+                entry("stage", json!({ "from": "talking", "to": "implementing", "by": "teryon" })),
+                automatic_message(),
+                entry("stage", json!({ "from": "implementing", "to": "review", "by": "agent" })),
+                automatic_message(),
+                automatic_message(),
+            ]) as only_automatic_stage_handovers to be_zero { equal(0) }
+            when(entries = vec![
+                said("user_message", "start"),
+                from_thread("user_message"),
+                from_thread("notice"),
+            ]) as message_and_review_from_other_threads to count_both { equal(2) }
+            when(entries = vec![
+                from_thread("user_message"),
+                from_thread("user_message"),
+                said("user_message", "person replies"),
+                from_thread("user_message"),
+            ]) as person_message_in_between to reset_the_count { equal(1) }
+        }
+
+        // requirement: cross-thread turns follow automatic_rounds with a floor of 1 when automatic_rounds is 0
+        expect(check_thread_limit(from_threads, automatic_rounds).is_ok()) {
+            when(from_threads = 0, automatic_rounds = 3) as first_with_default to be_allowed { be_true }
+            when(from_threads = 2, automatic_rounds = 3) as third_with_default to be_allowed { be_true }
+            when(from_threads = 3, automatic_rounds = 3) as fourth_with_default to be_refused { be_false }
+            when(from_threads = 0, automatic_rounds = 0) as first_when_automatic_rounds_off to be_allowed { be_true }
+            when(from_threads = 1, automatic_rounds = 0) as second_when_automatic_rounds_off to be_refused { be_false }
         }
     }
 }

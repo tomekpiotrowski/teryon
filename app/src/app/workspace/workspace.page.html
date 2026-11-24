@@ -120,6 +120,7 @@
                 (questionsPutAway)="putAwayCardQuestions($event)"
                 (questionsRestored)="putAway$.next(null)"
                 (linesChange)="homeLines$.next($event)"
+                (sourceOpened)="openSourceThread($event)"
                 (boardOpened)="showBoard(true)"
                 (historyOpened)="screen$.next('history')"
                 (menuOpened)="openMenu()"
@@ -132,6 +133,9 @@
                     <article class="thread-entry" [class.user-entry]="line.kind === 'user'" [class.reviewer-entry]="line.reviewer && line.kind !== 'review'">
                       @switch (line.kind) {
                         @case ('user') {
+                          @if (line.from; as from) {
+                            <button type="button" class="message-source" (click)="openSourceThread(from)">{{ sourceLabel(from) }}</button>
+                          }
                           <div class="message">
                             <span class="prompt-mark">❯</span>
                             @if (line.reviewer) { <span class="speaker">to {{ reviewerLabel(line, view.thread) }}</span> }

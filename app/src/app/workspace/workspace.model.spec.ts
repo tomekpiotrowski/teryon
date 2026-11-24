@@ -64,6 +64,7 @@ import {
   screenAfter,
   seenNow,
   summaryText,
+  sourceLabel,
   threadLabel,
   pendingQuestions,
   threadLines,
@@ -291,6 +292,25 @@ describe('pendingQuestions', () => {
 describe('entryLine', () => {
   it('shows a user message', () => {
     expect(entryLine(entry('user_message', { text: 'Fix it' }))).toEqual({ kind: 'user', text: 'Fix it', reviewer: false });
+  });
+
+  it('keeps attribution on a message sent from another thread without git words', () => {
+    const line = entryLine(entry('user_message', {
+      text: 'Apply this change',
+      from: { thread_id: 'other-1', project_id: 'proj-1', title: 'Coordinator' },
+    }));
+    expect(line).toEqual({
+      kind: 'user',
+      text: 'Apply this change',
+      reviewer: false,
+      from: { thread_id: 'other-1', project_id: 'proj-1', title: 'Coordinator' },
+    });
+    const label = sourceLabel(line.from!);
+    expect(label).toBe('From «Coordinator»');
+    expect(gitWordsIn(label)).toEqual([]);
+    const untitled = sourceLabel({ thread_id: 'other-2', project_id: 'proj-1', title: '' });
+    expect(untitled).toBe('From another thread');
+    expect(gitWordsIn(untitled)).toEqual([]);
   });
 
   it('shows an agent message', () => {

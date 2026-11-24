@@ -64,7 +64,9 @@ import {
   composerAction,
   insertNewline,
   type EntryLine,
+  type MessageSource,
   pendingQuestions,
+  sourceLabel,
   threadLines,
   groupThreads,
   NO_MODELS,
@@ -253,6 +255,7 @@ export class WorkspacePage implements OnDestroy {
 
   readonly reviewerOf = reviewerOf;
   readonly reviewerLabel = reviewerLabel;
+  readonly sourceLabel = sourceLabel;
   readonly isRecommended = isRecommended;
 
   /**
@@ -831,6 +834,12 @@ export class WorkspacePage implements OnDestroy {
   openThread(thread: Thread): void {
     this.selectThread(thread);
     this.screen$.next('thread');
+  }
+
+  /** Opens the thread that sent a cross-thread message, when it is still present. */
+  openSourceThread(source: MessageSource): void {
+    const thread = this.threadsNow.find((candidate) => candidate.id === source.thread_id);
+    if (thread) this.openThread(thread);
   }
 
   selectProject(project: Project): void {

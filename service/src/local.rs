@@ -23,7 +23,7 @@ use tokio::time::timeout;
 use tracing::{info, warn};
 
 use teryon_core::protocol::{ClientMessage, Event, Outcome, ServiceMessage};
-use teryon_core::workspace::Workspace;
+use teryon_core::workspace::{Actor, Workspace};
 
 use crate::guard::{admit, token_matches};
 use crate::session::{Aftermath, Origin, Session};
@@ -83,20 +83,30 @@ async fn connect(
 async fn serve(mut socket: WebSocket, listener: Arc<Listener>) {
     let greeted = match timeout(HELLO_PATIENCE, socket.recv()).await {
         Ok(Some(Ok(Message::Text(text)))) => match serde_json::from_str::<ClientMessage>(&text) {
-            Ok(ClientMessage::Hello { token }) => token_matches(&listener.token, &token),
-            _ => false,
+            Ok(ClientMessage::Hello { token, thread }) if token_matches(&listener.token, &token) => {
+                Some(thread)
+            }
+            _ => None,
         },
-        _ => false,
+        _ => None,
     };
-    if !greeted {
+    let Some(acting_thread) = greeted else {
         warn!("refused a connection that did not show the token");
         let _ = socket.send(Message::Close(None)).await;
         return;
-    }
+    };
 
     // Listening starts before the snapshot is taken, so nothing in between is missed.
     let mut changes = listener.workspace.subscribe();
-    let mut session = Session::new(listener.workspace.clone(), Origin::Local);
+    let actor = match acting_thread {
+        Some(id) if listener.workspace.has_thread(id) => Actor::Thread(id),
+        Some(id) => {
+            warn!(%id, "ignoring unknown acting thread in hello; treating as person");
+            Actor::Person
+        }
+        None => Actor::Person,
+    };
+    let mut session = Session::new(listener.workspace.clone(), Origin::Local, actor);
     if send(&mut socket, &event(listener.workspace.snapshot()))
         .await
         .is_err()

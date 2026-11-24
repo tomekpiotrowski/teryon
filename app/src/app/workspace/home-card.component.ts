@@ -14,11 +14,13 @@ import {
   composerAction,
   type EntryLine,
   insertNewline,
+  type MessageSource,
   NO_MODELS,
   NO_WORKFLOWS,
   pendingQuestions,
   reviewerLabel,
   reviewerOf,
+  sourceLabel,
   stageText,
   threadChoice,
   threadLabel,
@@ -87,6 +89,7 @@ export class HomeCardComponent implements OnDestroy {
   @Output() readonly draftChanged = new EventEmitter<string>();
   @Output() readonly toChanged = new EventEmitter<Voice>();
   @Output() readonly linesChange = new EventEmitter<readonly EntryLine[]>();
+  @Output() readonly sourceOpened = new EventEmitter<MessageSource>();
 
   private readonly card$ = new BehaviorSubject<HomeCard | null>(null);
   private readonly expanded$ = new BehaviorSubject(false);
@@ -109,6 +112,7 @@ export class HomeCardComponent implements OnDestroy {
   readonly agentLabel = agentLabel;
   readonly reviewerLabel = reviewerLabel;
   readonly reviewerOf = reviewerOf;
+  readonly sourceLabel = sourceLabel;
   readonly isRecommended = isRecommended;
 
   @ViewChild('reply') private reply?: ElementRef<HTMLTextAreaElement>;

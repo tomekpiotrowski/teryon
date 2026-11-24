@@ -5,6 +5,7 @@
 //! library and tells every client about every change as it happens.
 
 pub mod client;
+pub mod command;
 pub mod guard;
 pub mod local;
 pub mod logging;

@@ -35,6 +35,7 @@ use crate::agents::asking::with_asking;
 use crate::agents::gemini::GeminiDriver;
 use crate::agents::models::{resolve_gemini_choice, Effort, ModelOption};
 use crate::agents::naming::with_naming;
+use crate::agents::others::with_others;
 use crate::agents::process::{ProcessTree, Signal};
 use crate::agents::{
     driver_for, Agent, AgentDriver, EntryDraft, EntryKind, Invocation, Tokens, Turn, Voice,
@@ -57,10 +58,12 @@ const LOOK_AT_CHANGE_EVERY: Duration = Duration::from_secs(1);
 const LONGEST_COMPLAINT: usize = 2000;
 
 /// Why a running agent is being stopped.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum Stop {
     /// The person using Teryon asked for it.
     ByUser,
+    /// Another thread asked for it; the text is the notice to write.
+    ByThread(String),
     /// Teryon itself is shutting down.
     Shutdown,
 }
@@ -192,6 +195,13 @@ impl Runner {
         }
     }
 
+    /// Asks the agent of a thread to stop on behalf of another thread, recording `notice`.
+    pub fn stop_by_thread(&self, thread_id: Uuid, notice: String) {
+        if let Some(running) = self.running().get(&thread_id) {
+            let _ = running.stop.send(Some(Stop::ByThread(notice)));
+        }
+    }
+
     /// The turn a thread's agent is running now, if it is running.
     pub fn turn_of(&self, thread_id: Uuid) -> Option<Uuid> {
         self.running().get(&thread_id).map(|running| running.turn)
@@ -279,7 +289,10 @@ async fn run_turn(
     };
     let watch_change = brief.is_some();
     let brief = match voice {
-        Voice::Author => with_naming(thread.named, Some(with_asking(joined(brief, staging)))),
+        Voice::Author => with_naming(
+            thread.named,
+            Some(with_asking(Some(with_others(joined(brief, staging))))),
+        ),
         Voice::Reviewer => joined(brief, staging),
     };
     let before = match (voice, change) {
@@ -337,12 +350,16 @@ async fn run_turn(
         }
     }
 
-    match outcome.stop {
+    match &outcome.stop {
         Some(Stop::ByUser) => journal.add(
             thread.id,
             EntryDraft::notice("Stopped by you.")
                 .by(voice)
                 .naming(speaker.agent),
+        ),
+        Some(Stop::ByThread(notice)) => journal.add(
+            thread.id,
+            EntryDraft::notice(notice).by(voice).naming(speaker.agent),
         ),
         Some(Stop::Shutdown) => journal.add(
             thread.id,
@@ -632,14 +649,18 @@ async fn follow(
                 }
             }
             changed = stopped.changed(), if listening => {
-                let reason = *stopped.borrow();
+                let reason = stopped.borrow().clone();
                 match (changed, reason) {
                     (Ok(()), Some(reason)) => {
                         listening = false;
-                        stop = Some(reason);
                         // Claude Code ends its turn on an interrupt and exits at once
                         // on a termination request, which is what shutdown needs.
-                        let signal = if reason == Stop::ByUser { Signal::Interrupt } else { Signal::Terminate };
+                        let signal = if matches!(reason, Stop::ByUser | Stop::ByThread(_)) {
+                            Signal::Interrupt
+                        } else {
+                            Signal::Terminate
+                        };
+                        stop = Some(reason);
                         tree.signal(signal);
                         kill_at = Some(TokioInstant::now() + grace);
                     }

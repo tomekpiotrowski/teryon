@@ -24,7 +24,7 @@ use teryon::session::{Origin, Session};
 use teryon_core::agents::Voice;
 use teryon_core::protocol::{Answer, Event, Opener, Opens, Request};
 use teryon_core::store::{Status, Thread};
-use teryon_core::workspace::{Setup, Workspace};
+use teryon_core::workspace::{Actor, Setup, Workspace};
 
 /// A project in `folder` with one Claude thread, through `client`.
 async fn thread_in(client: &mut Client, folder: &TempDir) -> Uuid {
@@ -384,7 +384,7 @@ lets_expect! { #tokio_test
     story a_copy_is_not_opened_from_afar {
         let home = tempdir().unwrap();
         let workspace = Workspace::open(home.path(), Setup::default()).unwrap();
-        let mut session = Session::new(workspace, Origin::Relayed);
+        let mut session = Session::new(workspace, Origin::Relayed, Actor::Person);
         let (answer, _) = session.answer(Request::OpenCopy { thread_id: Uuid::new_v4(), with: Opener::Folder }).await;
         expect(answer) to equal(Err("This can only be done on the machine itself.".to_string()))
         let (review, _) = session.answer(Request::OpenReview { thread_id: Uuid::new_v4() }).await;

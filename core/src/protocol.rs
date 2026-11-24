@@ -43,8 +43,13 @@ use crate::workflow::{Stage, StageLabel, Workflow, Workflows};
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMessage {
-    /// The first message: the token from `service.json`.
-    Hello { token: String },
+    /// The first message: the token from `service.json`, and the acting thread when run by an agent.
+    Hello {
+        token: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional)]
+        thread: Option<Uuid>,
+    },
     /// Anything after that. The reply carries the same `id`.
     Call {
         #[ts(type = "number")]
@@ -304,6 +309,10 @@ pub enum Outcome {
 pub enum Answer {
     /// Nothing to give back beyond having done it.
     Nothing,
+    /// Whether a running agent was stopped; false when the thread was already idle.
+    Stopped {
+        stopped: bool,
+    },
     /// How many threads were newly put away.
     PutAway {
         count: u32,
@@ -636,6 +645,14 @@ mod tests {
     fn hello() -> ClientMessage {
         ClientMessage::Hello {
             token: "abc".to_string(),
+            thread: None,
+        }
+    }
+
+    fn hello_as_thread() -> ClientMessage {
+        ClientMessage::Hello {
+            token: "abc".to_string(),
+            thread: Some(Uuid::nil()),
         }
     }
 
@@ -664,6 +681,9 @@ mod tests {
         expect(to_value(&message).unwrap()) as the_json_of_a_message {
             when(message = hello()) as a_hello {
                 to name_its_type { equal(json!({ "type": "hello", "token": "abc" })) }
+            }
+            when(message = hello_as_thread()) as a_hello_for_a_thread {
+                to carry_the_thread { equal(json!({ "type": "hello", "token": "abc", "thread": Uuid::nil() })) }
             }
             when(message = stop_call()) as a_call {
                 to nest_the_request {

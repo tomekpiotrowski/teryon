@@ -118,6 +118,9 @@
   <article class="thread-entry" [class.user-entry]="line.kind === 'user'" [class.reviewer-entry]="line.reviewer && line.kind !== 'review'">
     @switch (line.kind) {
       @case ('user') {
+        @if (line.from; as from) {
+          <button type="button" class="message-source" (click)="sourceOpened.emit(from)">{{ sourceLabel(from) }}</button>
+        }
         <div class="message">
           <span class="prompt-mark">❯</span>
           @if (line.reviewer) { <span class="speaker">to {{ reviewerLabel(line, thread) }}</span> }

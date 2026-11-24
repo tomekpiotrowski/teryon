@@ -3,7 +3,7 @@
 
 export type JsonValue = number | string | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
-export type ClientMessage = { "type": "hello", token: string, } | { "type": "call", id: number, request: Request, };
+export type ClientMessage = { "type": "hello", token: string, thread?: string, } | { "type": "call", id: number, request: Request, };
 
 export type Request = { "type": "add_project", name: string, directory: string, } | { "type": "directories", path: string, } | { "type": "remove_project", project_id: string, } | { "type": "start_thread", project_id: string, 
 /**
@@ -37,7 +37,7 @@ export type ServiceMessage = { "type": "reply", id: number, outcome: Outcome, } 
 
 export type Outcome = { "type": "done", answer: Answer, } | { "type": "failed", message: string, };
 
-export type Answer = { "type": "nothing" } | { "type": "put_away", count: number, } | { "type": "project", project: ProjectView, } | { "type": "directories", listing: DirectoryListing, } | { "type": "thread", thread: Thread, } | { "type": "entry", entry: Entry, } | { "type": "entries", entries: Array<Entry>, } | { "type": "listing", listing: Listing, } | { "type": "file", file: FileView, } | { "type": "history", history: History, } | { "type": "changes", changes: Changes, } | { "type": "path", path: string, } | { "type": "draft", text: string, } | { "type": "caught_up", overlaps: boolean, } | { "type": "usage", report: UsageReport, } | { "type": "plan", text: string, } | { "type": "configuration", configuration: Configuration, };
+export type Answer = { "type": "nothing" } | { "type": "stopped", stopped: boolean, } | { "type": "put_away", count: number, } | { "type": "project", project: ProjectView, } | { "type": "directories", listing: DirectoryListing, } | { "type": "thread", thread: Thread, } | { "type": "entry", entry: Entry, } | { "type": "entries", entries: Array<Entry>, } | { "type": "listing", listing: Listing, } | { "type": "file", file: FileView, } | { "type": "history", history: History, } | { "type": "changes", changes: Changes, } | { "type": "path", path: string, } | { "type": "draft", text: string, } | { "type": "caught_up", overlaps: boolean, } | { "type": "usage", report: UsageReport, } | { "type": "plan", text: string, } | { "type": "configuration", configuration: Configuration, };
 
 export type Event = { "type": "snapshot", projects: Array<ProjectView>, threads: Array<Thread>, opens: Opens, 
 /**

@@ -112,6 +112,7 @@
           (draftChanged)="rememberDraft(card.thread, $event)"
           (toChanged)="rememberVoice(card.thread, $event)"
           (linesChange)="rememberLines(card, $event)"
+          (sourceOpened)="sourceOpened.emit($event)"
         ></app-home-card>
       }
     </section>

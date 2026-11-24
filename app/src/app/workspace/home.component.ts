@@ -20,6 +20,7 @@ import {
   type EntryLine,
   FIRST_NEW_THREADS,
   insertNewline,
+  type MessageSource,
   type ModelLists,
   type NewThreads,
   NO_MODELS,
@@ -117,6 +118,7 @@ export class HomeComponent implements AfterViewChecked, OnDestroy {
   @Output() readonly questionsPutAway = new EventEmitter<string>();
   @Output() readonly questionsRestored = new EventEmitter<void>();
   @Output() readonly linesChange = new EventEmitter<readonly EntryLine[]>();
+  @Output() readonly sourceOpened = new EventEmitter<MessageSource>();
 
   private readonly host: ElementRef<HTMLElement> = inject(ElementRef);
   private readonly groups$ = new BehaviorSubject<readonly ProjectGroup[]>([]);

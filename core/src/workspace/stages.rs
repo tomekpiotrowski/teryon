@@ -14,10 +14,10 @@ use std::sync::MutexGuard;
 
 use chrono::Utc;
 use serde_json::json;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
-use super::{Inner, Workspace, WorkspaceError};
+use super::{preview_of, Actor, Inner, Workspace, WorkspaceError};
 use crate::agents::models::{claude_alias_matches, split_gemini_model, Effort, ModelOption};
 use crate::agents::{Agent, EntryDraft, EntryKind, Voice};
 use crate::changes::reviewing::findings_in;
@@ -62,12 +62,20 @@ impl TurnStart {
     }
 }
 
-/// Whether `starter` is the person, who picks a put-away thread back up.
+/// Whether `starter` picks a put-away thread back up, answers questions and lifts a stop.
 ///
-/// A message Teryon sends to carry a stage on must not. The thread was put
-/// away because it asked nothing, and Teryon talking to itself is not the
-/// person deciding to resume it.
+/// Messages from the person or from another thread do. A message Teryon sends
+/// to carry a stage on must not: the thread was put away because it asked
+/// nothing, and Teryon talking to itself is not a decision to resume it.
 pub(super) fn brings_back(starter: &Starter) -> bool {
+    matches!(starter, Starter::Person | Starter::Thread(_))
+}
+
+/// Whether `starter` resets the count of automatic rounds.
+///
+/// Only the person resets `rounds`. Messages from another thread add to them,
+/// so two agents messaging each other stop at `automatic_rounds`.
+pub(super) fn resets_rounds(starter: &Starter) -> bool {
     matches!(starter, Starter::Person)
 }
 
@@ -88,14 +96,29 @@ fn landed(thread: &mut Thread, to: Stage) {
     }
 }
 
-/// Who starts a turn: the person, or Teryon carrying a thread on to its next stage.
+/// Who starts a turn: the person, another thread's agent, or Teryon carrying a thread on to its next stage.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum Starter {
     Person,
+    /// Another thread acting through `teryon`.
+    Thread(Uuid),
     /// Teryon, for the stage, on the agent picked for it, which the stage remembers.
     Teryon {
         stage: Stage,
         pick: Pick,
+        /// True when handing over directly at turn end while the thread is still marked running.
+        handing_over: bool,
+    },
+}
+
+/// Outcome of deciding whether Teryon automatically starts the next stage's agent.
+enum CarryOn {
+    /// Another agent started and now owns the thread's running state.
+    Started,
+    /// No agent started; the caller settles or writes any trailing entry and remembered pick.
+    Settle {
+        extra: Option<EntryDraft>,
+        kept: Option<(Stage, Agent)>,
     },
 }
 
@@ -588,7 +611,18 @@ impl Workspace {
         turn: Option<Uuid>,
         name: &str,
     ) -> Result<Thread, WorkspaceError> {
-        let choosing = self.take_workflow(thread_id, turn, name);
+        self.choose_workflow_by(thread_id, turn, name, Actor::Person)
+    }
+
+    /// Puts a thread on another workflow on behalf of `actor`, leaving a notice when another thread acts.
+    pub fn choose_workflow_by(
+        &self,
+        thread_id: Uuid,
+        turn: Option<Uuid>,
+        name: &str,
+        actor: Actor,
+    ) -> Result<Thread, WorkspaceError> {
+        let choosing = self.take_workflow(thread_id, turn, name, actor);
         if let (Err(problem), Some(_)) = (&choosing, turn) {
             warn!(%thread_id, %problem, "refused the workflow an agent chose");
         }
@@ -602,13 +636,21 @@ impl Workspace {
         // A thread the person moved while nobody works gets the new stage's agent, as a turn ending there would.
         // During a turn, the turn's end does that.
         if turn.is_none() && thread.stage != from && thread.status != Status::Running {
-            self.carry_on(
+            if let CarryOn::Settle { extra, kept } = self.carry_on(
                 thread_id,
                 TurnStart {
                     rechosen: true,
                     ..TurnStart::of(Voice::Author, from)
                 },
-            );
+                false,
+            ) {
+                if let Some(draft) = extra {
+                    self.write(thread_id, draft);
+                }
+                if let Some((stage, agent)) = kept {
+                    self.remember(thread_id, stage, agent);
+                }
+            }
         }
         Ok(thread)
     }
@@ -618,8 +660,14 @@ impl Workspace {
         thread_id: Uuid,
         turn: Option<Uuid>,
         name: &str,
+        actor: Actor,
     ) -> Result<(Vec<Entry>, Thread, Stage), WorkspaceError> {
         let mut state = self.inner.state();
+        let source = if turn.is_none() {
+            state.source(actor)
+        } else {
+            None
+        };
         let (store, thread) = state.holding(thread_id)?;
         let from = thread.stage;
         let chooser = match turn {
@@ -647,14 +695,19 @@ impl Workspace {
         if workflow.name == current.name {
             return Ok((Vec::new(), thread, from));
         }
-        let by = match chooser {
-            Chooser::Agent => format!(
-                " · by {}",
+        let notice = match (chooser, &source) {
+            (Chooser::Person, Some(source)) => {
+                EntryDraft::notice(&source.notice(&format!("chose the {} workflow.", workflow.name)))
+            }
+            (Chooser::Person, None) => {
+                EntryDraft::notice(&format!("Follows the {} workflow · by you.", workflow.name))
+            }
+            (Chooser::Agent, _) => EntryDraft::notice(&format!(
+                "Follows the {} workflow · by {}.",
+                workflow.name,
                 Agent::parse(&thread.agent).map_or("the agent", Agent::label)
-            ),
-            Chooser::Person => " · by you".to_string(),
+            )),
         };
-        let notice = EntryDraft::notice(&format!("Follows the {} workflow{by}.", workflow.name));
         let mut entries = vec![store.append(thread_id, notice.kind.name(), notice.body)?];
         let name = workflow.name.clone();
         let skipped = workflows.label(thread.stage);
@@ -679,88 +732,158 @@ impl Workspace {
         Ok((entries, thread, from))
     }
 
-    /// Starts the next stage's agent when a turn ends, if the stage calls for one.
+    /// Ends a turn and hands over to the next stage's agent without a brief idle moment between them.
+    ///
+    /// A client waiting for a thread to settle must not mistake an automatic
+    /// hand-over to the next stage for the thread finishing. So [`Self::carry_on`]
+    /// runs while the thread is still marked running, and the thread becomes
+    /// idle only once Teryon has decided not to start another agent.
+    pub(super) fn finish_turn(&self, thread_id: Uuid) {
+        let start = self.inner.turns().remove(&thread_id);
+        // The plan is read before the thread shows as done, so its line comes before the person is called.
+        if start.is_some_and(|start| start.voice == Voice::Author) {
+            self.inner.look_at_plan(thread_id);
+        }
+        let (extra, kept) = match start {
+            Some(start) => match self.carry_on(thread_id, start, true) {
+                CarryOn::Started => return,
+                CarryOn::Settle { extra, kept } => (extra, kept),
+            },
+            None => (None, None),
+        };
+        let mut state = self.inner.state();
+        let settled = state
+            .holding(thread_id)
+            .map_err(|problem| problem.to_string())
+            .and_then(|(store, _)| {
+                let entry = extra
+                    .map(|draft| store.append(thread_id, draft.kind.name(), draft.body))
+                    .transpose()
+                    .map_err(|problem| problem.to_string())?;
+                // Entries are already stored, so the preview is the turn's last word.
+                let preview = store
+                    .entries(thread_id)
+                    .ok()
+                    .and_then(|entries| preview_of(&entries));
+                let thread = store
+                    .change(thread_id, |thread| {
+                        thread.status = Status::Idle;
+                        thread.unread = true;
+                        thread.preview = preview.clone();
+                        if let Some(reviewer) = &mut thread.reviewer {
+                            reviewer.reviewing = false;
+                        }
+                    })
+                    .map_err(|problem| problem.to_string())?;
+                Ok((entry, thread))
+            });
+        drop(state);
+        match settled {
+            Ok((entry, thread)) => {
+                if let Some(entry) = entry {
+                    self.inner.announce(Event::EntryAdded { entry });
+                }
+                self.inner.announce(Event::ThreadChanged { thread });
+            }
+            Err(problem) => error!("could not store a change to a thread: {problem}"),
+        }
+        if let Some((stage, agent)) = kept {
+            self.remember(thread_id, stage, agent);
+        }
+    }
+
+    /// Starts the next stage's agent when a turn ends or an idle thread moves stage, if the stage calls for one.
     ///
     /// Nothing starts unless `config.toml` names who works in some stage,
-    /// the stage changed during the turn or the turn's provider ran out of
-    /// usage, and never while the person has stopped the thread or after
-    /// `automatic_rounds` starts without them.
-    /// Problems go into the thread as an error, so the person sees why it waits.
-    pub(super) fn carry_on(&self, thread_id: Uuid, start: TurnStart) {
+    /// the stage changed or the turn's provider ran out of usage, and never
+    /// while the person has stopped the thread or after `automatic_rounds`
+    /// starts without them. Problems go into the thread as an error, so the
+    /// person sees why it waits.
+    fn carry_on(&self, thread_id: Uuid, start: TurnStart, handing_over: bool) -> CarryOn {
+        let nothing = CarryOn::Settle {
+            extra: None,
+            kept: None,
+        };
         let (limit, chooses) = {
             let setup = self.inner.setup();
             (setup.workflow.automatic_rounds, setup.stages.any_chooses())
         };
         let thread = match self.inner.state().holding(thread_id) {
             Ok((_, thread)) => thread,
-            Err(_) => return,
+            Err(_) => return nothing,
         };
         let moved = thread.stage != start.stage;
         // Shutting down stops agents; their turns ending must not start others.
         if self.inner.stopping.load(Ordering::SeqCst)
-            || thread.status == Status::Running
+            || (!handing_over && thread.status == Status::Running)
             || thread.held
             || limit == 0
             || !chooses
             || (!moved && start.ran_out.is_none())
         {
-            return;
+            return nothing;
         }
-        let next = self.next_step(&thread, &start);
         let stage = thread.stage;
-        match &next {
-            Next::Nothing => return,
-            Next::Keep(pick) => return self.remember(thread_id, stage, pick.agent),
-            _ => {}
-        }
-        if thread.rounds >= limit {
-            warn!(%thread_id, rounds = thread.rounds, "stopped starting agents without the person");
-            self.write(
-                thread_id,
-                EntryDraft::notice(&format!(
-                    "Stopped after {limit} {} without you. Send a message to carry on.",
-                    if limit == 1 { "round" } else { "rounds" }
-                )),
-            );
-            return;
-        }
-        let started = match next {
-            Next::Nothing | Next::Keep(_) => Ok(()),
-            Next::Refused(why) => {
-                self.write(thread_id, EntryDraft::error(&why));
-                Ok(())
+        let next = self.next_step(&thread, &start);
+        match next {
+            Next::Nothing => nothing,
+            Next::Keep(pick) => CarryOn::Settle {
+                extra: None,
+                kept: Some((stage, pick.agent)),
+            },
+            Next::Refused(why) => CarryOn::Settle {
+                extra: Some(EntryDraft::error(&why)),
+                kept: None,
+            },
+            Next::Review(_) | Next::Author { .. } if thread.rounds >= limit => {
+                warn!(%thread_id, rounds = thread.rounds, "stopped starting agents without the person");
+                CarryOn::Settle {
+                    extra: Some(EntryDraft::notice(&format!(
+                        "Stopped after {limit} {} without you. Send a message to carry on.",
+                        if limit == 1 { "round" } else { "rounds" }
+                    ))),
+                    kept: None,
+                }
             }
             Next::Review(pick) => {
                 info!(%thread_id, stage = stage.name(), agent = pick.agent.name(), model = ?pick.model, rounds = thread.rounds + 1, "starting a review by itself");
                 let (agent, model) = (pick.agent, pick.model.clone());
-                self.review(
-                    thread_id,
-                    agent,
-                    model,
-                    pick.effort,
-                    Starter::Teryon { stage, pick },
-                )
-                .map(|_| ())
+                let starter = Starter::Teryon {
+                    stage,
+                    pick,
+                    handing_over,
+                };
+                match self.review(thread_id, agent, model, pick_effort(&starter), starter) {
+                    Ok(_) => CarryOn::Started,
+                    Err(WorkspaceError::Busy(_)) => nothing,
+                    Err(problem) => {
+                        warn!(%thread_id, %problem, "could not start the next stage's agent");
+                        CarryOn::Settle {
+                            extra: Some(EntryDraft::error(&problem.to_string())),
+                            kept: None,
+                        }
+                    }
+                }
             }
             Next::Author { pick, message } => {
                 info!(%thread_id, stage = stage.name(), agent = pick.agent.name(), model = ?pick.model, rounds = thread.rounds + 1, "starting an agent by itself");
-                self.send(
-                    thread_id,
-                    &message,
-                    Voice::Author,
-                    Starter::Teryon { stage, pick },
-                )
-                .map(|_| ())
+                let starter = Starter::Teryon {
+                    stage,
+                    pick,
+                    handing_over,
+                };
+                match self.send(thread_id, &message, Voice::Author, starter) {
+                    Ok(_) => CarryOn::Started,
+                    Err(WorkspaceError::Busy(_)) => nothing,
+                    Err(problem) => {
+                        warn!(%thread_id, %problem, "could not start the next stage's agent");
+                        CarryOn::Settle {
+                            extra: Some(EntryDraft::error(&problem.to_string())),
+                            kept: None,
+                        }
+                    }
+                }
             }
-        };
-        match started {
-            // The person sent a message or asked for a review in the meantime; their turn wins.
-            Err(WorkspaceError::Busy(_)) => {}
-            Err(problem) => {
-                warn!(%thread_id, %problem, "could not start the next stage's agent");
-                self.write(thread_id, EntryDraft::error(&problem.to_string()));
-            }
-            Ok(()) => {}
         }
     }
 
@@ -919,6 +1042,14 @@ impl Workspace {
     }
 }
 
+/// The effort carried by a [`Starter::Teryon`], if any.
+fn pick_effort(starter: &Starter) -> Option<Effort> {
+    match starter {
+        Starter::Teryon { pick, .. } => pick.effort,
+        _ => None,
+    }
+}
+
 /// Whether a thread's current model already matches what a stage picked.
 ///
 /// The chooser picks versioned catalog names (such as `claude-opus-5-5`), while
@@ -1049,6 +1180,7 @@ mod tests {
         Starter::Teryon {
             stage: Stage::Implementing,
             pick: pick(None),
+            handing_over: false,
         }
     }
 
@@ -1116,7 +1248,14 @@ mod tests {
 
         expect(brings_back(&starter)) {
             when(starter = Starter::Person) as the_person to bring_the_thread_back { be_true }
+            when(starter = Starter::Thread(Uuid::nil())) as another_thread to bring_the_thread_back { be_true }
             when(starter = teryon_start()) as teryon to leave_a_put_away_thread { be_false }
+        }
+
+        expect(resets_rounds(&starter)) {
+            when(starter = Starter::Person) as the_person to reset_rounds { be_true }
+            when(starter = Starter::Thread(Uuid::nil())) as another_thread to count_toward_automatic_rounds { be_false }
+            when(starter = teryon_start()) as teryon to count_toward_automatic_rounds { be_false }
         }
 
         expect(flags_after(to)) {

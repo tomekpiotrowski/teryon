@@ -35,7 +35,7 @@ use crate::protocol::{Event, Opener};
 use crate::store::{Status, Thread};
 use crate::workflow::Happening;
 use crate::workspace::stages::Mover;
-use crate::workspace::{Inner, Workspace, WorkspaceError};
+use crate::workspace::{Actor, Inner, Workspace, WorkspaceError};
 
 /// How long Discard waits for a stopped agent to end.
 const STOP_PATIENCE: Duration = Duration::from_secs(30);
@@ -62,24 +62,56 @@ impl Workspace {
         thread_id: Uuid,
         description: &str,
     ) -> Result<(), WorkspaceError> {
+        self.apply_change_by(thread_id, description, Actor::Person)
+            .await
+    }
+
+    /// Applies a thread's change on behalf of `actor`, leaving an attributed notice when another thread acts.
+    pub async fn apply_change_by(
+        &self,
+        thread_id: Uuid,
+        description: &str,
+        actor: Actor,
+    ) -> Result<(), WorkspaceError> {
         let (directory, project_id, _, change) = self.inner.finishable(thread_id)?;
         let _turn = self.inner.finishing(thread_id)?;
         let _project = self.inner.project_lock(project_id).lock_owned().await;
         self.inner.check_idle(thread_id)?;
+        let note = self
+            .inner
+            .state()
+            .source(actor)
+            .map_or_else(|| "Applied to the project.".to_string(), |s| s.notice("applied this change."));
         apply(&directory, &change, description).await?;
         self.inner
-            .forget_change(thread_id, Finish::Applied, "Applied to the project.")?;
+            .forget_change(thread_id, Finish::Applied, &note)?;
         self.inner.look_at_all(project_id).await;
         Ok(())
     }
 
     /// Brings a thread's change up to date with newer work in the project, unless the two overlap.
     pub async fn catch_up(&self, thread_id: Uuid) -> Result<CaughtUp, WorkspaceError> {
+        self.catch_up_by(thread_id, Actor::Person).await
+    }
+
+    /// Brings a thread's change up to date on behalf of `actor`.
+    pub async fn catch_up_by(
+        &self,
+        thread_id: Uuid,
+        actor: Actor,
+    ) -> Result<CaughtUp, WorkspaceError> {
         let (directory, project_id, _, change) = self.inner.finishable(thread_id)?;
         let _turn = self.inner.finishing(thread_id)?;
         let _project = self.inner.project_lock(project_id).lock_owned().await;
         self.inner.check_idle(thread_id)?;
+        let source = self.inner.state().source(actor);
         let caught_up = catch_up(&directory, &change).await?;
+        if caught_up == CaughtUp::Done {
+            if let Some(source) = source {
+                self.inner
+                    .append_notice(thread_id, &source.notice("caught this change up."))?;
+            }
+        }
         self.inner.look_at(thread_id, Look::Thorough).await;
         Ok(caught_up)
     }
@@ -88,18 +120,35 @@ impl Workspace {
     ///
     /// Stops the thread's agent first, if it is working.
     pub async fn discard_change(&self, thread_id: Uuid) -> Result<(), WorkspaceError> {
-        let (directory, project_id, change) = {
+        self.discard_change_by(thread_id, Actor::Person).await
+    }
+
+    /// Throws a thread's change away on behalf of `actor`, leaving an attributed notice when another thread acts.
+    pub async fn discard_change_by(
+        &self,
+        thread_id: Uuid,
+        actor: Actor,
+    ) -> Result<(), WorkspaceError> {
+        let (directory, project_id, change, source) = {
             let mut state = self.inner.state();
+            let source = state.source(actor);
             let (_, thread) = state.holding(thread_id)?;
             let change = thread.change.ok_or(FinishError::NoChange)?;
             (
                 state.project(thread.project_id)?.directory.clone(),
                 thread.project_id,
                 *change,
+                source,
             )
         };
         let _turn = self.inner.finishing(thread_id)?;
-        self.inner.runner.stop(thread_id);
+        match &source {
+            Some(source) => self
+                .inner
+                .runner
+                .stop_by_thread(thread_id, source.notice("stopped this thread.")),
+            None => self.inner.runner.stop(thread_id),
+        }
         for _ in 0..STOP_PATIENCE.as_millis() / 50 {
             if self.inner.runner.turn_of(thread_id).is_none() {
                 break;
@@ -107,9 +156,13 @@ impl Workspace {
             sleep(Duration::from_millis(50)).await;
         }
         let _project = self.inner.project_lock(project_id).lock_owned().await;
+        let note = source.map_or_else(
+            || "Changes discarded.".to_string(),
+            |s| s.notice("discarded this change."),
+        );
         discard(&directory, &change).await?;
         self.inner
-            .forget_change(thread_id, Finish::Discarded, "Changes discarded.")?;
+            .forget_change(thread_id, Finish::Discarded, &note)?;
         self.inner.look_at_all(project_id).await;
         Ok(())
     }
@@ -171,13 +224,29 @@ impl Workspace {
         thread_id: Uuid,
         description: &str,
     ) -> Result<(), WorkspaceError> {
+        self.send_for_review_by(thread_id, description, Actor::Person)
+            .await
+    }
+
+    /// Sends a thread's change for review on GitHub on behalf of `actor`.
+    pub async fn send_for_review_by(
+        &self,
+        thread_id: Uuid,
+        description: &str,
+        actor: Actor,
+    ) -> Result<(), WorkspaceError> {
         let (directory, project_id, _, change) = self.inner.finishable(thread_id)?;
         let _turn = self.inner.finishing(thread_id)?;
         let _project = self.inner.project_lock(project_id).lock_owned().await;
         self.inner.check_idle(thread_id)?;
+        let source = self.inner.state().source(actor);
         let program = self.inner.setup().github.program.clone();
         let review = send_for_review(&directory, &change, description, &program).await?;
         self.inner.store_review(thread_id, review)?;
+        if let Some(source) = source {
+            self.inner
+                .append_notice(thread_id, &source.notice("sent this change for review."))?;
+        }
         self.inner.look_at(thread_id, Look::Thorough).await;
         Ok(())
     }
@@ -411,6 +480,17 @@ impl Inner {
         })?;
         drop(state);
         self.announce(Event::ThreadChanged { thread });
+        Ok(())
+    }
+
+    /// Adds a notice to a thread and announces it.
+    fn append_notice(&self, thread_id: Uuid, note: &str) -> Result<(), WorkspaceError> {
+        let mut state = self.state();
+        let (store, _) = state.holding(thread_id)?;
+        let notice = EntryDraft::notice(note);
+        let entry = store.append(thread_id, EntryKind::Notice.name(), notice.body)?;
+        drop(state);
+        self.announce(Event::EntryAdded { entry });
         Ok(())
     }
 

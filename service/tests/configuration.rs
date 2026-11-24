@@ -24,7 +24,7 @@ use teryon_core::protocol::{Answer, Event, Request};
 use teryon_core::settings::{Configuration, Settings, StageProvider, Strength};
 use teryon_core::store::{Status, Thread};
 use teryon_core::workflow::Stage;
-use teryon_core::workspace::{Setup, Workspace};
+use teryon_core::workspace::{Actor, Setup, Workspace};
 
 /// The choices the settings screen is showing.
 async fn shown(client: &mut Client) -> Configuration {
@@ -138,7 +138,7 @@ lets_expect! { #tokio_test
     story settings_stay_on_the_machine {
         let home = tempfile::tempdir().unwrap();
         let workspace = Workspace::open(home.path(), Setup::default()).unwrap();
-        let mut session = Session::new(workspace, Origin::Relayed);
+        let mut session = Session::new(workspace, Origin::Relayed, Actor::Person);
         let draft = Configuration::from_settings(&Settings::default());
 
         let (read, _) = session.answer(Request::Configuration).await;

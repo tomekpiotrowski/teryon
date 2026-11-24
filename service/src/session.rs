@@ -10,12 +10,13 @@
 use std::collections::HashSet;
 
 use tokio::spawn;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use teryon_core::changes::finish::CaughtUp;
 use teryon_core::directory::browse;
 use teryon_core::protocol::{Answer, Event, Request};
-use teryon_core::workspace::Workspace;
+use teryon_core::workspace::{Actor, Workspace};
 
 /// Where a session comes from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -40,14 +41,16 @@ pub enum Aftermath {
 pub struct Session {
     workspace: Workspace,
     origin: Origin,
+    actor: Actor,
     following: HashSet<Uuid>,
 }
 
 impl Session {
-    pub fn new(workspace: Workspace, origin: Origin) -> Self {
+    pub fn new(workspace: Workspace, origin: Origin, actor: Actor) -> Self {
         Self {
             workspace,
             origin,
+            actor,
             following: HashSet::new(),
         }
     }
@@ -56,6 +59,19 @@ impl Session {
     pub async fn answer(&mut self, request: Request) -> (Result<Answer, String>, Aftermath) {
         let workspace = &self.workspace;
         let local = self.origin == Origin::Local;
+        let actor = self.actor;
+        let audit = match actor {
+            Actor::Thread(acting) => audit_info(&request).map(|(op, target)| (acting, op, target)),
+            Actor::Person => None,
+        };
+        if let Some((acting, operation, target)) = audit {
+            if target == Some(acting) && refuses_own_thread(&request) {
+                let message = "An agent cannot act on its own thread with this command. Use `teryon thread title`, `teryon thread stage`, `teryon thread ask`, or `teryon thread workflow` for your own thread.".to_string();
+                warn!(%acting, target = %acting, operation, "refused request from an agent about its own thread");
+                return (Err(message), Aftermath::Nothing);
+            }
+            info!(%acting, target = ?target, operation, "agent requested thread operation");
+        }
         let answer = match request {
             Request::AddProject { .. }
             | Request::RemoveProject { .. }
@@ -106,7 +122,7 @@ impl Session {
                 text,
                 to,
             } => workspace
-                .send_message(thread_id, &text, to)
+                .send_message_by(thread_id, &text, to, actor)
                 .map(|entry| Answer::Entry { entry })
                 .map_err(|problem| problem.to_string()),
             Request::ReviewChange {
@@ -115,7 +131,7 @@ impl Session {
                 model,
                 effort,
             } => workspace
-                .review_change(thread_id, &agent, model.as_deref(), effort)
+                .review_change_by(thread_id, &agent, model.as_deref(), effort, actor)
                 .map(|entry| Answer::Entry { entry })
                 .map_err(|problem| problem.to_string()),
             Request::ChangeAgent {
@@ -125,14 +141,14 @@ impl Session {
                 model,
                 effort,
             } => workspace
-                .change_agent(thread_id, to, &agent, model.as_deref(), effort)
+                .change_agent_by(thread_id, to, &agent, model.as_deref(), effort, actor)
                 .map(|thread| Answer::Thread {
                     thread: Box::new(thread),
                 })
                 .map_err(|problem| problem.to_string()),
             Request::Stop { thread_id } => workspace
-                .stop(thread_id)
-                .map(|()| Answer::Nothing)
+                .stop_by(thread_id, actor)
+                .map(|stopped| Answer::Stopped { stopped })
                 .map_err(|problem| problem.to_string()),
             Request::MarkSeen { thread_id } => workspace
                 .mark_seen(thread_id)
@@ -179,7 +195,7 @@ impl Session {
                 turn,
                 workflow,
             } => workspace
-                .choose_workflow(thread_id, turn, &workflow)
+                .choose_workflow_by(thread_id, turn, &workflow, actor)
                 .map(|thread| Answer::Thread {
                     thread: Box::new(thread),
                 })
@@ -201,19 +217,19 @@ impl Session {
                 thread_id,
                 description,
             } => workspace
-                .apply_change(thread_id, &description)
+                .apply_change_by(thread_id, &description, actor)
                 .await
                 .map(|()| Answer::Nothing)
                 .map_err(|problem| problem.to_string()),
             Request::CatchUp { thread_id } => workspace
-                .catch_up(thread_id)
+                .catch_up_by(thread_id, actor)
                 .await
                 .map(|caught_up| Answer::CaughtUp {
                     overlaps: caught_up == CaughtUp::Overlaps,
                 })
                 .map_err(|problem| problem.to_string()),
             Request::DiscardChange { thread_id } => workspace
-                .discard_change(thread_id)
+                .discard_change_by(thread_id, actor)
                 .await
                 .map(|()| Answer::Nothing)
                 .map_err(|problem| problem.to_string()),
@@ -221,7 +237,7 @@ impl Session {
                 thread_id,
                 description,
             } => workspace
-                .send_for_review(thread_id, &description)
+                .send_for_review_by(thread_id, &description, actor)
                 .await
                 .map(|()| Answer::Nothing)
                 .map_err(|problem| problem.to_string()),
@@ -323,6 +339,9 @@ impl Session {
                 })
                 .map_err(|problem| problem.to_string()),
         };
+        if let (Some((acting, operation, target)), Err(problem)) = (audit, &answer) {
+            warn!(%acting, target = ?target, operation, %problem, "refused request from another thread");
+        }
         (answer, Aftermath::Nothing)
     }
 
@@ -333,4 +352,52 @@ impl Session {
             _ => true,
         }
     }
+}
+
+/// The operation name and target thread for logging cross-thread requests from an agent.
+///
+/// Own-thread turn commands (`StartChange`, `NameThread`, `ReportStage`,
+/// `AskQuestions`, and `ChooseWorkflow` with a turn) are left out so they are
+/// neither logged as cross-thread actions nor blocked as self-targeting.
+fn audit_info(request: &Request) -> Option<(&'static str, Option<Uuid>)> {
+    match request {
+        Request::StartThread { .. } => Some(("start_thread", None)),
+        Request::SendMessage { thread_id, .. } => Some(("send_message", Some(*thread_id))),
+        Request::ReviewChange { thread_id, .. } => Some(("review_change", Some(*thread_id))),
+        Request::ChangeAgent { thread_id, .. } => Some(("change_agent", Some(*thread_id))),
+        Request::Stop { thread_id } => Some(("stop", Some(*thread_id))),
+        Request::MarkSeen { thread_id } => Some(("mark_seen", Some(*thread_id))),
+        Request::PutAwayQuiet { .. } => Some(("put_away_quiet", None)),
+        Request::ChooseWorkflow {
+            thread_id,
+            turn: None,
+            ..
+        } => Some(("choose_workflow", Some(*thread_id))),
+        Request::DraftDescription { thread_id } => Some(("draft_description", Some(*thread_id))),
+        Request::ApplyChange { thread_id, .. } => Some(("apply_change", Some(*thread_id))),
+        Request::CatchUp { thread_id } => Some(("catch_up", Some(*thread_id))),
+        Request::DiscardChange { thread_id } => Some(("discard_change", Some(*thread_id))),
+        Request::SendForReview { thread_id, .. } => Some(("send_for_review", Some(*thread_id))),
+        Request::FollowThread { thread_id } => Some(("follow_thread", Some(*thread_id))),
+        Request::Plan { thread_id } => Some(("plan", Some(*thread_id))),
+        _ => None,
+    }
+}
+
+/// Whether an agent acting for a thread must be refused from running `request` on that same thread.
+fn refuses_own_thread(request: &Request) -> bool {
+    matches!(
+        request,
+        Request::SendMessage { .. }
+            | Request::ReviewChange { .. }
+            | Request::ChangeAgent { .. }
+            | Request::Stop { .. }
+            | Request::MarkSeen { .. }
+            | Request::ChooseWorkflow { turn: None, .. }
+            | Request::DraftDescription { .. }
+            | Request::ApplyChange { .. }
+            | Request::CatchUp { .. }
+            | Request::DiscardChange { .. }
+            | Request::SendForReview { .. }
+    )
 }

@@ -1179,6 +1179,20 @@ a:hover {
 
 .message > .speaker { margin: 0; }
 
+.message-source {
+  display: inline-block;
+  margin: 0 0 4px 24px;
+  color: var(--color-neutral-500);
+  font: 500 11.5px/1.4 var(--font-code);
+  text-align: left;
+}
+
+.message-source:hover {
+  color: var(--color-accent-700);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 /* Where a review starts: a thin rule across the thread, with who reviews on it. */
 .review-divider {
   display: flex;

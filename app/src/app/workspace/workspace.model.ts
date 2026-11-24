@@ -555,6 +555,13 @@ export interface Selection {
   readonly threadId: string | null;
 }
 
+/** Another thread whose agent sent a message into this thread. */
+export interface MessageSource {
+  readonly thread_id: string;
+  readonly project_id: string;
+  readonly title: string;
+}
+
 /** One line of a thread, ready to show. */
 export interface EntryLine {
   /** `review` marks where a review starts; `stage` where the thread moved to another stage; `plan` where its plan was written or changed. */
@@ -570,6 +577,8 @@ export interface EntryLine {
    * stored before Teryon recorded it.
    */
   readonly agent?: AgentName;
+  /** The thread that sent this message, when another thread's agent wrote it. */
+  readonly from?: MessageSource;
   /** More about the line, shown when the pointer rests on it: the full name of a summary's model. */
   readonly title?: string;
   /** The questions on a line of questions the agent asked. */
@@ -1037,12 +1046,19 @@ export function reviewerLabel(line: EntryLine, thread: Thread): string {
   return agentLabel(line.agent ?? reviewerOf(thread));
 }
 
+/** The attribution shown above a message sent from another thread. */
+export function sourceLabel(source: MessageSource): string {
+  return source.title ? `From «${source.title}»` : 'From another thread';
+}
+
 function plainLine(entry: ThreadEntry): EntryLine {
   const text = textOf(entry.body['text']);
   const reviewer = entry.body['reviewer'] === true;
   switch (entry.kind) {
-    case 'user_message':
-      return { kind: 'user', text, reviewer };
+    case 'user_message': {
+      const from = sourceIn(entry.body['from']);
+      return from ? { kind: 'user', text, reviewer, from } : { kind: 'user', text, reviewer };
+    }
     case 'agent_message':
       return { kind: 'agent', text, reviewer };
     case 'activity':
@@ -1065,6 +1081,18 @@ function plainLine(entry: ThreadEntry): EntryLine {
       return asked ? { kind: 'questions', text: '', reviewer, asked } : { kind: 'notice', text: 'The agent asked something Teryon couldn’t read.', reviewer };
     }
   }
+}
+
+/** The thread attribution on a message sent from another thread, when present and well-formed. */
+function sourceIn(value: unknown): MessageSource | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const { thread_id, project_id, title } = value as Record<string, unknown>;
+  if (typeof thread_id !== 'string' || !thread_id) return undefined;
+  return {
+    thread_id,
+    project_id: typeof project_id === 'string' ? project_id : '',
+    title: typeof title === 'string' ? title : '',
+  };
 }
 
 /** The questions an entry holds, or nothing when they aren't in the shape Teryon stores. */
