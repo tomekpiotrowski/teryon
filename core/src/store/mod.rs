@@ -181,6 +181,21 @@ pub struct Thread {
     /// Whether the person stopped the thread, so Teryon starts nothing by itself until they write again.
     #[serde(default)]
     pub held: bool,
+    /// Whether the person put the thread away, off the board until they pick it up.
+    ///
+    /// A quiet conversation stays on the board until the person puts the
+    /// group away. Nothing is deleted. Writing, choosing a workflow, or the
+    /// thread moving to another stage brings that one thread back.
+    #[serde(default)]
+    pub put_away: bool,
+    /// Whether the person has seen this thread on the board since it finished.
+    ///
+    /// Done is a receipt for the visit where it was shown. The next time the
+    /// board opens, a seen finish is gone. Absent on a thread already in
+    /// Done counts as seen, so old finished work does not fill the column;
+    /// the store resolves that on reading and the next save writes it down.
+    #[serde(default)]
+    pub done_seen: bool,
     /// What Teryon last saw of the thread's plan, see [`crate::plans`]. Nothing until one is written.
     #[serde(default)]
     pub plan: Option<PlanInfo>,
@@ -191,6 +206,24 @@ pub struct Thread {
     #[serde(default)]
     pub ended: Option<RunEnd>,
     pub created_at: DateTime<Utc>,
+}
+
+impl Thread {
+    /// Whether the thread is a quiet conversation that can leave the board.
+    ///
+    /// The board is for work that asks something of the person. A thread
+    /// still being talked through, with nobody working, no question waiting,
+    /// and no change or plan, asks nothing until they put the group away.
+    /// One already put away is not quiet again. Unread, and one they
+    /// stopped, still are: neither is a reason to keep the card.
+    pub fn quiet(&self) -> bool {
+        self.stage == Stage::Talking
+            && self.status == Status::Idle
+            && !self.asking
+            && self.change.is_none()
+            && self.plan.is_none()
+            && !self.put_away
+    }
 }
 
 /// The agent reviewing a thread's change, in a conversation of its own.

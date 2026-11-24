@@ -1,6 +1,6 @@
 import { commandList, type Situation } from './commands.model';
 import { filteredSections, SHARED_KEYS, shortcutSections, type ShortcutSection } from './shortcuts.model';
-import { changeBadge, FIRST_NEW_THREADS, NO_MODELS, NO_WORKFLOWS, type Change, type Project, type Thread } from './workspace.model';
+import { changeBadge, FIRST_NEW_THREADS, groupThreads, NO_MODELS, NO_WORKFLOWS, type Change, type Project, type Thread } from './workspace.model';
 
 const project: Project = { id: 'p', name: 'App', directory: '/work/app', created_at: '2026-11-01T10:00:00', on_github: true };
 const thread: Thread = {
@@ -39,6 +39,7 @@ function commands(overrides: Partial<Situation> = {}) {
     opens: { editor: false, terminal: false },
     questionsPutAway: false,
     workflows: NO_WORKFLOWS,
+    putAwayScope: null,
     ...overrides,
   });
 }
@@ -76,6 +77,16 @@ describe('shortcutSections', () => {
     const offered = commands({ project: null });
     expect(shortcutSections(offered, 'home', '').map((section) => section.heading)).toEqual(['Everywhere', 'Go to']);
     expect(keys(shortcutSections(offered, 'board', '')[0])).toEqual(['h j k l', '↵', 'esc']);
+  });
+
+  it('lists putting quiet threads away on the board only while that is offered', () => {
+    const quiet: Thread = { ...thread, id: 'q', title: 'Quiet' };
+    const offered = commands({ groups: groupThreads([project], [quiet]), putAwayScope: { projectId: project.id } });
+    const [here] = shortcutSections(offered, 'board', '');
+    expect(keys(here)).toEqual(['h j k l', '↵', 'a', 'x', 'esc']);
+    expect(here.rows.find((row) => row.keys[0] === 'x')?.text).toBe('Put away quiet threads');
+    expect(keys(shortcutSections(commands(), 'board', '')[0])).not.toContain('x');
+    expect(keys(shortcutSections(offered, 'thread', '')[0])).not.toContain('x');
   });
 
   it.each([0, 1, 3, 9, 10])('shows only available Usage numbers with %i agents', (usageAgents) => {

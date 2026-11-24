@@ -1,4 +1,4 @@
-import { BOARD_START, boardCard, boardColumns, cardAt, cursorOn, DONE_SHOWN, movedCursor, settledCursor, type BoardColumn } from './board.model';
+import { BOARD_START, boardCard, boardColumns, cardAt, cursorOn, movedCursor, rememberedFinishes, settledCursor, type BoardColumn, type SeenFinish } from './board.model';
 import { NO_WORKFLOWS, type Project, type Stage, type Thread, type Workflows } from './workspace.model';
 
 function project(id: string): Project {
@@ -43,17 +43,17 @@ function stages(columns: readonly BoardColumn[]): Stage[] {
 }
 
 describe('boardColumns', () => {
-  it('shows every stage of the default workflow when there are no threads', () => {
-    expect(stages(boardColumns([], [], WORKFLOWS, 'a'))).toEqual(['talking', 'planning', 'implementing', 'review', 'ready', 'done']);
+  it('shows every stage of the default workflow except an empty Done', () => {
+    expect(stages(boardColumns([], [], WORKFLOWS, 'a'))).toEqual(['talking', 'planning', 'implementing', 'review', 'ready']);
   });
 
-  it('shows only the stages the threads’ workflows use', () => {
-    expect(stages(boardColumns([thread('t', { workflow: 'small' })], [], WORKFLOWS, 'a'))).toEqual(['talking', 'implementing', 'ready', 'done']);
+  it('shows only the stages the threads’ workflows use, without an empty Done', () => {
+    expect(stages(boardColumns([thread('t', { workflow: 'small' })], [], WORKFLOWS, 'a'))).toEqual(['talking', 'implementing', 'ready']);
   });
 
-  it('joins the stages of mixed workflows, in the fixed order', () => {
+  it('joins the stages of mixed workflows, in the fixed order, without an empty Done', () => {
     const threads = [thread('t', { workflow: 'small' }), thread('u', { workflow: 'default' })];
-    expect(stages(boardColumns(threads, [], WORKFLOWS, 'a'))).toEqual(['talking', 'planning', 'implementing', 'review', 'ready', 'done']);
+    expect(stages(boardColumns(threads, [], WORKFLOWS, 'a'))).toEqual(['talking', 'planning', 'implementing', 'review', 'ready']);
   });
 
   it('treats a workflow no longer set up as the default', () => {
@@ -93,28 +93,44 @@ describe('boardColumns', () => {
     expect(columns[0].cards.map((card) => card.thread.id)).toEqual(['t', 'ttt', 'tt']);
   });
 
-  it('keeps a thread finished today in Done, however long ago it started', () => {
-    const newer = Array.from({ length: DONE_SHOWN }, (_, index) =>
+  it('shows every unseen finish, newest first, however long ago one started', () => {
+    const older = Array.from({ length: 12 }, (_, index) =>
       thread(`n${index}`, { stage: 'done', created_at: '2026-11-08T10:00:00', stage_since: '2026-11-08T11:00:00' }),
     );
-    const old = thread('old', { stage: 'done', created_at: '2026-10-01T10:00:00', stage_since: '2026-11-21T10:00:00' });
-    const column = boardColumns([...newer, old], [], WORKFLOWS, 'a').find((candidate) => candidate.stage === 'done');
-    expect(column?.cards[0].thread.id).toBe('old');
-    expect(column?.hidden).toBe(1);
+    const newest = thread('old', { stage: 'done', created_at: '2026-10-01T10:00:00', stage_since: '2026-11-21T10:00:00Z' });
+    const column = boardColumns([...older, newest], [], WORKFLOWS, 'a').find((candidate) => candidate.stage === 'done');
+    expect(column?.cards.map((card) => card.thread.id)).toEqual(['old', ...older.map((item) => item.id)]);
   });
 
-  it('shows only the newest finished threads, counting the rest', () => {
-    const done = Array.from({ length: DONE_SHOWN + 2 }, (_, index) =>
-      thread(`d${index}`, { stage: 'done', created_at: `2026-11-01T10:${String(index).padStart(2, '0')}:00` }),
+  it('leaves a quiet thread that has not been put away in Talking', () => {
+    const columns = boardColumns([thread('t', { unread: true, held: true })], [], WORKFLOWS, 'a');
+    expect(columns.find((column) => column.stage === 'talking')?.cards.map((card) => card.thread.id)).toEqual(['t']);
+  });
+
+  it('leaves out a thread that was put away, and a finish that was already shown', () => {
+    const columns = boardColumns(
+      [
+        thread('away', { put_away: true }),
+        thread('seen', { stage: 'done', done_seen: true, stage_since: '2026-11-21T10:00:00Z' }),
+        thread('fresh', { stage: 'done', done_seen: false, stage_since: '2026-11-21T11:00:00Z' }),
+      ],
+      [],
+      WORKFLOWS,
+      'a',
     );
-    const column = boardColumns(done, [], WORKFLOWS, 'a').find((candidate) => candidate.stage === 'done');
-    expect(column?.cards.length).toBe(DONE_SHOWN);
-    expect(column?.cards[0].thread.id).toBe(`d${DONE_SHOWN + 1}`);
-    expect(column?.hidden).toBe(2);
+    expect(columns.find((column) => column.stage === 'talking')?.cards).toEqual([]);
+    expect(columns.find((column) => column.stage === 'done')?.cards.map((card) => card.thread.id)).toEqual(['fresh']);
+  });
+
+  it('keeps the other empty stages, and the columns of threads that were all put away', () => {
+    const away = thread('t', { workflow: 'small', put_away: true });
+    expect(stages(boardColumns([away], [], WORKFLOWS, 'a'))).toEqual(['talking', 'implementing', 'ready']);
+    expect(stages(boardColumns([], [], WORKFLOWS, 'a'))).not.toContain('done');
+    expect(stages(boardColumns([], [], WORKFLOWS, 'a'))).toContain('planning');
   });
 
   it('works before the service has said which workflows there are', () => {
-    expect(stages(boardColumns([thread('t')], [], NO_WORKFLOWS, 'a'))).toHaveLength(6);
+    expect(stages(boardColumns([thread('t')], [], NO_WORKFLOWS, 'a'))).toHaveLength(5);
   });
 });
 
@@ -191,7 +207,7 @@ describe('the board’s keys', () => {
 
   it('stops at either end of the board', () => {
     expect(movedCursor(columns, BOARD_START, 'h')).toEqual(BOARD_START);
-    expect(movedCursor(columns, { column: 5, row: 0 }, 'l')).toEqual({ column: 5, row: 0 });
+    expect(movedCursor(columns, { column: 4, row: 0 }, 'l')).toEqual({ column: 4, row: 0 });
   });
 
   it('moves within a column and stops at its ends', () => {
@@ -206,7 +222,7 @@ describe('the board’s keys', () => {
   });
 
   it('keeps a cursor inside the board after its threads changed', () => {
-    expect(settledCursor(columns, { column: 9, row: 9 })).toEqual({ column: 5, row: 0 });
+    expect(settledCursor(columns, { column: 9, row: 9 })).toEqual({ column: 4, row: 0 });
     expect(settledCursor(columns, { column: 0, row: 7 })).toEqual({ column: 0, row: 1 });
   });
 
@@ -220,5 +236,44 @@ describe('the board’s keys', () => {
     expect(cursorOn(columns, 'i')).toEqual({ column: 2, row: 0 });
     expect(cursorOn(columns, 'gone')).toEqual(BOARD_START);
     expect(cursorOn(columns, null)).toEqual(BOARD_START);
+  });
+});
+
+describe('rememberedFinishes', () => {
+  const done = thread('d', { stage: 'done', stage_since: '2026-11-21T10:00:00Z' });
+  const now = '2026-11-21T12:00:00.000Z';
+
+  function remembered(threads: Thread[], projectId: string | null, at: string, before: SeenFinish[] = []): SeenFinish[] {
+    return rememberedFinishes(before, threads, boardColumns(threads, [project('a'), project('b')], WORKFLOWS, projectId), at);
+  }
+
+  it('remembers a thread rendered in Done', () => {
+    expect(remembered([done], 'a', now)).toEqual([{ id: 'd', at: now }]);
+  });
+
+  it('forgets a thread that leaves Done during the visit', () => {
+    const talking = { ...done, stage: 'talking' as const };
+    expect(remembered([talking], 'a', '2026-11-21T13:00:00.000Z', [{ id: 'd', at: now }])).toEqual([]);
+  });
+
+  it('keeps a finish seen under every project after switching back to one', () => {
+    const other = thread('o', { project_id: 'b', stage: 'done', stage_since: '2026-11-21T09:00:00Z' });
+    const both = remembered([done, other], null, now);
+    const back = remembered([done, other], 'a', '2026-11-21T13:00:00.000Z', both);
+    expect(back.find((finish) => finish.id === 'o')?.at).toBe(now);
+    expect(back.find((finish) => finish.id === 'd')?.at).toBe('2026-11-21T13:00:00.000Z');
+  });
+
+  it('remembers a later finish only once that card has been rendered again', () => {
+    const later = { ...done, stage_since: '2026-11-21T14:00:00.000Z' };
+    expect(remembered([later], 'b', '2026-11-21T15:00:00.000Z', [{ id: 'd', at: now }])).toEqual([]);
+    expect(remembered([later], 'a', '2026-11-21T15:00:00.000Z')).toEqual([{ id: 'd', at: '2026-11-21T15:00:00.000Z' }]);
+  });
+
+  it('keeps a finish whose instant is the same moment written two ways', () => {
+    const same = { ...done, stage_since: '2026-11-21T10:00:00Z' };
+    expect(remembered([same], 'b', '2026-11-21T15:00:00.000Z', [{ id: 'd', at: '2026-11-21T10:00:00.000Z' }])).toEqual([
+      { id: 'd', at: '2026-11-21T10:00:00.000Z' },
+    ]);
   });
 });

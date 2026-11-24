@@ -110,6 +110,15 @@ describe('homeWord', () => {
     expect(homeWord(thread({ stage: 'done', unread: false }))).toBeNull();
   });
 
+  it('leaves a finish off once the board has shown it', () => {
+    expect(homeWord(thread({ stage: 'done', unread: true, done_seen: true }))).toBeNull();
+    expect(homeWord(thread({ stage: 'done', unread: true, done_seen: false }))).toBe('new');
+  });
+
+  it('leaves a put-away thread off, even when its last turn was never opened', () => {
+    expect(homeWord(thread({ put_away: true, unread: true, asking: true, ended: 'failed' }))).toBeNull();
+  });
+
   it('ignores an old failure on a finished thread', () => {
     expect(homeWord(thread({ stage: 'done', ended: 'failed' }))).toBeNull();
   });
@@ -235,6 +244,11 @@ describe('continueMatches', () => {
 
   it('finds nothing for a text no thread has', () => {
     expect(continueMatches(groups, 'zzz')).toEqual([]);
+  });
+
+  it('still offers a thread that was put away', () => {
+    const away = groupThreads(projects, [thread({ id: 'away', title: 'Old chat', put_away: true })]);
+    expect(continueMatches(away, 'old').map((row) => row.thread.id)).toEqual(['away']);
   });
 
   it('offers a handful at most', () => {

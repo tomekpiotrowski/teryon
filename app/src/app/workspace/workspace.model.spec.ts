@@ -64,8 +64,11 @@ import {
   type Thread,
   type ThreadEntry,
   NO_WORKFLOWS as STAGE_DEFAULTS,
+  isQuiet,
+  putAwayText,
   stageLabel,
   stageOf,
+  stageText,
   workflowOf,
   defaultWorkflow,
   type Workflows,
@@ -1120,6 +1123,32 @@ describe('stages', () => {
     expect(stageLabel(relabelled, 'ready')).toBe('Ready to merge');
     expect(stageLabel(relabelled, 'review')).toBe('In review');
     expect(stageLabel(STAGE_DEFAULTS, 'ready')).toBe('Ready to apply');
+  });
+
+  it('says when a thread was put away', () => {
+    const quiet = thread('t', 'a', '2026-11-14T10:00:00');
+    expect(stageText(STAGE_DEFAULTS, quiet)).toBe('Talking');
+    expect(stageText(STAGE_DEFAULTS, { ...quiet, put_away: true })).toBe('Talking · put away');
+  });
+
+  it('counts a quiet conversation, and not one that still asks something', () => {
+    const quiet = thread('t', 'a', '2026-11-14T10:00:00');
+    expect(isQuiet(quiet)).toBe(true);
+    expect(isQuiet({ ...quiet, unread: true, held: true })).toBe(true);
+    expect(isQuiet({ ...quiet, status: 'running' })).toBe(false);
+    expect(isQuiet({ ...quiet, asking: true })).toBe(false);
+    expect(isQuiet({ ...quiet, stage: 'planning' })).toBe(false);
+    expect(isQuiet({ ...quiet, change: { name: 'fix' } as Thread['change'] })).toBe(false);
+    expect(isQuiet({ ...quiet, plan: { title: 'P', fingerprint: 'f', too_large: false } })).toBe(false);
+    expect(isQuiet({ ...quiet, put_away: true })).toBe(false);
+  });
+
+  it('names the count and the scope, without a git word', () => {
+    const one = 'Put away 1 thread in Sample? They leave the board and stay in the menu. Writing in one brings it back.';
+    const many = 'Put away 3 threads in every project? They leave the board and stay in the menu. Writing in one brings it back.';
+    expect(putAwayText(1, 'Sample')).toBe(one);
+    expect(putAwayText(3, 'every project')).toBe(many);
+    expect([one, many].flatMap(gitWordsIn)).toEqual([]);
   });
 
   it('counts a thread from before stages as talking', () => {

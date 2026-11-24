@@ -766,6 +766,8 @@ impl Workspace {
             plan: None,
             rounds: 0,
             held: false,
+            put_away: false,
+            done_seen: false,
             picks: match picked {
                 true => [(first, agent.name().to_string())].into(),
                 false => Default::default(),
@@ -995,13 +997,15 @@ impl Workspace {
         let thread = store.change(thread_id, |thread| {
             thread.status = Status::Running;
             thread.ended = None;
-            match starter {
-                Starter::Person => {
-                    thread.asking = false;
-                    thread.rounds = 0;
-                    thread.held = false;
-                }
-                Starter::Teryon { .. } => thread.rounds += 1,
+            // A message the person sends picks the thread up. One Teryon
+            // sends to carry a stage on does not: the thread stays put away.
+            if stages::brings_back(&starter) {
+                thread.asking = false;
+                thread.rounds = 0;
+                thread.held = false;
+                thread.put_away = false;
+            } else {
+                thread.rounds += 1;
             }
             if let Some((stage, agent)) = remembered {
                 thread.picks.insert(stage, agent.name().to_string());

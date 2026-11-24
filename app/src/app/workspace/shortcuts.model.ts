@@ -114,6 +114,10 @@ function hereRows(commands: readonly Command[], place: ShortcutPlace, screenKeys
         ...(commands.some((command) => command.id === 'action:boardEvery')
           ? [{ keys: ['a'], text: 'Switch between this project and every project' }]
           : []),
+        // `x` is answered by the board, not by the command, and only while quiet threads are on screen.
+        ...(commands.some((command) => command.id === 'action:putAway')
+          ? [{ keys: ['x'], text: 'Put away quiet threads' }]
+          : []),
         BACK,
       ];
     case 'history':

@@ -38,10 +38,13 @@ const CONVERSING = ['talking', 'planning'];
  * - `reply`: the agent asked questions, or ended its turn in a conversation the person has not looked at
  * - `new`: finished with results the person has not seen
  *
- * A thread at work is never listed; it has its own line. A thread whose
- * stage is done is only listed while its result is unseen.
+ * A thread at work is never listed; it has its own line. A thread the person
+ * put away is left off, and stays reachable from the menu and from search.
+ * A finished thread is listed while its result is unseen, until the board
+ * has shown that finish.
  */
 export function homeWord(thread: Thread, project: Project | null = null): HomeWord | null {
+  if (thread.put_away) return null;
   if (thread.status === 'running') return null;
   const finished = (thread.stage ?? 'talking') === 'done';
   const card = changeCard(thread, project);
@@ -54,6 +57,7 @@ export function homeWord(thread: Thread, project: Project | null = null): HomeWo
     if (thread.unread) return CONVERSING.includes(thread.stage ?? 'talking') ? 'reply' : 'new';
     return null;
   }
+  if (thread.done_seen === true) return null;
   return thread.unread ? 'new' : null;
 }
 

@@ -1,9 +1,9 @@
-import { ChangeDetectionStrategy, Component, ElementRef, EventEmitter, HostListener, Input, Output, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, EventEmitter, HostListener, Input, OnDestroy, Output, inject } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { BehaviorSubject, combineLatest, distinctUntilChanged, map, type Observable, shareReplay } from 'rxjs';
-import { type BoardColumn, type BoardCursor, boardColumns, cardAt, cursorOn, movedCursor, settledCursor } from './board.model';
+import { type BoardColumn, type BoardCursor, type SeenFinish, boardColumns, cardAt, cursorOn, movedCursor, rememberedFinishes, settledCursor } from './board.model';
 import { WorkspaceStore } from './workspace.store';
-import type { Thread } from './workspace.model';
+import { isQuiet, type Thread } from './workspace.model';
 
 interface BoardView {
   readonly columns: readonly BoardColumn[];
@@ -12,6 +12,10 @@ interface BoardView {
   readonly everyProject: boolean;
   /** What the bar says the board covers: the project's name, or "every project". */
   readonly scope: string;
+  /** Every thread, so a finish seen on another screen of this visit is still remembered. */
+  readonly threads: readonly Thread[];
+  /** How many quiet threads the board is showing, and so can put away. */
+  readonly quiet: number;
 }
 
 /**
@@ -19,7 +23,8 @@ interface BoardView {
  *
  * For looking only. Stages move as a result of work, so no key moves a
  * card; Enter opens the thread, where the work is. `h` `j` `k` `l` move
- * between cards, `a` switches between the project and every project.
+ * between cards, `a` switches between the project and every project, and
+ * `x` puts the quiet threads on screen away, after a confirmation.
  */
 @Component({
   selector: 'app-board',
@@ -27,11 +32,17 @@ interface BoardView {
   changeDetection: ChangeDetectionStrategy.OnPush,
   standalone: false,
 })
-export class BoardComponent {
+export class BoardComponent implements OnDestroy {
   private readonly host: ElementRef<HTMLElement> = inject(ElementRef);
   @Output() readonly opened = new EventEmitter<Thread>();
   @Output() readonly menuOpened = new EventEmitter<void>();
   @Output() readonly shortcutsOpened = new EventEmitter<void>();
+  /** The finishes rendered during this visit, sent when the board closes. */
+  @Output() readonly doneSeen = new EventEmitter<readonly SeenFinish[]>();
+  /** Asks to put away the quiet threads of one project, or of every project when nothing. */
+  @Output() readonly putAway = new EventEmitter<string | null>();
+  /** The board switched between one project and every project. */
+  @Output() readonly everyProjectChange = new EventEmitter<boolean>();
 
   private readonly store = inject(WorkspaceStore);
   private readonly projectId$ = new BehaviorSubject<string | null>(null);
@@ -67,11 +78,14 @@ export class BoardComponent {
     map(([threads, projects, workflows, [projectId, projectName, everyProject], [cursor, startOn]]) => {
       const every = everyProject || projectId === null;
       const columns = boardColumns(threads, projects, workflows, every ? null : projectId);
+      const scoped = threads.filter((thread) => every || thread.project_id === projectId);
       return {
         columns,
         cursor: cursor === null ? cursorOn(columns, startOn) : settledCursor(columns, cursor),
         everyProject: every,
         scope: every ? 'every project' : projectName,
+        threads,
+        quiet: scoped.filter(isQuiet).length,
       };
     }),
     shareReplay({ bufferSize: 1, refCount: true }),
@@ -79,14 +93,25 @@ export class BoardComponent {
 
   /** The board as last shown, for a key press, which has to be answered at once. */
   private current: BoardView | null = null;
+  /** Finishes rendered during this visit. Marked seen only when the board closes. */
+  private receipts: SeenFinish[] = [];
 
   constructor() {
-    this.view$.pipe(takeUntilDestroyed()).subscribe((view) => (this.current = view));
+    this.view$.pipe(takeUntilDestroyed()).subscribe((view) => {
+      this.current = view;
+      this.receipts = rememberedFinishes(this.receipts, view.threads, view.columns, new Date().toISOString());
+    });
+  }
+
+  ngOnDestroy(): void {
+    if (this.receipts.length) this.doneSeen.emit(this.receipts);
   }
 
   @HostListener('document:keydown', ['$event'])
   handleKey(event: KeyboardEvent): void {
     if (this.host.nativeElement.closest('[inert]')) return;
+    // A confirmation owns the keys. Escape has to be able to dismiss it.
+    if (document.querySelector('ion-alert')) return;
     const target = event.target instanceof HTMLElement ? event.target : null;
     if (event.ctrlKey || event.metaKey || event.altKey || !this.current) return;
     if (target && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable)) return;
@@ -108,7 +133,12 @@ export class BoardComponent {
         if (this.projectId$.value === null) return;
         event.preventDefault();
         this.cursor$.next(null);
-        return this.everyProject$.next(!view.everyProject);
+        this.everyProject$.next(!view.everyProject);
+        return this.everyProjectChange.emit(!view.everyProject);
+      case 'x':
+        if (!view.quiet) return;
+        event.preventDefault();
+        return this.putAway.emit(view.everyProject ? null : this.projectId$.value);
     }
   }
 

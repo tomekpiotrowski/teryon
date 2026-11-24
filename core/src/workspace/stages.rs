@@ -21,7 +21,7 @@ use super::{Inner, Workspace, WorkspaceError};
 use crate::agents::{Agent, EntryDraft, EntryKind, Voice};
 use crate::changes::reviewing::findings_in;
 use crate::plans::{plan_line, plan_path, read_plan, LARGEST_PLAN};
-use crate::protocol::{Event, Starting};
+use crate::protocol::{DoneSeen, Event, Starting};
 use crate::settings::Strength;
 use crate::store::threads::ThreadStore;
 use crate::store::{Entry, Status, Thread};
@@ -58,6 +58,32 @@ impl TurnStart {
             ran_out: None,
             rechosen: false,
         }
+    }
+}
+
+/// Whether `starter` is the person, who picks a put-away thread back up.
+///
+/// A message Teryon sends to carry a stage on must not. The thread was put
+/// away because it asked nothing, and Teryon talking to itself is not the
+/// person deciding to resume it.
+pub(super) fn brings_back(starter: &Starter) -> bool {
+    matches!(starter, Starter::Person)
+}
+
+/// Forgets what the board remembered when a thread moves to `to`.
+///
+/// Arriving in Done is a new receipt, so the finish has not been seen.
+/// Any move brings a put-away thread back as well: a finish has to show
+/// once, and any other stage is the thread asking something again.
+fn landed(thread: &mut Thread, to: Stage) {
+    thread.done_seen = false;
+    match to {
+        Stage::Talking
+        | Stage::Planning
+        | Stage::Implementing
+        | Stage::Review
+        | Stage::Ready
+        | Stage::Done => thread.put_away = false,
     }
 }
 
@@ -123,6 +149,7 @@ impl Inner {
         }
         let entry = store.append(thread.id, EntryKind::Stage.name(), body)?;
         let thread = store.change(thread.id, |thread| {
+            landed(thread, to);
             thread.stage = to;
             thread.stage_since = Some(Utc::now());
         })?;
@@ -375,6 +402,76 @@ impl Inner {
 }
 
 impl Workspace {
+    /// Puts away every quiet thread in `project_id`, or in every project.
+    ///
+    /// The board is for work that asks something of the person. A quiet
+    /// thread is still just a conversation, so the person can take the whole
+    /// group off the board at once. Nothing is deleted. The check is made
+    /// again under the lock, so one that started running after it was counted
+    /// stays. The answer is how many were newly marked.
+    pub fn put_away_quiet(&self, project_id: Option<Uuid>) -> Result<u32, WorkspaceError> {
+        let mut state = self.inner.state();
+        if let Some(id) = project_id {
+            state.project(id)?;
+        }
+        let ids: Vec<Uuid> = state
+            .all_threads()
+            .into_iter()
+            .filter(|thread| {
+                let in_scope = match project_id {
+                    Some(id) => thread.project_id == id,
+                    None => true,
+                };
+                in_scope && thread.quiet()
+            })
+            .map(|thread| thread.id)
+            .collect();
+        let mut marked = Vec::new();
+        for id in ids {
+            let (store, thread) = state.holding(id)?;
+            if !thread.quiet() {
+                continue;
+            }
+            marked.push(store.change(id, |thread| thread.put_away = true)?);
+        }
+        drop(state);
+        for thread in marked.iter().cloned() {
+            self.inner.announce(Event::ThreadChanged { thread });
+        }
+        Ok(marked.len() as u32)
+    }
+
+    /// Marks finishes the board showed during a visit.
+    ///
+    /// A thread is marked only when it is still Done and it entered Done at
+    /// or before the time the board showed it. The instant is `stage_since`,
+    /// or `created_at` when that was not stored. A later finish, a thread in
+    /// another stage, and an unknown thread are left alone, and one of those
+    /// does not throw away the rest.
+    pub fn acknowledge_done(&self, seen: &[DoneSeen]) -> Result<(), WorkspaceError> {
+        let mut state = self.inner.state();
+        let mut marked = Vec::new();
+        for item in seen {
+            let (store, thread) = match state.holding(item.thread_id) {
+                Ok(found) => found,
+                Err(_) => continue,
+            };
+            if thread.stage != Stage::Done || thread.done_seen {
+                continue;
+            }
+            let entered = thread.stage_since.unwrap_or(thread.created_at);
+            if entered > item.at {
+                continue;
+            }
+            marked.push(store.change(item.thread_id, |thread| thread.done_seen = true)?);
+        }
+        drop(state);
+        for thread in marked {
+            self.inner.announce(Event::ThreadChanged { thread });
+        }
+        Ok(())
+    }
+
     /// Moves a thread to the stage its agent reported, through `teryon thread stage`.
     ///
     /// Only the agent running the thread's current turn may, as for a title.
@@ -537,9 +634,15 @@ impl Workspace {
         let mut entries = vec![store.append(thread_id, notice.kind.name(), notice.body)?];
         let name = workflow.name.clone();
         let skipped = workflows.label(thread.stage);
+        let person = chooser == Chooser::Person;
         let mut thread = store.change(thread_id, |thread| {
             thread.workflow = name.clone();
             thread.picks.clear();
+            // The person choosing a workflow picks the thread up. The agent
+            // choosing one does not, unless the move below takes it to another stage.
+            if person {
+                thread.put_away = false;
+            }
         })?;
         if stage != thread.stage {
             let why = format!("the {name} workflow skips {skipped}");
@@ -832,15 +935,31 @@ pub(super) fn starting_of(held: Option<&Result<Pick, PickError>>) -> Option<Star
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+    use std::fs::{read_to_string, write};
+
+    use chrono::Duration;
     use lets_expect::lets_expect;
+    use serde_json::Value;
+    use tempfile::tempdir;
 
     use super::*;
+    use crate::protocol::Event;
+    use crate::workspace::Setup;
 
     fn pick(model: Option<&str>) -> Pick {
         Pick {
             agent: Agent::Codex,
             model: model.map(str::to_string),
             why: "only Codex".to_string(),
+        }
+    }
+
+    /// A turn Teryon started, for the cases where that must not bring a thread back.
+    fn teryon_start() -> Starter {
+        Starter::Teryon {
+            stage: Stage::Implementing,
+            pick: pick(None),
         }
     }
 
@@ -859,6 +978,133 @@ mod tests {
         expect(taking_over(&pick, "Implementing")) {
             when(pick = pick(Some("gpt-6-astra"))) as a_model to name_it { equal("Codex · gpt-6-astra takes Implementing (only Codex).".to_string()) }
             when(pick = pick(None)) as the_default_model to leave_it_out { equal("Codex takes Implementing (only Codex).".to_string()) }
+        }
+
+        expect(brings_back(&starter)) {
+            when(starter = Starter::Person) as the_person to bring_the_thread_back { be_true }
+            when(starter = teryon_start()) as teryon to leave_a_put_away_thread { be_false }
+        }
+
+        expect(flags_after(to)) {
+            when(to = Stage::Done) as moving_to_done to clear_the_old_receipt_and_bring_it_back { equal((false, false)) }
+            when(to = Stage::Talking) as moving_to_talking to clear_both { equal((false, false)) }
+            when(to = Stage::Planning) as moving_to_planning to clear_both { equal((false, false)) }
+            when(to = Stage::Implementing) as moving_to_implementing to clear_both { equal((false, false)) }
+            when(to = Stage::Review) as moving_to_review to clear_both { equal((false, false)) }
+            when(to = Stage::Ready) as moving_to_ready to clear_both { equal((false, false)) }
+        }
+
+        expect(finish_marked(before)) {
+            when(before = false) as the_time_the_thread_finished to mark_it_and_leave_the_others { equal((true, false, Stage::Talking)) }
+            when(before = true) as a_time_before_that_finish to mark_nothing { equal((false, false, Stage::Talking)) }
+        }
+    }
+
+    /// `put_away` and `done_seen` after a thread that had both is moved to `to`.
+    fn flags_after(to: Stage) -> (bool, bool) {
+        let mut thread = Thread {
+            id: Uuid::nil(),
+            project_id: Uuid::nil(),
+            title: String::new(),
+            named: false,
+            agent: String::new(),
+            model: None,
+            conversation: None,
+            handover: false,
+            status: Status::Idle,
+            unread: false,
+            asking: false,
+            commands: Vec::new(),
+            change: None,
+            finished: None,
+            reviewer: None,
+            workflow: String::new(),
+            stage: Stage::Talking,
+            stage_since: None,
+            plan: None,
+            rounds: 0,
+            held: false,
+            put_away: true,
+            done_seen: true,
+            picks: BTreeMap::new(),
+            ended: None,
+            created_at: Utc::now(),
+        };
+        landed(&mut thread, to);
+        (thread.put_away, thread.done_seen)
+    }
+
+    /// Whether a finish with no stored `stage_since` is marked, and what an unrelated thread keeps.
+    ///
+    /// `before` asks with a time one second earlier than the thread was created,
+    /// which is the finish's instant when `stage_since` was never stored. The
+    /// call also names an unknown thread, which must not throw the rest away.
+    fn finish_marked(before: bool) -> (bool, bool, Stage) {
+        let home = tempdir().unwrap();
+        let directory = tempdir().unwrap();
+        let (finished, other) = {
+            let workspace = Workspace::open(home.path(), Setup::default()).unwrap();
+            let project = workspace
+                .add_project("Sample", directory.path().to_str().unwrap())
+                .unwrap();
+            let finished = workspace
+                .start_thread(project.id, Some("claude"), None, "Finished")
+                .unwrap();
+            let other = workspace
+                .start_thread(project.id, Some("claude"), None, "Talking")
+                .unwrap();
+            drop(workspace);
+            let path = std::path::PathBuf::from(&project.directory)
+                .join(".teryon/threads")
+                .join(finished.id.to_string())
+                .join("thread.json");
+            let mut value: Value = serde_json::from_str(&read_to_string(&path).unwrap()).unwrap();
+            let object = value.as_object_mut().unwrap();
+            object.insert("stage".to_string(), serde_json::json!("done"));
+            object.insert("done_seen".to_string(), serde_json::json!(false));
+            object.remove("stage_since");
+            write(&path, serde_json::to_string(&value).unwrap()).unwrap();
+            (finished.id, other.id)
+        };
+        let workspace = Workspace::open(home.path(), Setup::default()).unwrap();
+        let created = match workspace.snapshot() {
+            Event::Snapshot { threads, .. } => {
+                threads
+                    .iter()
+                    .find(|thread| thread.id == finished)
+                    .unwrap()
+                    .created_at
+            }
+            _ => unreachable!("a snapshot"),
+        };
+        let at = if before {
+            created - Duration::seconds(1)
+        } else {
+            created
+        };
+        workspace
+            .acknowledge_done(&[
+                DoneSeen {
+                    thread_id: Uuid::new_v4(),
+                    at,
+                },
+                DoneSeen {
+                    thread_id: other,
+                    at,
+                },
+                DoneSeen {
+                    thread_id: finished,
+                    at,
+                },
+            ])
+            .unwrap();
+        match workspace.snapshot() {
+            Event::Snapshot { threads, .. } => {
+                let finished = threads.iter().find(|thread| thread.id == finished).unwrap();
+                let other = threads.iter().find(|thread| thread.id == other).unwrap();
+                (finished.done_seen, other.done_seen, other.stage)
+            }
+            _ => unreachable!("a snapshot"),
         }
     }
 }

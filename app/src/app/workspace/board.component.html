@@ -11,7 +11,7 @@
     <main class="board-body" aria-label="Threads by stage">
       @for (column of view.columns; track column.stage; let c = $index) {
         <section class="board-column" [attr.aria-label]="column.label">
-          <h2 class="files-key board-heading">{{ column.label }} <span class="files-muted">{{ column.cards.length + column.hidden }}</span></h2>
+          <h2 class="files-key board-heading">{{ column.label }} <span class="files-muted">{{ column.cards.length }}</span></h2>
           @for (card of column.cards; track card.thread.id; let r = $index) {
             <button type="button" class="board-card" [class.at]="isAt(view, c, r)" [attr.aria-current]="isAt(view, c, r) ? 'true' : null" (click)="open(card.thread)">
               <span class="board-title">{{ card.title }}</span>
@@ -27,7 +27,6 @@
               @if (card.rounds) { <span class="board-line files-muted">{{ card.rounds }}</span> }
             </button>
           }
-          @if (column.hidden) { <p class="board-line files-muted">and {{ column.hidden }} older</p> }
         </section>
       }
     </main>
@@ -35,6 +34,7 @@
     <footer class="board-hints files-muted">
       <kbd>H</kbd> <kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd> move · <kbd>↵</kbd> open
       @if (view.scope !== 'every project' || view.everyProject) { · <kbd>A</kbd> {{ view.everyProject ? 'this project' : 'every project' }} }
+      @if (view.quiet) { · <kbd>X</kbd> put away }
       · <kbd>Esc</kbd> back · <button type="button" class="code-link shortcuts-link" aria-keyshortcuts="?" (click)="shortcutsOpened.emit()"><kbd>?</kbd>all shortcuts</button>
     </footer>
   </div>

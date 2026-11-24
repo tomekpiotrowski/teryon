@@ -31,13 +31,13 @@ model: string | null, } | { "type": "change_agent", thread_id: string, to: Voice
 /**
  * Nothing leaves the model to the agent program.
  */
-model: string | null, } | { "type": "stop", thread_id: string, } | { "type": "mark_seen", thread_id: string, } | { "type": "start_change", thread_id: string, turn: string, name: string, from: string | null, } | { "type": "name_thread", thread_id: string, turn: string, title: string, } | { "type": "report_stage", thread_id: string, turn: string, stage: string, } | { "type": "choose_workflow", thread_id: string, turn: string | null, workflow: string, } | { "type": "ask_questions", thread_id: string, turn: string, asked: string, } | { "type": "draft_description", thread_id: string, } | { "type": "apply_change", thread_id: string, description: string, } | { "type": "catch_up", thread_id: string, } | { "type": "discard_change", thread_id: string, } | { "type": "send_for_review", thread_id: string, description: string, } | { "type": "open_review", thread_id: string, } | { "type": "open_copy", thread_id: string, with: Opener, } | { "type": "follow_thread", thread_id: string, } | { "type": "unfollow_thread", thread_id: string, } | { "type": "files", project_id: string, thread_id: string | null, branch: string | null, commit: string | null, } | { "type": "file", project_id: string, thread_id: string | null, branch: string | null, commit: string | null, path: string, } | { "type": "history", project_id: string, branch: string | null, } | { "type": "changes", project_id: string, commit: string, from: string | null, } | { "type": "change", project_id: string, commit: string, from: string | null, path: string, } | { "type": "usage" } | { "type": "plan", thread_id: string, } | { "type": "configuration" } | { "type": "save_configuration", configuration: Configuration, } | { "type": "shutdown" };
+model: string | null, } | { "type": "stop", thread_id: string, } | { "type": "mark_seen", thread_id: string, } | { "type": "start_change", thread_id: string, turn: string, name: string, from: string | null, } | { "type": "name_thread", thread_id: string, turn: string, title: string, } | { "type": "report_stage", thread_id: string, turn: string, stage: string, } | { "type": "choose_workflow", thread_id: string, turn: string | null, workflow: string, } | { "type": "ask_questions", thread_id: string, turn: string, asked: string, } | { "type": "draft_description", thread_id: string, } | { "type": "apply_change", thread_id: string, description: string, } | { "type": "catch_up", thread_id: string, } | { "type": "discard_change", thread_id: string, } | { "type": "send_for_review", thread_id: string, description: string, } | { "type": "open_review", thread_id: string, } | { "type": "open_copy", thread_id: string, with: Opener, } | { "type": "follow_thread", thread_id: string, } | { "type": "unfollow_thread", thread_id: string, } | { "type": "files", project_id: string, thread_id: string | null, branch: string | null, commit: string | null, } | { "type": "file", project_id: string, thread_id: string | null, branch: string | null, commit: string | null, path: string, } | { "type": "history", project_id: string, branch: string | null, } | { "type": "changes", project_id: string, commit: string, from: string | null, } | { "type": "change", project_id: string, commit: string, from: string | null, path: string, } | { "type": "usage" } | { "type": "plan", thread_id: string, } | { "type": "configuration" } | { "type": "save_configuration", configuration: Configuration, } | { "type": "put_away_quiet", project_id: string | null, } | { "type": "acknowledge_done", seen: Array<DoneSeen>, } | { "type": "shutdown" };
 
 export type ServiceMessage = { "type": "reply", id: number, outcome: Outcome, } | { "type": "event", event: Event, };
 
 export type Outcome = { "type": "done", answer: Answer, } | { "type": "failed", message: string, };
 
-export type Answer = { "type": "nothing" } | { "type": "project", project: ProjectView, } | { "type": "directories", listing: DirectoryListing, } | { "type": "thread", thread: Thread, } | { "type": "entry", entry: Entry, } | { "type": "entries", entries: Array<Entry>, } | { "type": "listing", listing: Listing, } | { "type": "file", file: FileView, } | { "type": "history", history: History, } | { "type": "changes", changes: Changes, } | { "type": "path", path: string, } | { "type": "draft", text: string, } | { "type": "caught_up", overlaps: boolean, } | { "type": "usage", report: UsageReport, } | { "type": "plan", text: string, } | { "type": "configuration", configuration: Configuration, };
+export type Answer = { "type": "nothing" } | { "type": "put_away", count: number, } | { "type": "project", project: ProjectView, } | { "type": "directories", listing: DirectoryListing, } | { "type": "thread", thread: Thread, } | { "type": "entry", entry: Entry, } | { "type": "entries", entries: Array<Entry>, } | { "type": "listing", listing: Listing, } | { "type": "file", file: FileView, } | { "type": "history", history: History, } | { "type": "changes", changes: Changes, } | { "type": "path", path: string, } | { "type": "draft", text: string, } | { "type": "caught_up", overlaps: boolean, } | { "type": "usage", report: UsageReport, } | { "type": "plan", text: string, } | { "type": "configuration", configuration: Configuration, };
 
 export type Event = { "type": "snapshot", projects: Array<ProjectView>, threads: Array<Thread>, opens: Opens, 
 /**
@@ -186,6 +186,23 @@ rounds: number,
  */
 held: boolean, 
 /**
+ * Whether the person put the thread away, off the board until they pick it up.
+ *
+ * A quiet conversation stays on the board until the person puts the
+ * group away. Nothing is deleted. Writing, choosing a workflow, or the
+ * thread moving to another stage brings that one thread back.
+ */
+put_away: boolean, 
+/**
+ * Whether the person has seen this thread on the board since it finished.
+ *
+ * Done is a receipt for the visit where it was shown. The next time the
+ * board opens, a seen finish is gone. Absent on a thread already in
+ * Done counts as seen, so old finished work does not fill the column;
+ * the store resolves that on reading and the next save writes it down.
+ */
+done_seen: boolean, 
+/**
  * What Teryon last saw of the thread's plan, see [`crate::plans`]. Nothing until one is written.
  */
 plan: PlanInfo | null, 
@@ -197,6 +214,8 @@ picks: { [key in Stage]?: string },
  * How the last run ended. Nothing before the first run ends, and while a new one runs.
  */
 ended: RunEnd | null, created_at: string, };
+
+export type DoneSeen = { thread_id: string, at: string, };
 
 export type PlanInfo = { 
 /**

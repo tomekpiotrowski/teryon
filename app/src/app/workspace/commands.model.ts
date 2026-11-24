@@ -19,6 +19,7 @@ import {
   chosen,
   firstStageChooses,
   isBareLetter,
+  isQuiet,
   type KeyPress,
   type ModelLists,
   needsPerson,
@@ -26,6 +27,7 @@ import {
   type Opens,
   type Project,
   type ProjectGroup,
+  type Screen,
   reviewersFor,
   sameChoice,
   type Thread,
@@ -37,7 +39,7 @@ import {
 } from './workspace.model';
 
 /** The sections of the menu, in the order they are listed before anything is typed. */
-export type CommandGroup = 'attention' | 'thread' | 'project' | 'change' | 'action' | 'agent';
+export type CommandGroup = 'attention' | 'thread' | 'project' | 'change' | 'action' | 'agent' | 'put_away';
 
 /** What choosing a command does, as plain data for the screen to carry out. */
 export type CommandAction =
@@ -67,7 +69,9 @@ export type CommandAction =
   | { readonly kind: 'copyLocation'; readonly path: string }
   | { readonly kind: 'openCopy'; readonly thread: Thread; readonly opener: Opener }
   | { readonly kind: 'draft'; readonly text: string }
-  | { readonly kind: 'answerQuestions' };
+  | { readonly kind: 'answerQuestions' }
+  /** Puts away the quiet threads in one project, or in every project when `projectId` is nothing. */
+  | { readonly kind: 'putAwayQuiet'; readonly projectId: string | null; readonly count: number; readonly scope: string };
 
 export interface Command {
   readonly id: string;
@@ -106,6 +110,12 @@ export interface Situation {
   readonly questionsPutAway: boolean;
   /** The workflows threads can follow. */
   readonly workflows: Workflows;
+  /**
+   * Which threads "Put away quiet threads" covers.
+   *
+   * Nothing means the command is absent. A project id of nothing covers every project.
+   */
+  readonly putAwayScope: { readonly projectId: string | null } | null;
 }
 
 /** One line of the menu: a command, under a heading when it starts a section. */
@@ -123,7 +133,24 @@ const HEADINGS: Readonly<Record<CommandGroup, string>> = {
   change: 'This thread’s changes',
   action: 'Actions',
   agent: 'Agent commands',
+  put_away: 'Put away',
 };
+
+/**
+ * Which threads putting away covers right now, or nothing when it cannot be offered.
+ *
+ * While the board is open it covers what the board shows. While the board is
+ * closed it covers the open project. With no project open and the board
+ * closed, there is nothing to put away.
+ */
+export function putAwayScope(
+  screen: Screen,
+  everyProject: boolean,
+  project: Project | null,
+): { readonly projectId: string | null } | null {
+  if (screen === 'board') return { projectId: everyProject || !project ? null : project.id };
+  return project ? { projectId: project.id } : null;
+}
 
 /**
  * The commands available right now: the threads waiting to be looked at,
@@ -137,25 +164,25 @@ export function commandList(situation: Situation): Command[] {
   const { groups, project, thread } = situation;
   const projectNames = new Map(groups.map((group) => [group.project.id, group.project.name]));
 
-  const threads = groups
-    .flatMap((group) => group.threads)
-    .sort((a, b) => b.created_at.localeCompare(a.created_at))
-    .map((candidate) =>
-      command(
-        `thread:${candidate.id}`,
-        threadLabel(candidate),
-        needsPerson(candidate) ? 'attention' : 'thread',
-        { kind: 'openThread', thread: candidate },
-        {
-          detail: projectNames.get(candidate.project_id) ?? '',
-          live: candidate.status === 'running',
-          asking: candidate.status === 'idle' && candidate.asking === true,
-          badge: changeBadge(candidate),
-        },
-      ),
-    )
+  const listed = groups.flatMap((group) => group.threads).sort((a, b) => b.created_at.localeCompare(a.created_at));
+  const threadCommand = (candidate: Thread, group: CommandGroup) =>
+    command(`thread:${candidate.id}`, threadLabel(candidate), group, { kind: 'openThread', thread: candidate }, {
+      detail: projectNames.get(candidate.project_id) ?? '',
+      live: candidate.status === 'running',
+      asking: candidate.status === 'idle' && candidate.asking === true,
+      badge: changeBadge(candidate),
+    });
+  const threads = listed
+    .filter((candidate) => !candidate.put_away)
+    .map((candidate) => threadCommand(candidate, needsPerson(candidate) ? 'attention' : 'thread'))
     // A stable sort: the waiting threads move to the top and both parts stay newest first.
     .sort((a, b) => Number(b.group === 'attention') - Number(a.group === 'attention'));
+  const putAwayThreads = listed.filter((candidate) => candidate.put_away).map((candidate) => threadCommand(candidate, 'put_away'));
+  const scope = situation.putAwayScope;
+  const quiet = listed.filter(
+    (candidate) => scope !== null && (scope.projectId === null || candidate.project_id === scope.projectId) && isQuiet(candidate),
+  );
+  const scopeName = scope === null ? '' : scope.projectId === null ? 'every project' : (projectNames.get(scope.projectId) ?? '');
 
   const projects = groups.map((group) =>
     command(`project:${group.project.id}`, group.project.name, 'project', { kind: 'openProject', project: group.project }, {
@@ -225,8 +252,13 @@ export function commandList(situation: Situation): Command[] {
   actions.push(
     command('action:toggleTheme', situation.theme === 'dark' ? 'Light theme' : 'Dark theme', 'action', { kind: 'toggleTheme' }),
   );
+  if (scope && quiet.length) {
+    actions.push(
+      command('action:putAway', 'Put away quiet threads', 'action', { kind: 'putAwayQuiet', projectId: scope.projectId, count: quiet.length, scope: scopeName }, { detail: scopeName }),
+    );
+  }
 
-  return [...threads, ...projects, ...changeCommands(situation), ...actions, ...agentCommands(situation)];
+  return [...threads, ...projects, ...changeCommands(situation), ...actions, ...agentCommands(situation), ...putAwayThreads];
 }
 
 /** A choice as part of a command's identifier, such as `claude:opus` or `codex:default`. */

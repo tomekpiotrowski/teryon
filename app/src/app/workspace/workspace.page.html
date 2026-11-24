@@ -19,6 +19,9 @@
             (opened)="openFromBoard($event)"
             (menuOpened)="openMenu()"
             (shortcutsOpened)="openShortcuts()"
+            (doneSeen)="acknowledgeDone($event)"
+            (putAway)="confirmPutAway($event)"
+            (everyProjectChange)="boardEvery$.next($event)"
           ></app-board>
         } @else if (view.project && screen === 'files') {
           <app-files

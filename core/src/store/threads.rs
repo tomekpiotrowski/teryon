@@ -28,6 +28,7 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::store::{replace_file, Entry, StoreError, Thread};
+use crate::workflow::Stage;
 
 /// How often, and how far apart, a held lock is tried.
 const LOCK_ATTEMPTS: u32 = 10;
@@ -225,9 +226,7 @@ fn read_threads(project_id: Uuid, folder: &Path) -> Result<BTreeMap<Uuid, Thread
         let path = item.path().join("thread.json");
         let thread = read_to_string(&path)
             .map_err(|problem| problem.to_string())
-            .and_then(|text| {
-                serde_json::from_str::<Thread>(&text).map_err(|problem| problem.to_string())
-            });
+            .and_then(|text| thread_from_file(&text));
         match thread {
             Ok(mut thread) => {
                 thread.project_id = project_id;
@@ -240,6 +239,23 @@ fn read_threads(project_id: Uuid, folder: &Path) -> Result<BTreeMap<Uuid, Thread
         }
     }
     Ok(threads)
+}
+
+/// Reads one thread file.
+///
+/// A thread stored before the board remembered finishes has no `done_seen`.
+/// One of those already in Done counts as seen, so the first open does not
+/// fill the column with old work. Anything else missing the field counts as
+/// not seen. `put_away` missing means the thread is still on the board. The
+/// file is left as it is; the next ordinary save writes the flags down.
+fn thread_from_file(text: &str) -> Result<Thread, String> {
+    let value: Value = serde_json::from_str(text).map_err(|problem| problem.to_string())?;
+    let mut thread: Thread =
+        serde_json::from_value(value.clone()).map_err(|problem| problem.to_string())?;
+    if value.get("done_seen").is_none() && thread.stage == Stage::Done {
+        thread.done_seen = true;
+    }
+    Ok(thread)
 }
 
 /// Reads a conversation file, and where it ends. A missing file is an empty conversation.
@@ -278,7 +294,11 @@ mod tests {
     use serde_json::json;
     use tempfile::{tempdir, TempDir};
 
+    use std::path::PathBuf;
+
     use super::*;
+    use crate::changes::Change;
+    use crate::plans::PlanInfo;
     use crate::store::Status;
     use crate::workflow::Stage;
 
@@ -305,6 +325,8 @@ mod tests {
             plan: None,
             rounds: 0,
             held: false,
+            put_away: false,
+            done_seen: false,
             picks: BTreeMap::new(),
             ended: None,
             created_at: Utc::now(),
@@ -472,6 +494,139 @@ mod tests {
         expect(interleaved(&scene)) as two_threads_written_in_turns {
             let scene = Scene::new();
             to keep_their_own_numbering { equal(((1..=10).collect::<Vec<u64>>(), (1..=10).collect::<Vec<u64>>())) }
+        }
+    }
+
+    /// Whether a thread with these properties is a quiet conversation.
+    fn is_quiet(
+        stage: Stage,
+        running: bool,
+        asking: bool,
+        with_change: bool,
+        with_plan: bool,
+        put_away: bool,
+        unread: bool,
+        held: bool,
+    ) -> bool {
+        let mut thread = thread();
+        thread.stage = stage;
+        thread.status = if running {
+            Status::Running
+        } else {
+            Status::Idle
+        };
+        thread.asking = asking;
+        thread.change = with_change.then(|| {
+            Box::new(Change {
+                name: "fix".to_string(),
+                path: PathBuf::from("/tmp/fix"),
+                base: None,
+                start: "abc".to_string(),
+                branch: None,
+                state: None,
+                review: None,
+            })
+        });
+        thread.plan = with_plan.then(|| PlanInfo {
+            title: "Plan".to_string(),
+            fingerprint: "abc".to_string(),
+            too_large: false,
+        });
+        thread.put_away = put_away;
+        thread.unread = unread;
+        thread.held = held;
+        thread.quiet()
+    }
+
+    /// Writes a stage and the two flags over the scene's thread and reads it back.
+    ///
+    /// `None` leaves a flag out of the file, as a thread stored before the
+    /// board remembered finishes. The third value is whether reading left the
+    /// file as it was written.
+    fn read_flags(
+        scene: &Scene,
+        stage: &str,
+        put_away: Option<bool>,
+        done_seen: Option<bool>,
+    ) -> (bool, bool, bool) {
+        let path = scene
+            .directory
+            .path()
+            .join(".teryon/threads")
+            .join(scene.thread.id.to_string())
+            .join("thread.json");
+        let mut value: Value = serde_json::from_str(&read_to_string(&path).unwrap()).unwrap();
+        let object = value.as_object_mut().unwrap();
+        object.insert("stage".to_string(), json!(stage));
+        match put_away {
+            Some(flag) => {
+                object.insert("put_away".to_string(), json!(flag));
+            }
+            None => {
+                object.remove("put_away");
+            }
+        }
+        match done_seen {
+            Some(flag) => {
+                object.insert("done_seen".to_string(), json!(flag));
+            }
+            None => {
+                object.remove("done_seen");
+            }
+        }
+        let text = serde_json::to_string(&value).unwrap();
+        write(&path, &text).unwrap();
+        let read = scene.reopen().thread(scene.thread.id).unwrap().clone();
+        let after = read_to_string(&path).unwrap();
+        (read.put_away, read.done_seen, after == text)
+    }
+
+    lets_expect! {
+        expect(is_quiet(stage, running, asking, with_change, with_plan, put_away, unread, held)) {
+            let stage = Stage::Talking;
+            let running = false;
+            let asking = false;
+            let with_change = false;
+            let with_plan = false;
+            let put_away = false;
+            let unread = false;
+            let held = false;
+
+            to be_a_quiet_conversation { be_true }
+            when(unread = true) as unread to still_be_quiet { be_true }
+            when(held = true) as stopped to still_be_quiet { be_true }
+            when(stage = Stage::Planning) as planning to stay_on_the_board { be_false }
+            when(stage = Stage::Implementing) as implementing to stay_on_the_board { be_false }
+            when(stage = Stage::Review) as review to stay_on_the_board { be_false }
+            when(stage = Stage::Ready) as ready to stay_on_the_board { be_false }
+            when(stage = Stage::Done) as done to stay_on_the_board { be_false }
+            when(running = true) as running to stay_on_the_board { be_false }
+            when(asking = true) as waiting_for_answers to stay_on_the_board { be_false }
+            when(with_change = true) as holding_a_change to stay_on_the_board { be_false }
+            when(with_plan = true) as holding_a_plan to stay_on_the_board { be_false }
+            when(put_away = true) as already_put_away to not_be_quiet_again { be_false }
+        }
+
+        expect(read_flags(&scene, stage, put_away, done_seen)) {
+            let scene = Scene::new();
+            let put_away: Option<bool> = None;
+            let done_seen: Option<bool> = None;
+
+            when(stage = "done") as a_finished_thread_from_before to count_as_seen_without_rewriting {
+                equal((false, true, true))
+            }
+            when(stage = "talking") as any_other_thread_from_before to count_as_still_on_the_board {
+                equal((false, false, true))
+            }
+            when(stage = "planning") as a_thread_past_talking_from_before to count_as_not_seen {
+                equal((false, false, true))
+            }
+            when(stage = "done", done_seen = Some(false)) as a_finish_stored_as_unseen to stay_unseen {
+                equal((false, false, true))
+            }
+            when(stage = "talking", put_away = Some(true), done_seen = Some(true)) as flags_already_stored to keep_them {
+                equal((true, true, true))
+            }
         }
     }
 }

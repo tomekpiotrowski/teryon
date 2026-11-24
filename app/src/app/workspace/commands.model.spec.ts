@@ -1,6 +1,7 @@
 import {
   type Command,
   commandList,
+  putAwayScope,
   keyHint,
   keyOutcome,
   matching,
@@ -52,6 +53,7 @@ function situation(overrides: Changes = {}): Situation {
     opens: { editor: false, terminal: false },
     questionsPutAway: false,
     workflows: NO_WORKFLOWS,
+    putAwayScope: null,
     ...rest,
   };
 }
@@ -1005,5 +1007,43 @@ describe('the commands for a thread\'s change', () => {
     );
     const texts = [...everything.flatMap((candidate) => [candidate.title, candidate.badge]), ...menuRows(everything, '').map((row) => row.heading ?? '')];
     expect(texts.flatMap(gitWordsIn)).toEqual([]);
+  });
+});
+
+describe('putting quiet threads away', () => {
+  const quiet = thread('q', 'a', '2026-11-06T10:00:00', { title: 'Quiet one', unread: true });
+  const away = thread('away', 'a', '2026-11-07T10:00:00', { title: 'Put one', put_away: true, unread: true });
+  const running = thread('run', 'a', '2026-11-02T10:00:00', { status: 'running' });
+  const asking = thread('ask', 'a', '2026-11-01T11:00:00', { asking: true });
+  const planned = thread('plan', 'a', '2026-11-01T09:00:00', { plan: { title: 'P', fingerprint: 'f', too_large: false } });
+  const other = thread('o', 'bb', '2026-11-08T10:00:00', { title: 'Other quiet' });
+  const groups = groupThreads([first, second], [quiet, away, running, asking, planned, other]);
+
+  it('covers the open project while the board is closed, and the board’s scope while it is open', () => {
+    expect(putAwayScope('thread', false, first)).toEqual({ projectId: 'a' });
+    expect(putAwayScope('thread', true, null)).toBeNull();
+    expect(putAwayScope('board', false, first)).toEqual({ projectId: 'a' });
+    expect(putAwayScope('board', true, first)).toEqual({ projectId: null });
+    expect(putAwayScope('files', false, null)).toBeNull();
+  });
+
+  it('offers the command only when the scope has a quiet thread, and the count matches that scope', () => {
+    expect(commandList(situation({ groups, project: first })).find((candidate) => candidate.id === 'action:putAway')).toBeUndefined();
+    const one = commandList(situation({ groups, project: first, putAwayScope: { projectId: 'a' } })).find((candidate) => candidate.id === 'action:putAway');
+    expect(one?.action).toEqual({ kind: 'putAwayQuiet', projectId: 'a', count: 1, scope: 'Payments' });
+    const every = commandList(situation({ groups, project: first, putAwayScope: { projectId: null } })).find((candidate) => candidate.id === 'action:putAway');
+    expect(every?.action).toEqual({ kind: 'putAwayQuiet', projectId: null, count: 2, scope: 'every project' });
+    const none = groupThreads([first], [away, running]);
+    expect(commandList(situation({ groups: none, project: first, putAwayScope: { projectId: 'a' } })).find((candidate) => candidate.id === 'action:putAway')).toBeUndefined();
+  });
+
+  it('lists a put-away thread under Put away, where search still finds it, and not under Waiting for you', () => {
+    const commands = commandList(situation({ groups, project: first, putAwayScope: { projectId: 'a' } }));
+    expect(commands.find((candidate) => candidate.id === 'thread:away')).toMatchObject({ group: 'put_away' });
+    expect(commands.filter((candidate) => candidate.group === 'attention').map((candidate) => candidate.id)).toEqual(['thread:q', 'thread:ask']);
+    expect(commands.at(-1)?.id).toBe('thread:away');
+    const rows = menuRows(commands, '');
+    expect(rows.find((row) => row.command.id === 'thread:away')?.heading).toBe('Put away');
+    expect(matching(commands, 'put one').map((candidate) => candidate.id)).toContain('thread:away');
   });
 });

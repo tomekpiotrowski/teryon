@@ -243,6 +243,23 @@ pub enum Request {
     SaveConfiguration {
         configuration: Box<Configuration>,
     },
+    /// Puts away every quiet thread in one project, or in every project.
+    ///
+    /// A quiet thread is still just a conversation: Talking, idle, not waiting
+    /// for answers, and holding no change or plan. Nothing for the project
+    /// means every project. The answer counts only the ones newly marked.
+    PutAwayQuiet {
+        #[serde(default)]
+        project_id: Option<Uuid>,
+    },
+    /// Marks finishes the board showed, so the next visit leaves them out.
+    ///
+    /// Each entry is a thread and the time its card was last rendered. One
+    /// that is no longer that finish, or that is unknown, is left alone, and
+    /// one of those does not throw away the rest.
+    AcknowledgeDone {
+        seen: Vec<DoneSeen>,
+    },
     /// Stops the service, after stopping every agent. Only from this machine.
     Shutdown,
 }
@@ -280,6 +297,10 @@ pub enum Outcome {
 pub enum Answer {
     /// Nothing to give back beyond having done it.
     Nothing,
+    /// How many threads were newly put away.
+    PutAway {
+        count: u32,
+    },
     Project {
         project: ProjectView,
     },
@@ -334,6 +355,17 @@ pub enum Answer {
     Configuration {
         configuration: Box<Configuration>,
     },
+}
+
+/// A finish the board showed, and when its card was last rendered.
+///
+/// The service marks the thread seen only when it is still Done and it
+/// entered Done at or before `at`. A later finish of the same thread waits
+/// for the next visit, so a time from the previous one does not hide it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+pub struct DoneSeen {
+    pub thread_id: Uuid,
+    pub at: DateTime<Utc>,
 }
 
 /// What a thread's copy can be opened in.
@@ -480,6 +512,7 @@ pub fn typescript() -> String {
         ProjectState::decl(&config),
         DirectoryListing::decl(&config),
         Thread::decl(&config),
+        DoneSeen::decl(&config),
         PlanInfo::decl(&config),
         Status::decl(&config),
         RunEnd::decl(&config),

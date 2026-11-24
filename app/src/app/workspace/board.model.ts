@@ -24,9 +24,6 @@ import {
   type Workflows,
 } from './workspace.model';
 
-/** How many finished threads the Done column shows, newest first. */
-export const DONE_SHOWN = 10;
-
 /** One thread on the board. */
 export interface BoardCard {
   readonly thread: Thread;
@@ -52,8 +49,12 @@ export interface BoardColumn {
   readonly stage: Stage;
   readonly label: string;
   readonly cards: readonly BoardCard[];
-  /** How many threads the column holds but doesn't show: older finished ones. */
-  readonly hidden: number;
+}
+
+/** A finish the board rendered during this visit, and when its card was last shown. */
+export interface SeenFinish {
+  readonly id: string;
+  readonly at: string;
 }
 
 /** The card the keys have reached: a column, and a row within it. */
@@ -67,10 +68,11 @@ export const BOARD_START: BoardCursor = { column: 0, row: 0 };
 /**
  * The columns of the board for one project, or for every project when `projectId` is null.
  *
- * Only the stages the visible threads' workflows use are columns, in the
- * fixed order, so a board of small changes has no review column. Within a
- * column the thread that moved there last comes first, so Done keeps what
- * was finished most recently, whenever it was started.
+ * Only the stages the threads' workflows use are columns, in the fixed
+ * order, including threads that are off the board, so putting everything
+ * away does not collapse the columns. A put-away thread has no card, and
+ * neither does a finish already shown. Done is left out when it has no
+ * cards. Within a column the thread that moved there last comes first.
  */
 export function boardColumns(
   threads: readonly Thread[],
@@ -78,20 +80,58 @@ export function boardColumns(
   workflows: Workflows,
   projectId: string | null,
 ): BoardColumn[] {
-  const visible = threads.filter((thread) => projectId === null || thread.project_id === projectId);
+  const inScope = threads.filter((thread) => projectId === null || thread.project_id === projectId);
   const used = new Set<Stage>(
-    visible.length ? visible.flatMap((thread) => workflowOf(workflows, thread).stages) : defaultWorkflow(workflows).stages,
+    inScope.length ? inScope.flatMap((thread) => workflowOf(workflows, thread).stages) : defaultWorkflow(workflows).stages,
   );
-  for (const thread of visible) used.add(stageOf(thread));
+  for (const thread of inScope) used.add(stageOf(thread));
   const names = new Map(projects.map((project) => [project.id, project.name]));
-  return STAGES.filter((stage) => used.has(stage)).map((stage) => {
-    const cards = visible
-      .filter((thread) => stageOf(thread) === stage)
-      .sort((a, b) => sinceOf(b).localeCompare(sinceOf(a)))
-      .map((thread) => boardCard(thread, projectId === null ? (names.get(thread.project_id) ?? '') : ''));
-    const shown = stage === 'done' ? cards.slice(0, DONE_SHOWN) : cards;
-    return { stage, label: stageLabel(workflows, stage), cards: shown, hidden: cards.length - shown.length };
-  });
+  return STAGES.filter((stage) => used.has(stage))
+    .map((stage) => {
+      const cards = inScope
+        .filter((thread) => onBoard(thread) && stageOf(thread) === stage)
+        .sort((a, b) => sinceOf(b).localeCompare(sinceOf(a)))
+        .map((thread) => boardCard(thread, projectId === null ? (names.get(thread.project_id) ?? '') : ''));
+      return { stage, label: stageLabel(workflows, stage), cards };
+    })
+    .filter((column) => column.stage !== 'done' || column.cards.length > 0);
+}
+
+/** Whether a thread still has a card. A put-away thread, and a finish already shown, do not. */
+function onBoard(thread: Thread): boolean {
+  return !thread.put_away && !(stageOf(thread) === 'done' && thread.done_seen === true);
+}
+
+/**
+ * The finishes to remember after this view of the board.
+ *
+ * A card in the Done column is stored with `now`. One that left Done is
+ * forgotten. One still Done but off this screen keeps the earlier time,
+ * unless it finished again after that time, in which case it waits until
+ * its card is rendered again. Instants are compared as times, because the
+ * service and the browser do not write the same text for one moment.
+ */
+export function rememberedFinishes(
+  remembered: readonly SeenFinish[],
+  threads: readonly Thread[],
+  columns: readonly BoardColumn[],
+  now: string,
+): SeenFinish[] {
+  const shown = new Set(
+    columns.filter((column) => column.stage === 'done').flatMap((column) => column.cards.map((card) => card.thread.id)),
+  );
+  const byId = new Map(threads.map((thread) => [thread.id, thread]));
+  const next = new Map<string, string>();
+  for (const finish of remembered) {
+    const thread = byId.get(finish.id);
+    if (!thread || stageOf(thread) !== 'done' || shown.has(finish.id)) continue;
+    const entered = Date.parse(thread.stage_since ?? thread.created_at);
+    const seen = Date.parse(finish.at);
+    if (Number.isNaN(entered) || Number.isNaN(seen) || entered > seen) continue;
+    next.set(finish.id, finish.at);
+  }
+  for (const id of shown) next.set(id, now);
+  return [...next].map(([id, at]) => ({ id, at }));
 }
 
 /** When a thread moved to its stage; its creation for threads from before Teryon recorded it. */

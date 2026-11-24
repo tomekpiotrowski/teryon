@@ -60,6 +60,10 @@ export interface Thread {
   readonly rounds?: number;
   /** Whether the person stopped the thread, so Teryon starts nothing by itself until they write again. */
   readonly held?: boolean;
+  /** Whether the person put the thread away, off the board and off Home until they pick it up. */
+  readonly put_away?: boolean;
+  /** Whether this finish has been shown on the board. A seen finish stays off the board and off Home. */
+  readonly done_seen?: boolean;
   readonly created_at: string;
 }
 
@@ -91,6 +95,46 @@ export const NO_WORKFLOWS: Workflows = {
 /** What a person reads for a stage, as `config.toml` may have relabelled it. */
 export function stageLabel(workflows: Workflows, stage: Stage): string {
   return workflows.labels.find((label) => label.stage === stage)?.label ?? USUAL_STAGE_LABELS[stage];
+}
+
+/**
+ * What the thread's stage button reads.
+ *
+ * A put-away thread is still in its stage. The button says so, and still
+ * opens the board, where the thread is absent until the person writes in it.
+ */
+export function stageText(workflows: Workflows, thread: Thread): string {
+  const label = stageLabel(workflows, stageOf(thread));
+  return thread.put_away ? `${label} · put away` : label;
+}
+
+/**
+ * Whether a thread is a quiet conversation that can leave the board.
+ *
+ * Quiet means it is still just being talked through: idle, not waiting for
+ * answers, and holding no change or plan. One already put away is not quiet
+ * again. Unread, and one the person stopped, still are.
+ */
+export function isQuiet(thread: Thread): boolean {
+  return (
+    stageOf(thread) === 'talking' &&
+    thread.status === 'idle' &&
+    thread.asking !== true &&
+    !thread.change &&
+    !thread.plan &&
+    thread.put_away !== true
+  );
+}
+
+/**
+ * The confirmation for putting quiet threads away.
+ *
+ * It names how many, and where, and says they stay in the menu. Putting
+ * away is reversible by writing, so it is not phrased as destruction.
+ */
+export function putAwayText(count: number, scope: string): string {
+  const threads = count === 1 ? '1 thread' : `${count} threads`;
+  return `Put away ${threads} in ${scope}? They leave the board and stay in the menu. Writing in one brings it back.`;
 }
 
 /** The stage a thread is in, counting threads from before stages as talking. */
@@ -726,7 +770,7 @@ export function seenNow(thread: Thread | null, screen: Screen, visible: boolean)
  * Questions keep a thread waiting after it was looked at, since only an answer settles them.
  */
 export function needsPerson(thread: Thread): boolean {
-  return thread.status === 'idle' && (thread.unread || thread.asking === true);
+  return !thread.put_away && thread.status === 'idle' && (thread.unread || thread.asking === true);
 }
 
 export function threadLabel(thread: Thread): string {

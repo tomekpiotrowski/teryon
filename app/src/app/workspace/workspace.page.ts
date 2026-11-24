@@ -28,7 +28,8 @@ import {
 import { ThemeService } from '../theme.service';
 import { type NewProject } from './command-menu.component';
 import type { Opener } from '../service/protocol';
-import { type Command, type CommandGroup, commandList, keyHint, keyOutcome, menuAsked, SHORTCUTS_KEY } from './commands.model';
+import { type SeenFinish } from './board.model';
+import { type Command, type CommandGroup, commandList, keyHint, keyOutcome, menuAsked, putAwayScope, SHORTCUTS_KEY } from './commands.model';
 import { askDraft } from './files.model';
 import { homeList } from './home.model';
 import type { ContinueRequest, StartRequest } from './home.component';
@@ -79,8 +80,9 @@ import {
   pickingAgent,
   readNewThreads,
   startingChoice,
-  stageLabel,
-  stageOf,
+  isQuiet,
+  putAwayText,
+  stageText,
   type Thread,
   threadLabel,
   type Voice,
@@ -112,7 +114,7 @@ function rememberNewThreads(newThreads: NewThreads): void {
 
 /** Everything the template needs about the workspace at one moment. */
 /** The keys the board answers itself. */
-const BOARD_KEYS = ['h', 'j', 'k', 'l', 'a', 'Enter'];
+const BOARD_KEYS = ['h', 'j', 'k', 'l', 'a', 'x', 'Enter'];
 
 interface WorkspaceView {
   readonly groups: readonly ProjectGroup[];
@@ -251,7 +253,7 @@ export class WorkspacePage implements OnDestroy {
           projectThreads,
           place: project ? placeIn(place, project.id) : NO_PLACE,
           change: thread ? changeCard(thread, project) : null,
-          stage: thread ? stageLabel(workflows, stageOf(thread)) : '',
+          stage: thread ? stageText(workflows, thread) : '',
         })),
       );
     }),
@@ -300,9 +302,21 @@ export class WorkspacePage implements OnDestroy {
     this.target$,
     this.store.workflows$,
     combineLatest([this.pending$, this.putAway$]).pipe(map(([pending, putAway]) => pending !== null && pending.id === putAway)),
+    this.screen$,
+    this.boardEvery$,
   ]).pipe(
-    map(([view, newThreads, theme, opens, models, to, workflows, questionsPutAway]) =>
-      commandList({ ...view, newThreads, theme, opens, models, to, workflows, questionsPutAway }),
+    map(([view, newThreads, theme, opens, models, to, workflows, questionsPutAway, screen, everyProject]) =>
+      commandList({
+        ...view,
+        newThreads,
+        theme,
+        opens,
+        models,
+        to,
+        workflows,
+        questionsPutAway,
+        putAwayScope: putAwayScope(screen, everyProject, view.project),
+      }),
     ),
     shareReplay({ bufferSize: 1, refCount: true }),
   );
@@ -429,6 +443,14 @@ export class WorkspacePage implements OnDestroy {
     this.store.restartService();
   }
 
+  /** The threads and projects as last reported, so a confirmation counts what is quiet now. */
+  private threadsNow: readonly Thread[] = [];
+  private projectsNow: readonly Project[] = [];
+  private readonly listed: Subscription = combineLatest([this.store.threads$, this.store.projects$]).subscribe(([threads, projects]) => {
+    this.threadsNow = threads;
+    this.projectsNow = projects;
+  });
+
   constructor() {
     this.store.start();
   }
@@ -439,6 +461,7 @@ export class WorkspacePage implements OnDestroy {
     this.offering.unsubscribe();
     this.typing.unsubscribe();
     this.seeing.unsubscribe();
+    this.listed.unsubscribe();
   }
 
   /**
@@ -608,6 +631,8 @@ export class WorkspacePage implements OnDestroy {
       case 'answerQuestions':
         this.screen$.next('thread');
         return this.putAway$.next(null);
+      case 'putAwayQuiet':
+        return this.confirmPutAway(action.projectId);
       case 'newProject':
         // The menu asks for the name and the directory itself, then calls `addProject`.
         return;
@@ -938,6 +963,46 @@ export class WorkspacePage implements OnDestroy {
       },
       error: (failure: unknown) => this.alerts.error(refusalText(failure, 'The change could not catch up.')),
     });
+  }
+
+  /**
+   * Asks before putting away the quiet threads in `projectId`, or in every project.
+   *
+   * The count is taken when the question is asked, not when the command was
+   * listed. A thread that stopped being quiet is left by the service, so the
+   * number that leave can be smaller than the one confirmed.
+   */
+  confirmPutAway(projectId: string | null): void {
+    const quiet = this.threadsNow.filter((thread) => (projectId === null || thread.project_id === projectId) && isQuiet(thread));
+    if (!quiet.length) return;
+    const scope = projectId === null ? 'every project' : (this.projectsNow.find((project) => project.id === projectId)?.name ?? '');
+    void this.askPutAway(projectId, quiet.length, scope);
+  }
+
+  private async askPutAway(projectId: string | null, count: number, scope: string): Promise<void> {
+    const alert = await this.alertController.create({
+      header: 'Put away quiet threads',
+      message: putAwayText(count, scope),
+      buttons: [
+        { text: 'Cancel', role: 'cancel' },
+        { text: 'Put away', handler: () => this.putAwayQuiet(projectId) },
+      ],
+    });
+    await alert.present();
+  }
+
+  private putAwayQuiet(projectId: string | null): void {
+    this.api.putAwayQuiet(projectId).subscribe({
+      error: (failure: unknown) => this.alerts.error(refusalText(failure, 'The threads could not be put away.')),
+    });
+  }
+
+  /** Marks the finishes this visit showed, so the next opening of the board leaves them out. */
+  acknowledgeDone(seen: readonly SeenFinish[]): void {
+    this.api
+      .acknowledgeDone(seen.map((finish) => ({ thread_id: finish.id, at: finish.at })))
+      .pipe(catchError(() => EMPTY))
+      .subscribe();
   }
 
   async confirmDiscard(thread: Thread): Promise<void> {

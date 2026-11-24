@@ -113,6 +113,21 @@ export class WorkspaceApi {
     return this.ask({ type: 'open_review', thread_id: threadId }, () => undefined as void);
   }
 
+  /**
+   * Puts away every quiet thread in one project, or in every project.
+   *
+   * The answer is how many were newly marked. One that stopped being quiet
+   * is left on the board.
+   */
+  putAwayQuiet(projectId: string | null): Observable<number> {
+    return this.ask({ type: 'put_away_quiet', project_id: projectId }, (answer) => (answer.type === 'put_away' ? answer.count : undefined));
+  }
+
+  /** Marks finishes the board showed, so the next visit leaves them out. */
+  acknowledgeDone(seen: readonly { readonly thread_id: string; readonly at: string }[]): Observable<void> {
+    return this.ask({ type: 'acknowledge_done', seen: [...seen] }, () => undefined as void);
+  }
+
   /** Throws a thread's change away, stopping its agent first. */
   discardChange(threadId: string): Observable<void> {
     return this.ask({ type: 'discard_change', thread_id: threadId }, () => undefined as void);

@@ -5,7 +5,9 @@
 // The fake agent runs the real `teryon thread stage` when its message says
 // "report stage <stage>". Nothing here reaches a model provider.
 
-import { addProject, expect, openWorkspace, test } from "./support";
+import type { Page } from "@playwright/test";
+
+import { addProject, choose, commit, expect, git, menu, openWorkspace, put, test } from "./support";
 
 test.beforeEach(openWorkspace);
 
@@ -59,6 +61,109 @@ test("the board shows each thread in the column of its stage, and follows it", a
 
   await page.keyboard.press("Escape");
   await expect(board).toHaveCount(0);
+});
+
+/** The menu section a command is listed under. The menu is closed again afterwards. */
+async function sectionOf(page: Page, title: string): Promise<string> {
+  await page.keyboard.press("Control+k");
+  const list = page.locator("#menu-list");
+  await list.waitFor();
+  const section = await list.evaluate((node, wanted) => {
+    let heading = "";
+    for (const child of node.children) {
+      if (child.classList.contains("menu-heading")) heading = child.textContent ?? "";
+      if (child.getAttribute("role") === "option" && (child.textContent ?? "").includes(wanted)) return heading;
+    }
+    return "";
+  }, title);
+  await page.keyboard.press("Escape");
+  await expect(menu(page)).toHaveCount(0);
+  return section;
+}
+
+test("a finish stays for the visit where it is seen, then leaves the board", async ({ page }) => {
+  await addProject(page, "Sample", (folder) => {
+    git(folder, "init", "-q", "-b", "main");
+    put(folder, "README.md", "# Sample\n");
+    commit(folder);
+  });
+  await page.getByLabel("New thread").fill("start a change fix-login");
+  await page.getByRole("button", { name: "Run ↵" }).click();
+  await expect(page.getByRole("region", { name: "This thread’s changes" })).toContainText("1 file changed");
+  await expect(page.getByText(/^Done in/)).toBeVisible();
+
+  await choose(page, "Discard changes");
+  await page.locator("ion-alert").getByRole("button", { name: "Discard" }).click();
+  await expect(page.locator("ion-alert")).toHaveCount(0);
+  await expect(page.locator(".thread-stage")).toContainText("Done");
+
+  await page.getByLabel("Reply").press("Escape");
+  await page.keyboard.press("b");
+  const board = page.locator("app-board");
+  await expect(board.getByRole("region", { name: "Done" }).getByRole("button", { name: /start a change fix-login/ })).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(board).toHaveCount(0);
+  await page.keyboard.press("b");
+  await expect(board.getByRole("region", { name: "Done" })).toHaveCount(0);
+
+  await page.keyboard.press("Escape");
+  await expect.poll(() => sectionOf(page, "start a change fix-login")).toBe("Threads");
+  await expect(menu(page)).toHaveCount(0);
+});
+
+test("quiet threads leave together, and writing brings one back", async ({ page }) => {
+  await addProject(page, "Sample", (folder) => {
+    git(folder, "init", "-q", "-b", "main");
+    put(folder, "README.md", "# Sample\n");
+    commit(folder);
+  });
+
+  await page.getByLabel("New thread").fill("hello there");
+  await page.getByRole("button", { name: "Run ↵" }).click();
+  await expect(page.getByText(/^Done in/)).toBeVisible();
+
+  await page.getByLabel("Reply").press("Escape");
+  await page.keyboard.press("n");
+  await page.getByLabel("New thread").fill("start a change fix-login");
+  await page.getByRole("button", { name: "Run ↵" }).click();
+  await expect(page.getByRole("region", { name: "This thread’s changes" })).toContainText("1 file changed");
+  await expect(page.getByText(/^Done in/)).toBeVisible();
+
+  await page.getByLabel("Reply").press("Escape");
+  await page.keyboard.press("b");
+  const board = page.locator("app-board");
+  const talking = board.getByRole("region", { name: "Talking" });
+  await expect(talking.getByRole("button", { name: /hello there/ })).toBeVisible();
+  await expect(talking.getByRole("button", { name: /start a change fix-login/ })).toBeVisible();
+
+  await page.keyboard.press("x");
+  const alert = page.locator("ion-alert");
+  await expect(alert).toContainText("Put away 1 thread in Sample?");
+  await alert.getByRole("button", { name: "Cancel" }).click();
+  await expect(alert).toHaveCount(0);
+  await expect(talking.getByRole("button", { name: /hello there/ })).toBeVisible();
+  await expect(talking.getByRole("button", { name: /start a change fix-login/ })).toBeVisible();
+
+  await page.keyboard.press("x");
+  await expect(alert).toContainText("They leave the board and stay in the menu.");
+  await alert.getByRole("button", { name: "Put away" }).click();
+  await expect(alert).toHaveCount(0);
+  await expect(talking.getByRole("button", { name: /hello there/ })).toHaveCount(0);
+  await expect(talking.getByRole("button", { name: /start a change fix-login/ })).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect.poll(() => sectionOf(page, "hello there")).toBe("Put away");
+  await choose(page, "hello there");
+  await expect(page.locator(".thread-stage")).toContainText("Talking · put away");
+
+  await page.getByLabel("Reply").fill("back again");
+  await page.getByRole("button", { name: "send ↵" }).click();
+  await expect(page.locator(".thread-stage")).not.toContainText("put away");
+
+  await page.getByLabel("Reply").press("Escape");
+  await page.keyboard.press("b");
+  await expect(board.getByRole("region", { name: "Talking" }).getByRole("button", { name: /hello there/ })).toBeVisible();
 });
 
 test("the agent's plan shows as a line, opens on P or the plan button, and follows changes", async ({ page }) => {

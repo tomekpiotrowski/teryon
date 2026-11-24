@@ -134,6 +134,14 @@ impl Session {
                 .mark_seen(thread_id)
                 .map(|()| Answer::Nothing)
                 .map_err(|problem| problem.to_string()),
+            Request::PutAwayQuiet { project_id } => workspace
+                .put_away_quiet(project_id)
+                .map(|count| Answer::PutAway { count })
+                .map_err(|problem| problem.to_string()),
+            Request::AcknowledgeDone { seen } => workspace
+                .acknowledge_done(&seen)
+                .map(|()| Answer::Nothing)
+                .map_err(|problem| problem.to_string()),
             Request::StartChange {
                 thread_id,
                 turn,
